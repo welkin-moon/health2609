@@ -35,4 +35,4 @@ prompts/         AGY 结构化处理提示词
 5. AI 只负责家庭餐的结构化识别与解释，营养汇总和运动分钟计算由确定性代码完成。
 6. Demo 数据只保留够演示的程度，不为“演示模式”堆额外复杂度。
 
-详细计划见 [PLAN.md](PLAN.md)，架构见 [docs/architecture.md](docs/architecture.md)。比赛提交入口见 [docs/submission.md](docs/submission.md)，APK 构建与签名见 [docs/release.md](docs/release.md)。
+详细计划见 [PLAN.md](PLAN.md)，架构见 [docs/architecture.md](docs/architecture.md)。比赛提交入口见 [docs/submission.md](docs/submission.md)，APK 构建见 [docs/release.md](docs/release.md)，AGY 常驻 CLI 接口见 [docs/agy-runner.md](docs/agy-runner.md)。
