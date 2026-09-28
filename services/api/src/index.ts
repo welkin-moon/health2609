@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { zValidator } from "@hono/zod-validator";
 import {
+  adminUpsertMenuSchema,
   outsideActivitySchema,
   recordMealSchema,
   todayMenuSchema
@@ -20,8 +22,14 @@ type Variables = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+app.use("/v1/*", cors({
+  origin: "*",
+  allowHeaders: ["Content-Type", "Authorization", "x-demo-school", "x-demo-participant", "x-demo-role"],
+  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+}));
+
 app.use("/v1/*", async (c, next) => {
-  // Demo auth shell. Replace with signed sessions before exposing publicly.
+  // Deliberately small demo auth shell. Production auth replaces these headers.
   const schoolId = c.req.header("x-demo-school") ?? "demo-school";
   const participantId = c.req.header("x-demo-participant") ?? "demo-student";
   const role = c.req.header("x-demo-role") === "admin" ? "admin" : "student";
@@ -30,6 +38,8 @@ app.use("/v1/*", async (c, next) => {
   c.set("role", role);
   await next();
 });
+
+const requireAdmin = (role: string) => role === "admin";
 
 app.get("/health", (c) => c.json({ ok: true }));
 
@@ -116,14 +126,90 @@ app.post("/v1/activity/outside-school", zValidator("json", outsideActivitySchema
   return c.json({ ok: true });
 });
 
+app.get("/v1/admin/menus", async (c) => {
+  if (!requireAdmin(c.get("role"))) return c.json({ error: "forbidden" }, 403);
+  const date = c.req.query("date");
+  if (!date) return c.json({ error: "date_required" }, 400);
+
+  const rows = await c.env.DB.prepare(
+    `SELECT m.id AS menu_id, m.meal_slot, d.id, d.name, d.standard_serving_grams,
+            d.nutrition_per_serving_json, d.sort_order
+       FROM menus m
+       LEFT JOIN dishes d ON d.menu_id = m.id
+      WHERE m.school_id = ? AND m.date = ?
+      ORDER BY m.meal_slot, d.sort_order, d.name`
+  ).bind(c.get("schoolId"), date).all();
+
+  const menus = new Map<string, { id: string; mealSlot: string; dishes: unknown[] }>();
+  for (const row of rows.results) {
+    const menuId = String(row.menu_id);
+    const menu = menus.get(menuId) ?? { id: menuId, mealSlot: String(row.meal_slot), dishes: [] };
+    if (row.id) {
+      menu.dishes.push({
+        id: String(row.id),
+        name: String(row.name),
+        standardServingGrams: row.standard_serving_grams == null ? null : Number(row.standard_serving_grams),
+        nutritionPerServing: row.nutrition_per_serving_json
+          ? JSON.parse(String(row.nutrition_per_serving_json))
+          : null
+      });
+    }
+    menus.set(menuId, menu);
+  }
+
+  return c.json({ date, menus: [...menus.values()] });
+});
+
+app.put("/v1/admin/menus", zValidator("json", adminUpsertMenuSchema), async (c) => {
+  if (!requireAdmin(c.get("role"))) return c.json({ error: "forbidden" }, 403);
+  const body = c.req.valid("json");
+  const schoolId = c.get("schoolId");
+
+  let menu = await c.env.DB.prepare(
+    "SELECT id FROM menus WHERE school_id = ? AND date = ? AND meal_slot = ? LIMIT 1"
+  ).bind(schoolId, body.date, body.mealSlot).first<{ id: string }>();
+
+  if (!menu) {
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(
+      "INSERT INTO menus (id, school_id, date, meal_slot) VALUES (?, ?, ?, ?)"
+    ).bind(id, schoolId, body.date, body.mealSlot).run();
+    menu = { id };
+  }
+
+  const statements = [
+    c.env.DB.prepare("DELETE FROM dishes WHERE menu_id = ?").bind(menu.id),
+    ...body.dishes.map((dish, index) =>
+      c.env.DB.prepare(
+        `INSERT INTO dishes
+           (id, menu_id, name, standard_serving_grams, nutrition_per_serving_json, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).bind(
+        crypto.randomUUID(),
+        menu!.id,
+        dish.name,
+        dish.standardServingGrams,
+        dish.nutritionPerServing ? JSON.stringify(dish.nutritionPerServing) : null,
+        index
+      )
+    )
+  ];
+
+  await c.env.DB.batch(statements);
+  return c.json({ ok: true, menuId: menu.id });
+});
+
 app.get("/v1/admin/stats/overview", async (c) => {
-  if (c.get("role") !== "admin") return c.json({ error: "forbidden" }, 403);
+  if (!requireAdmin(c.get("role"))) return c.json({ error: "forbidden" }, 403);
   const date = c.req.query("date");
   if (!date) return c.json({ error: "date_required" }, 400);
 
   const schoolId = c.get("schoolId");
 
-  const [meal, pe, activity] = await Promise.all([
+  const [membershipCount, meal, pe, activity] = await Promise.all([
+    c.env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM student_memberships WHERE school_id = ?"
+    ).bind(schoolId).first<{ count: number }>(),
     c.env.DB.prepare(
       `SELECT COUNT(DISTINCT sm.id) AS participants,
               AVG(mc.serving_multiplier) AS avg_serving_multiplier
@@ -148,7 +234,18 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).bind(schoolId, date).first()
   ]);
 
-  return c.json({ date, meal, pe, activity });
+  const total = Number(membershipCount?.count ?? 0);
+  const participants = Number((meal as { participants?: number } | null)?.participants ?? 0);
+
+  return c.json({
+    date,
+    meal: {
+      ...(meal ?? {}),
+      participationRate: total === 0 ? 0 : participants / total
+    },
+    pe,
+    activity
+  });
 });
 
 export default app;
