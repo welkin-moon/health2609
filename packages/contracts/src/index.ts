@@ -80,16 +80,22 @@ export const energyReferenceSchema = z.object({
 
 export const adminSchoolDayWindowSchema = z.object({
   weekday: z.number().int().min(1).max(7),
-  startTime: z.string().regex(/^([01]\\d|2[0-3]):[0-5]\\d$/),
-  endTime: z.string().regex(/^([01]\\d|2[0-3]):[0-5]\\d$/)
-});
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+}).refine(
+  (window) => window.startTime < window.endTime,
+  "school day endTime must be after startTime"
+);
 
 export const adminPeTimetableSchema = z.object({
   classGroupId: z.string().min(1),
   weekday: z.number().int().min(1).max(7),
   startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-});
+}).refine(
+  (lesson) => lesson.startTime < lesson.endTime,
+  "PE endTime must be after startTime"
+);
 
 export const adminPeSessionSchema = z.object({
   timetableId: z.string().min(1),
