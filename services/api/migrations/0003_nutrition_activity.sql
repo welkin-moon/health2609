@@ -15,7 +15,7 @@ CREATE TABLE manual_activity_sessions (
 
 CREATE TABLE student_preferences (
   student_membership_id TEXT PRIMARY KEY REFERENCES student_memberships(id) ON DELETE CASCADE,
-  baseline_energy_reference_kcal INTEGER,
+  daily_energy_reference_kcal INTEGER,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
