@@ -8,4 +8,4 @@ database_name = "health2609"
 database_id = "5c1dae51-08d0-4004-8536-7408dda5976b"
 
 [vars]
-AGY_TASK_URL = "https://REPLACE_ME/health2609/agy"
+AGY_TASK_URL = "https://h2609-agy.lunarlab.uk/health2609/agy"
