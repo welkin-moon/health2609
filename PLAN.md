@@ -135,8 +135,8 @@ docs/
 
 - administrator menu CRUD
 - student today's menu
-- portion selection
-- deterministic nutrition aggregation
+- quick serving fractions plus exact consumed grams
+- deterministic nutrition aggregation and macro composition
 - sync/offline queue
 
 ### M3 — PE and outside-school activity
@@ -144,12 +144,12 @@ docs/
 - timetable + PE actual activity minutes
 - Health Connect permissions
 - local exclusion of school-time data
-- daily activity target calculation
+- manual duration/intensity correction plus daily activity target calculation
 
 ### M4 — home meal + AGY
 
 - photo selection/capture
-- upload/temporary object path
+- direct image forwarding through the configured Cloudflare Tunnel
 - AGY structured task prompt
 - editable detection result
 - deterministic commit into daily nutrition
