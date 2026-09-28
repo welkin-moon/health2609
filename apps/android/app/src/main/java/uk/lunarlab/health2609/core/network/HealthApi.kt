@@ -18,9 +18,19 @@ interface HealthApi {
         @Query("date") date: String
     ): DailySummaryDto
 
+    @GET("v1/school/day-windows")
+    suspend fun schoolDayWindows(
+        @Query("date") date: String
+    ): SchoolDayWindowsDto
+
     @POST("v1/meals/consumption")
     suspend fun saveMeal(
         @Body request: MealConsumptionRequest
+    ): ApiWriteResult
+
+    @POST("v1/activity/outside-school")
+    suspend fun saveOutsideSchoolActivity(
+        @Body request: OutsideSchoolActivityRequest
     ): ApiWriteResult
 
     @POST("v1/activity/manual")
