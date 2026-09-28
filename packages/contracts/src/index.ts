@@ -1,13 +1,18 @@
 import { z } from "zod";
 
 export const mealSlotSchema = z.enum(["breakfast", "lunch", "dinner"]);
+export const activityIntensitySchema = z.enum(["light", "moderate", "vigorous"]);
 export const portionSchema = z.number().min(0).max(5);
 
 export const nutritionSchema = z.object({
   energyKcal: z.number().nonnegative().optional(),
   proteinG: z.number().nonnegative().optional(),
   fatG: z.number().nonnegative().optional(),
-  carbohydrateG: z.number().nonnegative().optional()
+  carbohydrateG: z.number().nonnegative().optional(),
+  fiberG: z.number().nonnegative().optional(),
+  sodiumMg: z.number().nonnegative().optional(),
+  sugarG: z.number().nonnegative().optional(),
+  saturatedFatG: z.number().nonnegative().optional()
 });
 
 export const dishSchema = z.object({
@@ -23,13 +28,19 @@ export const todayMenuSchema = z.object({
   dishes: z.array(dishSchema)
 });
 
+export const mealItemSchema = z.object({
+  dishId: z.string(),
+  servingMultiplier: portionSchema.optional(),
+  consumedGrams: z.number().min(0).max(5000).optional()
+}).refine(
+  (item) => item.servingMultiplier !== undefined || item.consumedGrams !== undefined,
+  "servingMultiplier or consumedGrams is required"
+);
+
 export const recordMealSchema = z.object({
   date: z.string(),
   mealSlot: mealSlotSchema,
-  items: z.array(z.object({
-    dishId: z.string(),
-    servingMultiplier: portionSchema
-  }))
+  items: z.array(mealItemSchema)
     .max(40)
     .refine(
       (items) => new Set(items.map((item) => item.dishId)).size === items.length,
@@ -54,6 +65,32 @@ export const outsideActivitySchema = z.object({
   activeEnergyKcal: z.number().min(0).max(20000).optional()
 });
 
+export const manualActivitySchema = z.object({
+  date: z.string(),
+  activityType: z.string().trim().min(1).max(80),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  durationMinutes: z.number().int().min(1).max(600),
+  intensity: activityIntensitySchema,
+  estimatedActiveEnergyKcal: z.number().min(0).max(10000).optional()
+});
+
+export const energyReferenceSchema = z.object({
+  baselineEnergyReferenceKcal: z.number().int().min(500).max(6000).nullable()
+});
+
+export const adminPeTimetableSchema = z.object({
+  classGroupId: z.string().min(1),
+  weekday: z.number().int().min(1).max(7),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+});
+
+export const adminPeSessionSchema = z.object({
+  timetableId: z.string().min(1),
+  date: z.string(),
+  actualActivityMinutes: z.number().int().min(0).max(300)
+});
+
 export const homeMealAnalysisResultSchema = z.object({
   schemaVersion: z.literal(1),
   items: z.array(z.object({
@@ -70,4 +107,5 @@ export const homeMealAnalysisResultSchema = z.object({
 export type HomeMealAnalysisResult = z.infer<typeof homeMealAnalysisResultSchema>;
 export type RecordMealInput = z.infer<typeof recordMealSchema>;
 export type OutsideActivityInput = z.infer<typeof outsideActivitySchema>;
+export type ManualActivityInput = z.infer<typeof manualActivitySchema>;
 export type AdminUpsertMenuInput = z.infer<typeof adminUpsertMenuSchema>;
