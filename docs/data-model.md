@@ -26,16 +26,15 @@ The concrete D1 migration may evolve, but the current API/domain contract follow
 
 `participantId` is app-facing and does not need to be a real student name.
 
-## SchoolTimeWindow
+## SchoolDayWindow
 
-Planned for the Health Connect slice:
-
+- id
 - schoolId
-- weekday/date override
+- weekday
 - startTime
 - endTime
 
-Android will use this only to remove in-school intervals before uploading outside-school activity aggregates.
+Administrators configure the normal in-school range by weekday. Android fetches only the selected day's range, subtracts it locally from the day, and asks Health Connect for aggregates only across the remaining intervals. Raw GPS/routes are never needed.
 
 ## Menu
 
@@ -51,6 +50,9 @@ Android will use this only to remove in-school intervals before uploading outsid
 - name
 - standardServingGrams
 - nutritionPerServingJson
+- active
+
+Editing a menu archives removed dishes instead of deleting them, so already-recorded student meal history keeps a stable dish identity.
 
 The nutrition object currently supports energy, protein, fat, carbohydrate, fiber, sodium, sugar and saturated fat.
 
