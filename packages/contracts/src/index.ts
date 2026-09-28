@@ -91,6 +91,16 @@ export const adminPeSessionSchema = z.object({
   actualActivityMinutes: z.number().int().min(0).max(300)
 });
 
+export const confirmedHomeMealSchema = z.object({
+  date: z.string(),
+  mealSlot: mealSlotSchema,
+  items: z.array(z.object({
+    name: z.string().trim().min(1).max(120),
+    grams: z.number().min(0).max(5000).nullable(),
+    nutrition: nutritionSchema.nullable()
+  })).min(1).max(30)
+});
+
 export const homeMealAnalysisResultSchema = z.object({
   schemaVersion: z.literal(1),
   items: z.array(z.object({
@@ -109,3 +119,4 @@ export type RecordMealInput = z.infer<typeof recordMealSchema>;
 export type OutsideActivityInput = z.infer<typeof outsideActivitySchema>;
 export type ManualActivityInput = z.infer<typeof manualActivitySchema>;
 export type AdminUpsertMenuInput = z.infer<typeof adminUpsertMenuSchema>;
+export type ConfirmedHomeMealInput = z.infer<typeof confirmedHomeMealSchema>;
