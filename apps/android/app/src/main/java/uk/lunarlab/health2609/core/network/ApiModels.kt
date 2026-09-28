@@ -36,6 +36,25 @@ data class MealConsumptionRequest(
     val items: List<MealItemRequest>
 )
 
+data class SchoolDayWindowDto(
+    val id: String,
+    val startTime: String,
+    val endTime: String
+)
+
+data class SchoolDayWindowsDto(
+    val date: String,
+    val weekday: Int,
+    val windows: List<SchoolDayWindowDto>
+)
+
+data class OutsideSchoolActivityRequest(
+    val date: String,
+    val exerciseMinutes: Int,
+    val steps: Long? = null,
+    val activeEnergyKcal: Double? = null
+)
+
 data class ManualActivityRequest(
     val date: String,
     val activityType: String,
