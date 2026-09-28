@@ -118,6 +118,33 @@ data class DailySummaryDto(
     val energy: EnergySummaryDto = EnergySummaryDto()
 )
 
+data class HomeMealAnalysisItemDto(
+    val name: String,
+    val estimatedGrams: Double? = null,
+    val servingMultiplier: Double? = null,
+    val confidence: Double = 0.0,
+    val nutrition: NutritionDto? = null,
+    val needsConfirmation: List<String> = emptyList()
+)
+
+data class HomeMealAnalysisResultDto(
+    val schemaVersion: Int,
+    val items: List<HomeMealAnalysisItemDto> = emptyList(),
+    val notes: List<String> = emptyList()
+)
+
+data class ConfirmedHomeMealItemRequest(
+    val name: String,
+    val grams: Double?,
+    val nutrition: NutritionDto?
+)
+
+data class ConfirmedHomeMealRequest(
+    val date: String,
+    val mealSlot: String,
+    val items: List<ConfirmedHomeMealItemRequest>
+)
+
 data class ApiWriteResult(
     val ok: Boolean,
     val id: String? = null
