@@ -19,7 +19,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsRun
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.SsidChart
@@ -84,6 +86,12 @@ fun TodayScreen(
     onGramsChange: (String, Double?) -> Unit,
     onRefresh: () -> Unit,
     onSaveMeal: () -> Unit,
+    onPickHomeMealImage: () -> Unit,
+    onHomeMealSlotChange: (String) -> Unit,
+    onHomeMealNameChange: (Int, String) -> Unit,
+    onHomeMealGramsChange: (Int, Double?) -> Unit,
+    onRemoveHomeMealItem: (Int) -> Unit,
+    onSaveHomeMeal: () -> Unit,
     onActivityMinutesChange: (Int) -> Unit,
     onActivityIntensityChange: (String) -> Unit,
     onSaveActivity: () -> Unit,
@@ -260,6 +268,35 @@ fun TodayScreen(
                         )
                     }
                 }
+            }
+
+            item {
+                SectionTitle(
+                    icon = {
+                        Icon(
+                            Icons.Rounded.PhotoCamera,
+                            contentDescription = null
+                        )
+                    },
+                    title = "在家吃的",
+                    subtitle = "图片直接交给 AGY 识别，不在云端保存原图"
+                )
+            }
+
+            item {
+                HomeMealCard(
+                    slot = state.homeMealSlot,
+                    draft = state.homeMealDraft,
+                    notes = state.homeMealNotes,
+                    analyzing = state.analyzingHomeMeal,
+                    saving = state.savingHomeMeal,
+                    onPickImage = onPickHomeMealImage,
+                    onSlotChange = onHomeMealSlotChange,
+                    onNameChange = onHomeMealNameChange,
+                    onGramsChange = onHomeMealGramsChange,
+                    onRemoveItem = onRemoveHomeMealItem,
+                    onSave = onSaveHomeMeal
+                )
             }
 
             item {
@@ -658,6 +695,189 @@ private fun DishCard(
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number
                 )
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeMealCard(
+    slot: String,
+    draft: List<HomeMealDraftItem>,
+    notes: List<String>,
+    analyzing: Boolean,
+    saving: Boolean,
+    onPickImage: () -> Unit,
+    onSlotChange: (String) -> Unit,
+    onNameChange: (Int, String) -> Unit,
+    onGramsChange: (Int, Double?) -> Unit,
+    onRemoveItem: (Int) -> Unit,
+    onSave: () -> Unit
+) {
+    Card(
+        modifier = Modifier.animateContentSize(
+            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "breakfast" to "早餐",
+                    "lunch" to "午餐",
+                    "dinner" to "晚餐"
+                ).forEach { (value, label) ->
+                    FilterChip(
+                        selected = slot == value,
+                        onClick = { onSlotChange(value) },
+                        label = { Text(label) }
+                    )
+                }
+            }
+
+            FilledTonalButton(
+                onClick = onPickImage,
+                enabled = !analyzing && !saving,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Rounded.PhotoCamera, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (analyzing) "AGY 正在识别…"
+                    else "选择一张家庭餐照片"
+                )
+            }
+
+            if (analyzing) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    LoadingIndicator()
+                }
+            }
+
+            if (notes.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        notes.take(3).forEach { note ->
+                            Text(
+                                "· $note",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            draft.forEachIndexed { index, item ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = item.name,
+                                onValueChange = { onNameChange(index, it) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                label = { Text("食物") }
+                            )
+                            IconButton(
+                                onClick = { onRemoveItem(index) }
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = "删除这项"
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = item.grams
+                                ?.roundToInt()
+                                ?.toString()
+                                ?: "",
+                            onValueChange = {
+                                onGramsChange(index, it.toDoubleOrNull())
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("实际吃下 / g") },
+                            supportingText = {
+                                Text(
+                                    "识别置信度 ${(item.confidence * 100).roundToInt()}% · 请按实际情况确认"
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number
+                            )
+                        )
+
+                        item.nutritionAtSource?.let { nutrition ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "${nutrition.energyKcal?.roundToInt() ?: 0} kcal",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Text(
+                                    "P ${String.format(Locale.US, "%.1f", nutrition.proteinG ?: 0.0)} g",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                                Text(
+                                    "C ${String.format(Locale.US, "%.1f", nutrition.carbohydrateG ?: 0.0)} g",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (draft.isNotEmpty()) {
+                Button(
+                    onClick = onSave,
+                    enabled = !saving && !analyzing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (saving) "正在加入今天…"
+                        else "确认并加入今天"
+                    )
+                }
+            }
+
+            Text(
+                "原图只在本次请求中经 Cloudflare Tunnel 转给 AGY；保存时只写入你确认后的食物、克数和营养估算。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
