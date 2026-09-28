@@ -6,7 +6,7 @@
 - pnpm 10
 - Cloudflare Wrangler login for remote resources, if needed
 - JDK 17
-- Android Studio / Android SDK 36
+- Android Studio / Android SDK 37
 
 ## Install JavaScript dependencies
 
@@ -16,8 +16,8 @@ pnpm install
 
 ## Create and migrate D1
 
-Create a D1 database named `health2609`, then put its ID in
-`services/api/wrangler.toml`.
+Production D1 is already provisioned as `health2609` and its ID is tracked in
+`services/api/wrangler.toml`. Create a separate local/preview database only when needed.
 
 Apply migrations:
 
@@ -49,10 +49,11 @@ In another terminal:
 pnpm --filter @health2609/admin-web dev
 ```
 
-The web app defaults to the local Worker. For a deployed Worker:
+Vite dev defaults to the local Worker. Production builds default to
+`https://h2609.lunarlab.uk`; override it when needed:
 
 ```bash
-VITE_API_BASE_URL=https://your-worker.example pnpm --filter @health2609/admin-web build
+VITE_API_BASE_URL=https://h2609.lunarlab.uk pnpm --filter @health2609/admin-web build
 ```
 
 The Pages build output is `apps/admin-web/dist`.

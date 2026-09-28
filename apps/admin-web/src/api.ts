@@ -1,4 +1,4 @@
-const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://127.0.0.1:8787";
+const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? (import.meta.env.DEV ? "http://127.0.0.1:8787" : "https://h2609.lunarlab.uk");
 
 const headers = {
   "Content-Type": "application/json",

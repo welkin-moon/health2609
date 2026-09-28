@@ -35,6 +35,14 @@ type AppEnv = {
 
 const app = new Hono<AppEnv>();
 
+app.get("/", (c) => c.json({
+  service: "health2609-api",
+  status: "ok",
+  demo: true
+}));
+
+app.get("/healthz", (c) => c.json({ ok: true }));
+
 app.use("/v1/*", cors({
   origin: "*",
   allowHeaders: [

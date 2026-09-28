@@ -16,7 +16,7 @@ android {
 
         val apiBaseUrl = providers.gradleProperty("HEALTH2609_API_BASE_URL")
             .orNull
-            ?: "https://health2609-api.example.invalid/"
+            ?: "https://h2609.lunarlab.uk/"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 

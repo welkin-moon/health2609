@@ -43,14 +43,14 @@ $env:HEALTH2609_KEYSTORE_PATH="C:\keys\health2609-release.jks"
 $env:HEALTH2609_KEYSTORE_PASSWORD="..."
 $env:HEALTH2609_KEY_ALIAS="health2609"
 $env:HEALTH2609_KEY_PASSWORD="..."
-gradle -p apps/android assembleRelease -PHEALTH2609_API_BASE_URL=https://your-worker.example/
+gradle -p apps/android assembleRelease -PHEALTH2609_API_BASE_URL=https://h2609.lunarlab.uk/
 ```
 
 成功后 APK 位于 `apps/android/app/build/outputs/apk/release/`。
 
 ## API 地址
 
-比赛包必须显式传入真实 Worker 基址，并以 `/` 结尾。默认值是故意不可用的 `https://health2609-api.example.invalid/`，避免误把本地占位地址发出去。
+比赛 Demo 的默认 Worker 基址已经设置为 `https://h2609.lunarlab.uk/`。仍可通过 `HEALTH2609_API_BASE_URL` 在构建时覆盖；地址必须以 `/` 结尾。
 
 ## GitHub Actions
 
