@@ -839,20 +839,31 @@ private fun HomeMealCard(
                         )
 
                         item.nutritionAtSource?.let { nutrition ->
+                            val factor = if (
+                                item.sourceGrams != null &&
+                                item.sourceGrams > 0.0 &&
+                                item.grams != null
+                            ) {
+                                (item.grams / item.sourceGrams)
+                                    .coerceIn(0.0, 10.0)
+                            } else {
+                                1.0
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    "${nutrition.energyKcal?.roundToInt() ?: 0} kcal",
+                                    "${((nutrition.energyKcal ?: 0.0) * factor).roundToInt()} kcal",
                                     style = MaterialTheme.typography.labelLarge
                                 )
                                 Text(
-                                    "P ${String.format(Locale.US, "%.1f", nutrition.proteinG ?: 0.0)} g",
+                                    "P ${String.format(Locale.US, "%.1f", (nutrition.proteinG ?: 0.0) * factor)} g",
                                     style = MaterialTheme.typography.labelMedium
                                 )
                                 Text(
-                                    "C ${String.format(Locale.US, "%.1f", nutrition.carbohydrateG ?: 0.0)} g",
+                                    "C ${String.format(Locale.US, "%.1f", (nutrition.carbohydrateG ?: 0.0) * factor)} g",
                                     style = MaterialTheme.typography.labelMedium
                                 )
                             }
