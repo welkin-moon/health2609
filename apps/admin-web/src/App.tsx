@@ -96,7 +96,8 @@ export function App() {
       if (lunch?.dishes.length) {
         setDishes(
           lunch.dishes.map(
-            ({ name, standardServingGrams, nutritionPerServing }) => ({
+            ({ id, name, standardServingGrams, nutritionPerServing }) => ({
+              id,
               name,
               standardServingGrams,
               nutritionPerServing
