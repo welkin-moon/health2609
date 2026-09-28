@@ -676,7 +676,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
       ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
       : undefined,
     body: outbound,
-    signal: AbortSignal.timeout(25_000)
+    signal: AbortSignal.timeout(90_000)
   });
 
   if (!response.ok) {
