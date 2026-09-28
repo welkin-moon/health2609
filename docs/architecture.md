@@ -5,9 +5,9 @@
 health2609 has two user-facing clients:
 
 - Android student app
-- school administrator web app
+- school administrator web app on Cloudflare Pages
 
-Both use one Cloudflare Worker API. D1 is the system of record for structured data. Home-meal images are not persisted in R2. The Worker validates the request and forwards the image directly through the configured Cloudflare Tunnel to the AGY machine.
+Both use one Cloudflare Worker API. D1 is the system of record for structured data. Home-meal images are not persisted in R2. The Worker validates the request and triggers the existing AGY CLI runner through the configured Cloudflare Tunnel / HTTP ingress.
 
 The application is intentionally modular but small enough for a competition demo.
 
@@ -26,6 +26,7 @@ The application is intentionally modular but small enough for a competition demo
 - all Android/web request bodies
 - user-entered serving amounts
 - Health Connect records before local normalization
+- manually entered activity records before validation
 - AGY/model output
 - uploaded file metadata
 
@@ -49,17 +50,18 @@ A PE record is explicit school data rather than phone inference.
 
 ### activity
 
-Outside-school activity summary uploaded by Android after local exclusion of school time.
+Outside-school activity summary uploaded by Android after local exclusion of school time, plus optional manually entered activity sessions.
 
 The server combines:
 
 ```text
 daily activity minutes =
     confirmed school PE activity minutes
-  + outside-school activity minutes
+  + outside-school Health Connect activity minutes
+  + manually entered activity minutes
 ```
 
-The implementation must avoid double-counting overlapping sources.
+The implementation must avoid double-counting overlapping sources. Manual entries are explicit student records, not hidden inference from phone sensors.
 
 ### insights
 
@@ -108,7 +110,28 @@ UI -> ViewModel -> use case/domain -> repository -> local/remote source
 
 Room is the local cache and outbox. DataStore stores settings and non-sensitive preferences. Secrets/tokens should use Android platform-protected storage.
 
-## 5. Worker architecture
+Health Connect is used only on-device. The app removes configured school-time windows locally and uploads daily outside-school aggregates. A manual activity form covers exercise that the Android health data interface cannot read or that the student wants to correct for the demo.
+
+## 5. Cloudflare architecture
+
+```text
+Cloudflare Pages admin web
+  └─ calls Worker API through custom domain
+
+Cloudflare Worker API
+  ├─ auth / school tenant guard
+  ├─ domain validation
+  ├─ D1 repositories
+  ├─ statistics read models
+  └─ AGY task adapter
+
+D1
+  └─ school/menu/meal/PE/activity/home-meal records
+```
+
+The Pages project serves the Vite/React administrator UI. The Worker owns all API routes and D1 access. The competition entry should use custom domains such as `h2609-admin.lunarlab.uk` for Pages and `h2609.lunarlab.uk` for the Worker rather than `pages.dev` or `workers.dev`.
+
+## 6. Worker architecture
 
 Recommended shape:
 
@@ -127,22 +150,22 @@ src/
 
 Routes only handle HTTP concerns. Domain services own business rules. Repositories own D1 queries.
 
-## 6. AGY integration
+## 7. AGY integration
 
 There is no separate model service implementation in this repository.
 
-The Worker-side integration is a small adapter that submits a task to the existing AGY bridge reachable through the configured Cloudflare path.
+The AGY runtime is expected to be started before the demo. It should read the task requirements and `prompts/home-meal-analysis.md`, then remain open in the CLI. For each home-meal image request, the Worker-side adapter submits a structured task to the AGY ingress. The resident AGY process creates a new child agent for that task and returns a JSON-only candidate result.
 
 The task contains:
 
 - system-style task instructions from `prompts/home-meal-analysis.md`
-- image/object reference or supported attachment
+- the image attachment or supported image reference
 - expected JSON schema/version
 - no unrelated student history unless explicitly needed
 
 The returned payload must validate against `HomeMealAnalysisResult`. Validation failure falls back to manual entry.
 
-## 7. Security
+## 8. Security
 
 - short-lived student session tokens
 - separate admin role
@@ -154,7 +177,7 @@ The returned payload must validate against `HomeMealAnalysisResult`. Validation 
 - audit metadata for administrator writes
 - no Cloudflare Tunnel secret exposed to clients
 
-## 8. Statistics/privacy compromise for the demo
+## 9. Statistics/privacy compromise for the demo
 
 Administrators need useful statistics, so the system intentionally supports aggregate school/class views.
 
