@@ -5,7 +5,7 @@ compatibility_date = "2026-09-27"
 [[d1_databases]]
 binding = "DB"
 database_name = "health2609"
-database_id = "REPLACE_ME"
+database_id = "5c1dae51-08d0-4004-8536-7408dda5976b"
 
 [vars]
 AGY_TASK_URL = "https://REPLACE_ME/health2609/agy"
