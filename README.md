@@ -9,8 +9,8 @@
 - 校外运动：Android 端通过 Health Connect 读取，只聚合在校外时段的数据后上传。
 - 家庭餐：学生可拍照或手动记录。图片识别由经提示词约束的 AGY 处理；仓库内不再单独维护模型服务。
 - 管理端：Cloudflare Pages，提供学校配置、菜单、体育课录入和统计看板。
-- 后端：Cloudflare Workers + D1；图片如需暂存则使用 R2。目标是免费层即可跑比赛 Demo。
-- Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E) Expressive (M3E)，前后端和领域层解耦。
+- 后端：Cloudflare Workers + D1；家庭餐图片不落对象存储，Worker 仅校验后经 Cloudflare Tunnel 直接转发给 AGY。目标是免费层即可跑比赛 Demo。
+- Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E)，前后端和领域层解耦。
 
 ## 仓库结构
 
