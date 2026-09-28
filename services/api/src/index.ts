@@ -5,6 +5,7 @@ import {
   adminPeSessionSchema,
   adminPeTimetableSchema,
   adminUpsertMenuSchema,
+  confirmedHomeMealSchema,
   energyReferenceSchema,
   homeMealAnalysisResultSchema,
   manualActivitySchema,
@@ -388,7 +389,7 @@ app.get("/v1/today/summary", async (c) => {
 
   const schoolId = c.get("schoolId");
 
-  const [nutrition, pe, health, manual, preference, school] = await Promise.all([
+  const [nutrition, homeMeals, pe, health, manual, preference, school] = await Promise.all([
     c.env.DB.prepare(
       `SELECT
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.energyKcal'), 0) * mc.serving_multiplier), 0) AS energy_kcal,
@@ -404,6 +405,11 @@ app.get("/v1/today/summary", async (c) => {
          JOIN menus m ON m.id = d.menu_id
         WHERE mc.student_membership_id = ? AND m.date = ?`
     ).bind(membership.id, date).first(),
+    c.env.DB.prepare(
+      `SELECT confirmed_items_json
+         FROM home_meals
+        WHERE student_membership_id = ? AND date = ?`
+    ).bind(membership.id, date).all(),
     membership.class_group_id
       ? c.env.DB.prepare(
           `SELECT COALESCE(SUM(ps.actual_activity_minutes), 0) AS pe_minutes
@@ -441,10 +447,58 @@ app.get("/v1/today/summary", async (c) => {
     ).bind(schoolId).first()
   ]);
 
-  const energyKcal = Number((nutrition as any)?.energy_kcal ?? 0);
-  const proteinG = Number((nutrition as any)?.protein_g ?? 0);
-  const fatG = Number((nutrition as any)?.fat_g ?? 0);
-  const carbohydrateG = Number((nutrition as any)?.carbohydrate_g ?? 0);
+  const homeNutrition = {
+    energyKcal: 0,
+    proteinG: 0,
+    fatG: 0,
+    carbohydrateG: 0,
+    fiberG: 0,
+    sodiumMg: 0,
+    sugarG: 0,
+    saturatedFatG: 0
+  };
+
+  for (const row of (homeMeals as D1Result<Record<string, unknown>>).results) {
+    try {
+      const items = JSON.parse(String(row.confirmed_items_json)) as Array<{
+        nutrition?: Record<string, number> | null;
+      }>;
+      for (const item of items) {
+        const n = item.nutrition;
+        if (!n) continue;
+        homeNutrition.energyKcal += Number(n.energyKcal ?? 0);
+        homeNutrition.proteinG += Number(n.proteinG ?? 0);
+        homeNutrition.fatG += Number(n.fatG ?? 0);
+        homeNutrition.carbohydrateG += Number(n.carbohydrateG ?? 0);
+        homeNutrition.fiberG += Number(n.fiberG ?? 0);
+        homeNutrition.sodiumMg += Number(n.sodiumMg ?? 0);
+        homeNutrition.sugarG += Number(n.sugarG ?? 0);
+        homeNutrition.saturatedFatG += Number(n.saturatedFatG ?? 0);
+      }
+    } catch {
+      // Ignore malformed historical demo rows instead of breaking today's view.
+    }
+  }
+
+  const energyKcal =
+    Number((nutrition as any)?.energy_kcal ?? 0) + homeNutrition.energyKcal;
+  const proteinG =
+    Number((nutrition as any)?.protein_g ?? 0) + homeNutrition.proteinG;
+  const fatG =
+    Number((nutrition as any)?.fat_g ?? 0) + homeNutrition.fatG;
+  const carbohydrateG =
+    Number((nutrition as any)?.carbohydrate_g ?? 0) +
+    homeNutrition.carbohydrateG;
+  const fiberG =
+    Number((nutrition as any)?.fiber_g ?? 0) + homeNutrition.fiberG;
+  const sodiumMg =
+    Number((nutrition as any)?.sodium_mg ?? 0) + homeNutrition.sodiumMg;
+  const sugarG =
+    Number((nutrition as any)?.sugar_g ?? 0) + homeNutrition.sugarG;
+  const saturatedFatG =
+    Number((nutrition as any)?.saturated_fat_g ?? 0) +
+    homeNutrition.saturatedFatG;
+
   const macroEnergy = proteinG * 4 + fatG * 9 + carbohydrateG * 4;
 
   const healthMinutes = Number((health as any)?.exercise_minutes ?? 0);
@@ -469,10 +523,10 @@ app.get("/v1/today/summary", async (c) => {
       proteinG,
       fatG,
       carbohydrateG,
-      fiberG: Number((nutrition as any)?.fiber_g ?? 0),
-      sodiumMg: Number((nutrition as any)?.sodium_mg ?? 0),
-      sugarG: Number((nutrition as any)?.sugar_g ?? 0),
-      saturatedFatG: Number((nutrition as any)?.saturated_fat_g ?? 0),
+      fiberG,
+      sodiumMg,
+      sugarG,
+      saturatedFatG,
       macroCompositionPercent: {
         protein: macroEnergy > 0 ? (proteinG * 4 / macroEnergy) * 100 : 0,
         fat: macroEnergy > 0 ? (fatG * 9 / macroEnergy) * 100 : 0,
@@ -511,6 +565,35 @@ app.get("/v1/today/summary", async (c) => {
     }
   });
 });
+
+app.post(
+  "/v1/home-meals",
+  zValidator("json", confirmedHomeMealSchema),
+  async (c) => {
+    const body = c.req.valid("json");
+    const membership = await membershipFor(
+      c.env.DB,
+      c.get("schoolId"),
+      c.get("participantId")
+    );
+    if (!membership) return c.json({ error: "membership_not_found" }, 404);
+
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(
+      `INSERT INTO home_meals
+         (id, student_membership_id, date, meal_slot, confirmed_items_json)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      id,
+      membership.id,
+      body.date,
+      body.mealSlot,
+      JSON.stringify(body.items)
+    ).run();
+
+    return c.json({ ok: true, id });
+  }
+);
 
 app.post("/v1/home-meals/analyze", async (c) => {
   const contentType = c.req.header("content-type") ?? "";
