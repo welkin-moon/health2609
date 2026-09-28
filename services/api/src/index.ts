@@ -1089,62 +1089,109 @@ app.get("/v1/admin/pe/sessions", async (c) => {
 
 app.get("/v1/admin/stats/overview", async (c) => {
   if (!requireAdmin(c.get("role"))) return c.json({ error: "forbidden" }, 403);
+
   const date = c.req.query("date");
-  if (!date) return c.json({ error: "date_required" }, 400);
+  const weekday = date ? weekdayFromDate(date) : null;
+  if (!date || weekday === null) {
+    return c.json({ error: "valid_date_required" }, 400);
+  }
 
   const schoolId = c.get("schoolId");
+  const classGroupId = c.req.query("classGroupId")?.trim() || null;
 
-  const [membershipCount, meal, nutrition, pe, activity, activityGoal] =
-    await Promise.all([
+  if (classGroupId) {
+    const ownedClass = await c.env.DB.prepare(
+      "SELECT id FROM class_groups WHERE id = ? AND school_id = ? LIMIT 1"
+    ).bind(classGroupId, schoolId).first<{ id: string }>();
+    if (!ownedClass) return c.json({ error: "class_not_found" }, 404);
+  }
+
+  const [
+    membershipCount,
+    meal,
+    nutrition,
+    pe,
+    activity,
+    activityGoal,
+    dishRows,
+    mealTrend,
+    activityTrend
+  ] = await Promise.all([
     c.env.DB.prepare(
-      "SELECT COUNT(*) AS count FROM student_memberships WHERE school_id = ?"
-    ).bind(schoolId).first<{ count: number }>(),
+      \`SELECT COUNT(*) AS count
+         FROM student_memberships
+        WHERE school_id = ?
+          AND (? IS NULL OR class_group_id = ?)\`
+    ).bind(schoolId, classGroupId, classGroupId).first<{ count: number }>(),
+
     c.env.DB.prepare(
-      `SELECT COUNT(DISTINCT sm.id) AS participants,
+      \`SELECT COUNT(DISTINCT sm.id) AS participants,
               AVG(mc.serving_multiplier) AS avg_serving_multiplier,
               AVG(mc.consumed_grams) AS avg_consumed_grams
          FROM meal_consumption mc
          JOIN student_memberships sm ON sm.id = mc.student_membership_id
          JOIN dishes d ON d.id = mc.dish_id
          JOIN menus m ON m.id = d.menu_id
-        WHERE sm.school_id = ? AND m.date = ?`
-    ).bind(schoolId, date).first(),
+        WHERE sm.school_id = ?
+          AND m.date = ?
+          AND (? IS NULL OR sm.class_group_id = ?)\`
+    ).bind(schoolId, date, classGroupId, classGroupId).first(),
+
     c.env.DB.prepare(
-      `SELECT
+      \`SELECT
           AVG(student_energy) AS avg_energy_kcal,
           AVG(student_protein) AS avg_protein_g,
           AVG(student_fat) AS avg_fat_g,
-          AVG(student_carbs) AS avg_carbohydrate_g
+          AVG(student_carbs) AS avg_carbohydrate_g,
+          AVG(student_fiber) AS avg_fiber_g,
+          AVG(student_sodium) AS avg_sodium_mg,
+          AVG(student_sugar) AS avg_sugar_g,
+          AVG(student_saturated_fat) AS avg_saturated_fat_g
        FROM (
          SELECT sm.id,
            SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.energyKcal'), 0) * mc.serving_multiplier) AS student_energy,
            SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.proteinG'), 0) * mc.serving_multiplier) AS student_protein,
            SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.fatG'), 0) * mc.serving_multiplier) AS student_fat,
-           SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.carbohydrateG'), 0) * mc.serving_multiplier) AS student_carbs
+           SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.carbohydrateG'), 0) * mc.serving_multiplier) AS student_carbs,
+           SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.fiberG'), 0) * mc.serving_multiplier) AS student_fiber,
+           SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.sodiumMg'), 0) * mc.serving_multiplier) AS student_sodium,
+           SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.sugarG'), 0) * mc.serving_multiplier) AS student_sugar,
+           SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.saturatedFatG'), 0) * mc.serving_multiplier) AS student_saturated_fat
          FROM student_memberships sm
          JOIN meal_consumption mc ON mc.student_membership_id = sm.id
          JOIN dishes d ON d.id = mc.dish_id
          JOIN menus m ON m.id = d.menu_id
-         WHERE sm.school_id = ? AND m.date = ?
-         GROUP BY sm.id
-       )`
-    ).bind(schoolId, date).first(),
+        WHERE sm.school_id = ?
+          AND m.date = ?
+          AND (? IS NULL OR sm.class_group_id = ?)
+        GROUP BY sm.id
+       )\`
+    ).bind(schoolId, date, classGroupId, classGroupId).first(),
+
     c.env.DB.prepare(
-      `SELECT AVG(ps.actual_activity_minutes) AS avg_pe_minutes,
-              COUNT(*) AS recorded_sessions
-         FROM pe_sessions ps
-         JOIN pe_timetable pt ON pt.id = ps.timetable_id
-        WHERE pt.school_id = ? AND ps.date = ?`
-    ).bind(schoolId, date).first(),
+      \`SELECT AVG(ps.actual_activity_minutes) AS avg_pe_minutes,
+              COUNT(ps.id) AS recorded_sessions,
+              COUNT(pt.id) AS scheduled_sessions
+         FROM pe_timetable pt
+         LEFT JOIN pe_sessions ps
+           ON ps.timetable_id = pt.id AND ps.date = ?
+        WHERE pt.school_id = ?
+          AND pt.weekday = ?
+          AND (? IS NULL OR pt.class_group_id = ?)\`
+    ).bind(date, schoolId, weekday, classGroupId, classGroupId).first(),
+
     c.env.DB.prepare(
-      `SELECT AVG(a.exercise_minutes) AS avg_outside_minutes,
+      \`SELECT AVG(a.exercise_minutes) AS avg_outside_minutes,
               AVG(a.active_energy_kcal) AS avg_active_energy_kcal
          FROM outside_school_activity_daily a
          JOIN student_memberships sm ON sm.id = a.student_membership_id
-        WHERE sm.school_id = ? AND a.date = ?`
-    ).bind(schoolId, date).first(),
+        WHERE sm.school_id = ?
+          AND a.date = ?
+          AND (? IS NULL OR sm.class_group_id = ?)\`
+    ).bind(schoolId, date, classGroupId, classGroupId).first(),
+
     c.env.DB.prepare(
-      `WITH
+      \`WITH
          pe_by_class AS (
            SELECT pt.class_group_id,
                   SUM(ps.actual_activity_minutes) AS pe_minutes
@@ -1183,31 +1230,243 @@ app.get("/v1/admin/stats/overview", async (c) => {
              LEFT JOIN phone_by_student phone
                ON phone.student_membership_id = sm.id
             WHERE sm.school_id = ?
+              AND (? IS NULL OR sm.class_group_id = ?)
          )
          SELECT AVG(total_minutes) AS avg_total_minutes,
                 AVG(
                   CASE WHEN total_minutes >= target_minutes
                        THEN 1.0 ELSE 0.0 END
                 ) AS target_completion_rate
-           FROM totals`
-    ).bind(date, schoolId, date, date, schoolId).first()
+           FROM totals\`
+    ).bind(
+      date,
+      schoolId,
+      date,
+      date,
+      schoolId,
+      classGroupId,
+      classGroupId
+    ).first(),
+
+    c.env.DB.prepare(
+      \`SELECT d.id,
+              d.name,
+              d.standard_serving_grams,
+              COUNT(DISTINCT sm.id) AS participants,
+              AVG(CASE WHEN sm.id IS NOT NULL THEN mc.serving_multiplier END)
+                AS avg_serving_multiplier,
+              AVG(CASE WHEN sm.id IS NOT NULL THEN mc.consumed_grams END)
+                AS avg_consumed_grams,
+              AVG(
+                CASE
+                  WHEN sm.id IS NULL THEN NULL
+                  WHEN d.standard_serving_grams > 0
+                       AND mc.consumed_grams IS NOT NULL
+                    THEN mc.consumed_grams / d.standard_serving_grams
+                  ELSE mc.serving_multiplier
+                END
+              ) AS avg_completion
+         FROM menus m
+         JOIN dishes d ON d.menu_id = m.id
+         LEFT JOIN meal_consumption mc ON mc.dish_id = d.id
+         LEFT JOIN student_memberships sm
+           ON sm.id = mc.student_membership_id
+          AND sm.school_id = ?
+          AND (? IS NULL OR sm.class_group_id = ?)
+        WHERE m.school_id = ? AND m.date = ?
+        GROUP BY d.id, d.name, d.standard_serving_grams, d.sort_order, d.active
+       HAVING d.active = 1 OR COUNT(DISTINCT sm.id) > 0
+        ORDER BY d.sort_order, d.name\`
+    ).bind(
+      schoolId,
+      classGroupId,
+      classGroupId,
+      schoolId,
+      date
+    ).all(),
+
+    c.env.DB.prepare(
+      \`WITH RECURSIVE days(day) AS (
+         SELECT date(?, '-6 day')
+         UNION ALL
+         SELECT date(day, '+1 day') FROM days WHERE day < date(?)
+       )
+       SELECT days.day AS date,
+              COUNT(DISTINCT sm.id) AS participants
+         FROM days
+         LEFT JOIN menus m
+           ON m.school_id = ? AND m.date = days.day
+         LEFT JOIN dishes d ON d.menu_id = m.id
+         LEFT JOIN meal_consumption mc ON mc.dish_id = d.id
+         LEFT JOIN student_memberships sm
+           ON sm.id = mc.student_membership_id
+          AND sm.school_id = ?
+          AND (? IS NULL OR sm.class_group_id = ?)
+        GROUP BY days.day
+        ORDER BY days.day\`
+    ).bind(
+      date,
+      date,
+      schoolId,
+      schoolId,
+      classGroupId,
+      classGroupId
+    ).all(),
+
+    c.env.DB.prepare(
+      \`WITH RECURSIVE days(day) AS (
+         SELECT date(?, '-6 day')
+         UNION ALL
+         SELECT date(day, '+1 day') FROM days WHERE day < date(?)
+       ),
+       members AS (
+         SELECT sm.id,
+                sm.class_group_id,
+                s.daily_activity_target_minutes AS target_minutes
+           FROM student_memberships sm
+           JOIN schools s ON s.id = sm.school_id
+          WHERE sm.school_id = ?
+            AND (? IS NULL OR sm.class_group_id = ?)
+       ),
+       pe_by_class AS (
+         SELECT ps.date,
+                pt.class_group_id,
+                SUM(ps.actual_activity_minutes) AS pe_minutes
+           FROM pe_sessions ps
+           JOIN pe_timetable pt ON pt.id = ps.timetable_id
+          WHERE pt.school_id = ?
+            AND ps.date BETWEEN date(?, '-6 day') AND date(?)
+          GROUP BY ps.date, pt.class_group_id
+       ),
+       manual_by_student AS (
+         SELECT date,
+                student_membership_id,
+                SUM(duration_minutes) AS manual_minutes
+           FROM manual_activity_sessions
+          WHERE date BETWEEN date(?, '-6 day') AND date(?)
+          GROUP BY date, student_membership_id
+       ),
+       phone_by_student AS (
+         SELECT date,
+                student_membership_id,
+                exercise_minutes AS phone_minutes
+           FROM outside_school_activity_daily
+          WHERE date BETWEEN date(?, '-6 day') AND date(?)
+       ),
+       totals AS (
+         SELECT days.day AS date,
+                members.id,
+                members.target_minutes,
+                COALESCE(pe.pe_minutes, 0) +
+                  MAX(
+                    COALESCE(phone.phone_minutes, 0),
+                    COALESCE(manual.manual_minutes, 0)
+                  ) AS total_minutes
+           FROM days
+           CROSS JOIN members
+           LEFT JOIN pe_by_class pe
+             ON pe.date = days.day
+            AND pe.class_group_id = members.class_group_id
+           LEFT JOIN manual_by_student manual
+             ON manual.date = days.day
+            AND manual.student_membership_id = members.id
+           LEFT JOIN phone_by_student phone
+             ON phone.date = days.day
+            AND phone.student_membership_id = members.id
+       )
+       SELECT date,
+              AVG(total_minutes) AS avg_total_minutes,
+              AVG(
+                CASE WHEN total_minutes >= target_minutes
+                     THEN 1.0 ELSE 0.0 END
+              ) AS target_completion_rate
+         FROM totals
+        GROUP BY date
+        ORDER BY date\`
+    ).bind(
+      date,
+      date,
+      schoolId,
+      classGroupId,
+      classGroupId,
+      schoolId,
+      date,
+      date,
+      date,
+      date,
+      date,
+      date
+    ).all()
   ]);
 
-  const total = Number(membershipCount?.count ?? 0);
+  const totalStudents = Number(membershipCount?.count ?? 0);
   const participants = Number((meal as any)?.participants ?? 0);
+  const recordedSessions = Number((pe as any)?.recorded_sessions ?? 0);
+  const scheduledSessions = Number((pe as any)?.scheduled_sessions ?? 0);
+
+  const activityTrendByDate = new Map(
+    activityTrend.results.map((row) => [
+      String(row.date),
+      {
+        avgTotalMinutes: Number(row.avg_total_minutes ?? 0),
+        targetCompletionRate: Number(row.target_completion_rate ?? 0)
+      }
+    ])
+  );
+
+  const trend = mealTrend.results.map((row) => {
+    const pointDate = String(row.date);
+    const activityPoint = activityTrendByDate.get(pointDate);
+    const dayParticipants = Number(row.participants ?? 0);
+
+    return {
+      date: pointDate,
+      mealParticipationRate:
+        totalStudents === 0 ? 0 : dayParticipants / totalStudents,
+      avgTotalMinutes: activityPoint?.avgTotalMinutes ?? 0,
+      targetCompletionRate: activityPoint?.targetCompletionRate ?? 0
+    };
+  });
 
   return c.json({
     date,
+    classGroupId,
+    totalStudents,
     meal: {
       ...(meal ?? {}),
-      participationRate: total === 0 ? 0 : participants / total
+      participationRate:
+        totalStudents === 0 ? 0 : participants / totalStudents
     },
     nutrition,
-    pe,
+    pe: {
+      ...(pe ?? {}),
+      recordCoverage:
+        scheduledSessions === 0 ? 0 : recordedSessions / scheduledSessions
+    },
     activity: {
       ...(activity ?? {}),
       ...(activityGoal ?? {})
-    }
+    },
+    dishes: dishRows.results.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      standardServingGrams:
+        row.standard_serving_grams == null
+          ? null
+          : Number(row.standard_serving_grams),
+      participants: Number(row.participants ?? 0),
+      participationRate:
+        totalStudents === 0
+          ? 0
+          : Number(row.participants ?? 0) / totalStudents,
+      avgServingMultiplier: Number(row.avg_serving_multiplier ?? 0),
+      avgConsumedGrams:
+        row.avg_consumed_grams == null
+          ? null
+          : Number(row.avg_consumed_grams),
+      avgCompletion: Number(row.avg_completion ?? 0)
+    })),
+    trend
   });
 });
 

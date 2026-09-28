@@ -164,6 +164,143 @@ select:focus {
   gap: 14px;
   align-items: start;
 }
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.filters .date-field {
+  min-width: 150px;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(320px, .85fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.trend-surface {
+  border-radius: 30px 46px 30px 46px;
+}
+
+.dish-stats-surface {
+  border-radius: 46px 28px 46px 28px;
+}
+
+.compact-heading {
+  align-items: center;
+}
+
+.scope-badge {
+  padding: 8px 12px;
+  border-radius: 999px 999px 999px 12px;
+  background: #eee6ff;
+  color: #573d88;
+  font-size: .78rem;
+  font-weight: 780;
+}
+
+.macro-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.macro-strip span {
+  padding: 11px 12px;
+  border-radius: 18px 24px 18px 24px;
+  background: #f7f3fb;
+  color: #746d79;
+  font-size: .74rem;
+}
+
+.macro-strip b {
+  display: block;
+  color: #27222c;
+  font-size: 1rem;
+  margin-bottom: 2px;
+}
+
+.trend-list,
+.dish-stat-list {
+  display: grid;
+  gap: 10px;
+}
+
+.trend-row {
+  display: grid;
+  grid-template-columns: 72px minmax(90px, 1fr) 48px 70px;
+  gap: 10px;
+  align-items: center;
+}
+
+.trend-label {
+  display: grid;
+  gap: 2px;
+}
+
+.trend-label small,
+.goal-rate,
+.dish-stat-title small {
+  color: #77717d;
+  font-size: .74rem;
+}
+
+.trend-meter,
+.dish-meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eeeaf2;
+}
+
+.trend-meter span,
+.dish-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6750a4, #8f78c8);
+}
+
+.trend-row > b {
+  font-size: .82rem;
+  text-align: right;
+}
+
+.goal-rate {
+  text-align: right;
+}
+
+.dish-stat {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(90px, .9fr) 48px;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border-radius: 20px 15px 20px 15px;
+  background: #faf7fd;
+}
+
+.dish-stat-title {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.dish-stat-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dish-stat > strong {
+  text-align: right;
+  font-size: .88rem;
+}
 
 .surface {
   padding: 24px;
@@ -413,7 +550,8 @@ button:disabled {
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .content-grid {
+  .content-grid,
+  .analytics-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -434,6 +572,26 @@ button:disabled {
 
   .section-heading {
     flex-direction: column;
+  }
+
+  .filters {
+    width: 100%;
+  }
+
+  .filters .date-field {
+    flex: 1 1 140px;
+  }
+
+  .trend-row {
+    grid-template-columns: 60px minmax(70px, 1fr) 42px;
+  }
+
+  .goal-rate {
+    display: none;
+  }
+
+  .macro-strip {
+    grid-template-columns: 1fr;
   }
 
   .dish-row {

@@ -53,6 +53,8 @@ export type PeSessionItem = {
 
 export type Overview = {
   date: string;
+  classGroupId?: string | null;
+  totalStudents?: number;
   meal?: {
     participants?: number;
     avg_serving_multiplier?: number;
@@ -64,10 +66,16 @@ export type Overview = {
     avg_protein_g?: number;
     avg_fat_g?: number;
     avg_carbohydrate_g?: number;
+    avg_fiber_g?: number;
+    avg_sodium_mg?: number;
+    avg_sugar_g?: number;
+    avg_saturated_fat_g?: number;
   };
   pe?: {
     avg_pe_minutes?: number;
     recorded_sessions?: number;
+    scheduled_sessions?: number;
+    recordCoverage?: number;
   };
   activity?: {
     avg_outside_minutes?: number;
@@ -75,6 +83,22 @@ export type Overview = {
     avg_total_minutes?: number;
     target_completion_rate?: number;
   };
+  dishes?: Array<{
+    id: string;
+    name: string;
+    standardServingGrams: number | null;
+    participants: number;
+    participationRate: number;
+    avgServingMultiplier: number;
+    avgConsumedGrams: number | null;
+    avgCompletion: number;
+  }>;
+  trend?: Array<{
+    date: string;
+    mealParticipationRate: number;
+    avgTotalMinutes: number;
+    targetCompletionRate: number;
+  }>;
 };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -94,10 +118,10 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  overview(date: string) {
-    return json<Overview>(
-      `/v1/admin/stats/overview?date=${encodeURIComponent(date)}`
-    );
+  overview(date: string, classGroupId?: string) {
+    const params = new URLSearchParams({ date });
+    if (classGroupId) params.set("classGroupId", classGroupId);
+    return json<Overview>(`/v1/admin/stats/overview?${params.toString()}`);
   },
 
   classes() {

@@ -64,6 +64,7 @@ export function App() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
+  const [statsClassId, setStatsClassId] = useState("");
   const [peSessions, setPeSessions] = useState<PeSessionItem[]>([]);
   const [schoolWindows, setSchoolWindows] = useState<SchoolDayWindow[]>([]);
   const [peActual, setPeActual] = useState<Record<string, string>>({});
@@ -81,13 +82,13 @@ export function App() {
     [overview]
   );
 
-  async function refresh(targetDate = date) {
+  async function refresh(targetDate = date, classGroupId = statsClassId) {
     setStatus("正在同步");
     try {
       const [menuResult, stats, classResult, schoolWindowResult] =
         await Promise.all([
           api.menus(targetDate),
-          api.overview(targetDate),
+          api.overview(targetDate, classGroupId),
           api.classes(),
           api.schoolDayWindows()
         ]);
@@ -144,8 +145,8 @@ export function App() {
   }
 
   useEffect(() => {
-    void refresh(date);
-  }, [date]);
+    void refresh(date, statsClassId);
+  }, [date, statsClassId]);
 
   useEffect(() => {
     void refreshPe(date, selectedClassId);
@@ -277,14 +278,31 @@ export function App() {
           </p>
         </div>
 
-        <label className="date-field">
-          <span>日期</span>
-          <input
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-            type="date"
-          />
-        </label>
+        <div className="filters">
+          <label className="date-field">
+            <span>日期</span>
+            <input
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              type="date"
+            />
+          </label>
+
+          <label className="date-field">
+            <span>统计范围</span>
+            <select
+              value={statsClassId}
+              onChange={(event) => setStatsClassId(event.target.value)}
+            >
+              <option value="">全校</option>
+              {classes.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </header>
 
       <section className="stats-grid" aria-label="统计概览">
@@ -307,18 +325,108 @@ export function App() {
           <strong>
             {Math.round(Number(overview?.pe?.avg_pe_minutes ?? 0))} min
           </strong>
-          <small>{overview?.pe?.recorded_sessions ?? 0} 节已录实际活动时间</small>
+          <small>
+            {overview?.pe?.recorded_sessions ?? 0}/{overview?.pe?.scheduled_sessions ?? 0} 节已录 ·{" "}
+            {Math.round(Number(overview?.pe?.recordCoverage ?? 0) * 100)}% 覆盖
+          </small>
         </article>
 
         <article className="metric-card">
-          <span>校外运动</span>
+          <span>当天总活动</span>
           <strong>
-            {Math.round(Number(overview?.activity?.avg_outside_minutes ?? 0))} min
+            {Math.round(Number(overview?.activity?.avg_total_minutes ?? 0))} min
           </strong>
           <small>
             {Math.round(Number(overview?.activity?.target_completion_rate ?? 0) * 100)}%
             达到学校运动目标
           </small>
+        </article>
+      </section>
+
+      <section className="analytics-grid" aria-label="详细统计">
+        <article className="surface trend-surface">
+          <div className="section-heading compact-heading">
+            <div>
+              <span className="eyebrow">近 7 天</span>
+              <h2>记录与运动趋势</h2>
+            </div>
+            <span className="scope-badge">
+              {statsClassId
+                ? classes.find((item) => item.id === statsClassId)?.name ?? "班级"
+                : "全校"}
+            </span>
+          </div>
+
+          <div className="macro-strip">
+            <span>
+              <b>{Math.round(Number(overview?.nutrition?.avg_protein_g ?? 0))}g</b>
+              蛋白质
+            </span>
+            <span>
+              <b>{Math.round(Number(overview?.nutrition?.avg_fat_g ?? 0))}g</b>
+              脂肪
+            </span>
+            <span>
+              <b>{Math.round(Number(overview?.nutrition?.avg_carbohydrate_g ?? 0))}g</b>
+              碳水
+            </span>
+          </div>
+
+          <div className="trend-list">
+            {(overview?.trend ?? []).map((point) => {
+              const mealRate = Math.max(
+                0,
+                Math.min(100, Math.round(point.mealParticipationRate * 100))
+              );
+              const targetRate = Math.round(point.targetCompletionRate * 100);
+
+              return (
+                <div className="trend-row" key={point.date}>
+                  <div className="trend-label">
+                    <strong>{point.date.slice(5)}</strong>
+                    <small>{Math.round(point.avgTotalMinutes)} min</small>
+                  </div>
+                  <div className="trend-meter" title={`餐食记录 ${mealRate}%`}>
+                    <span style={{ width: `${mealRate}%` }} />
+                  </div>
+                  <b>{mealRate}%</b>
+                  <small className="goal-rate">{targetRate}% 达标</small>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="surface dish-stats-surface">
+          <span className="eyebrow">午餐菜品</span>
+          <h2>逐菜平均完成度</h2>
+          <p>按学生确认的克数优先换算；没有克数时使用份量倍率。</p>
+
+          <div className="dish-stat-list">
+            {(overview?.dishes ?? []).length === 0 ? (
+              <p className="empty-copy">当天还没有可统计的菜品记录。</p>
+            ) : (
+              (overview?.dishes ?? []).map((item) => {
+                const completion = Math.round(item.avgCompletion * 100);
+                const meter = Math.max(0, Math.min(100, completion));
+
+                return (
+                  <div className="dish-stat" key={item.id}>
+                    <div className="dish-stat-title">
+                      <strong>{item.name}</strong>
+                      <small>
+                        {item.participants}/{overview?.totalStudents ?? 0} 人记录
+                      </small>
+                    </div>
+                    <div className="dish-meter">
+                      <span style={{ width: `${meter}%` }} />
+                    </div>
+                    <strong>{completion}%</strong>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </article>
       </section>
 
