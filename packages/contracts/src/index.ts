@@ -29,7 +29,12 @@ export const recordMealSchema = z.object({
   items: z.array(z.object({
     dishId: z.string(),
     servingMultiplier: portionSchema
-  })).max(40)
+  }))
+    .max(40)
+    .refine(
+      (items) => new Set(items.map((item) => item.dishId)).size === items.length,
+      "duplicate dishId"
+    )
 });
 
 export const adminUpsertMenuSchema = z.object({
