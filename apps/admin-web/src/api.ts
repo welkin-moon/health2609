@@ -28,6 +28,13 @@ export type ClassGroup = {
   name: string;
 };
 
+export type SchoolDayWindow = {
+  id: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+};
+
 export type PeTimetableItem = {
   id: string;
   weekday: number;
@@ -92,6 +99,26 @@ export const api = {
 
   classes() {
     return json<{ classes: ClassGroup[] }>("/v1/admin/classes");
+  },
+
+  schoolDayWindows() {
+    return json<{ items: SchoolDayWindow[] }>(
+      "/v1/admin/school/day-windows"
+    );
+  },
+
+  saveSchoolDayWindow(input: {
+    weekday: number;
+    startTime: string;
+    endTime: string;
+  }) {
+    return json<{ ok: true; id: string }>(
+      "/v1/admin/school/day-windows",
+      {
+        method: "PUT",
+        body: JSON.stringify(input)
+      }
+    );
   },
 
   menus(date: string) {
