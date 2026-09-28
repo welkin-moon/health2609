@@ -184,6 +184,28 @@ select:focus {
   border-radius: 28px 42px 28px 42px;
 }
 
+.school-window-surface {
+  border-radius: 42px 24px 34px 24px;
+  background: linear-gradient(145deg, rgba(239, 246, 255, .95), rgba(248, 242, 255, .9));
+}
+
+.window-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.window-chip {
+  padding: 8px 12px;
+  border-radius: 999px 999px 999px 12px;
+  background: #e4eefc;
+  color: #334b68;
+  font-size: .82rem;
+  font-weight: 720;
+}
+
+
 .section-heading {
   display: flex;
   align-items: start;
