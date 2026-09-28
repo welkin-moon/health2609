@@ -86,7 +86,7 @@ Statistics should favor aggregation over exposing unnecessary individual health 
 
 ```text
 Android app
-  ├─ UI: Compose + Material 3
+  ├─ UI: Compose + Material 3 Expressive (M3E)
   ├─ Domain
   ├─ Repositories
   ├─ Room / DataStore
@@ -99,7 +99,7 @@ Cloudflare Worker API
   ├─ domain services
   ├─ statistics
   ├─ D1 repositories
-  ├─ optional R2 image storage
+  ├─ no persistent meal-image object storage
   └─ AGY task adapter
            │
            └─ Cloudflare Tunnel / existing bridge -> AGY with prompt
