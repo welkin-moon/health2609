@@ -8,14 +8,15 @@ health2609 把学校掌握的“菜单与体育课事实”和学生手机掌握
 
 ```mermaid
 flowchart LR
-    A[管理员 Web] -->|菜单/标准份| W[Cloudflare Worker]
+    A[管理员 Pages] -->|菜单/标准份| W[Cloudflare Worker]
     A -->|体育课安排与实际活动分钟| W
     S[Android 学生端] -->|校园餐实际食用量| W
     H[Health Connect] -->|原始运动记录仅在手机本地读取| S
     S -->|排除在校时段后的每日汇总| W
+    S -->|手动补录运动类型/时长/强度| W
     S -->|家庭餐图片| W
-    W -->|图片 + 约束提示词| G[AGY]
-    G -->|结构化候选结果| W
+    W -->|图片 + 约束提示词 + 任务触发| G[常驻 AGY CLI]
+    G -->|新建子 agent 分析后返回结构化候选| W
     W -->|候选结果| S
     S -->|学生确认后的结构化餐食| W
     W --> D[(D1)]
@@ -26,11 +27,11 @@ flowchart LR
 
 校园餐由管理员提前录入菜品、标准份和可选营养数据。学生端记录实际吃了多少，支持常用份量比例和精确克数。营养总量由确定性代码按确认份量换算，不让模型直接决定最终统计值。
 
-校内体育不从手机步数或运动记录反推。管理员维护课程安排，并记录当节课实际活动分钟。学生当天运动量由“体育课实际活动分钟 + 校外运动”组成。
+校内体育不从手机步数或运动记录反推。管理员维护课程安排，并记录当节课实际活动分钟。学生当天运动量由“体育课实际活动分钟 + 校外运动 + 学生手动补录运动”组成。
 
-校外运动只在 Android 本地读取 Health Connect。App 先拿学校配置的在校时段，本地排除这些时间段，只上传当天聚合分钟、步数和活动能量，不要求原始 GPS 轨迹。
+校外运动只在 Android 本地读取 Health Connect。App 先拿学校配置的在校时段，本地排除这些时间段，只上传当天聚合分钟、步数和活动能量，不要求原始 GPS 轨迹。若 Health Connect 无权限、设备无数据或学生有无法自动识别的运动，学生可以手动补录运动类型、时长和强度。
 
-家庭餐照片不落 R2。Worker 只做大小/类型校验并通过现有 Cloudflare Tunnel 转发给 AGY，AGY 输出经过 schema 校验后返回学生端。学生可以改食品名、份量，确认后才写入 D1。
+家庭餐照片不落 R2。Worker 只做大小/类型校验，并通过 Cloudflare Tunnel/AGY 入口触发常驻 AGY CLI。AGY 在赛前已读好任务要求和输出 schema；每次收到新任务时创建子 agent 分析图片，返回结构化候选。候选结果经过 schema 校验后返回学生端，学生可以改食品名、份量，确认后才写入 D1。
 
 ## 管理员统计
 
@@ -48,17 +49,17 @@ flowchart LR
 
 ## 线上 Demo
 
-- 管理台与 API 统一入口：`https://h2609.lunarlab.uk`
-- 管理台静态文件由 CI 构建；生产 Demo 当前由同一 Worker 在根路径直接提供，`/v1/*` 保留给 API。
-- 独立 Cloudflare Pages 项目 `health2609-admin` 已连接 GitHub，作为静态管理台的备用部署路径。
-- 生产 D1：`health2609`，7 个 schema migration 已全部应用。
-- CI 会从公网检查根页面、`/healthz`，以及通过管理员接口读取 Demo 班级，避免“面板显示已部署但实际不可用”。
+- 管理台：Cloudflare Pages 项目 `health2609-admin`，自定义域名 `https://h2609-admin.lunarlab.uk/`，不使用 `pages.dev` 作为比赛入口。
+- API：Cloudflare Worker `health2609-api`，自定义域名 `https://h2609.lunarlab.uk/`，不使用 `workers.dev` 作为比赛入口。
+- 生产 D1：`health2609`，schema migration 已全部应用。
+- Android：比赛包可以直接使用 debug 签名 APK；CI 保留 `health2609-debug-apk` artifact。
+- AGY：赛前在 AGY CLI 中预加载本文件和 `prompts/home-meal-analysis.md`，保持 CLI 常驻，由 Worker 触发每次图片识别任务。
 
 ## 技术组成
 
-Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地 UI 状态使用 Preferences DataStore；业务数据以 Worker 为准。Health Connect 只在端侧读取。
+Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地 UI 状态使用 Preferences DataStore；业务数据以 Worker 为准。Health Connect 只在端侧读取，手动运动补录走同一套 Worker/D1 汇总链路。
 
-后台使用 Cloudflare Worker + D1。跨端 schema 位于 `packages/contracts`。管理员端是 Vite + React Web 应用，生产环境计划与 Worker API 统一使用 `https://h2609.lunarlab.uk/` 自定义域名，不依赖 `pages.dev` / `workers.dev` 作为比赛入口。
+后台使用 Cloudflare Worker + D1。跨端 schema 位于 `packages/contracts`。管理员端是 Vite + React 应用，部署在 Cloudflare Pages；Android 与 Pages 共用同一 Worker API。
 
 家庭餐模型能力不单独部署新的模型服务，而是通过受约束提示词调用现有 AGY。这样模型负责“看图并提出结构化候选”，营养和活动统计仍由普通程序计算。
 
@@ -70,9 +71,9 @@ Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地
 
 16–28 秒：打开 Android，学生选择当天各菜实际吃了多少，展示即时营养构成并保存。
 
-28–38 秒：点击同步手机运动，说明 Health Connect 数据会先在手机端排除在校时段，再上传校外汇总。
+28–38 秒：点击同步手机运动，说明 Health Connect 数据会先在手机端排除在校时段；然后补录一条无法自动识别的自主运动。
 
-38–48 秒：选择一张家庭餐照片，展示 AGY 返回的结构化食品；修改一项份量后确认保存。
+38–48 秒：选择一张家庭餐照片，展示 AGY 子 agent 返回的结构化食品；修改一项份量后确认保存。
 
 48–60 秒：回到管理员看板，切换全校/班级，展示餐食参与率、菜品完成度、体育课覆盖率和 7 天活动趋势。
 
@@ -82,11 +83,12 @@ Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地
 
 ## 提交前检查
 
-- Android 可以安装并完成校园餐记录主流程；
-- 管理员 Web 可以录菜单、在校时段、体育课和实际活动分钟；
+- Android debug APK 可以安装并完成校园餐记录主流程；
+- 管理员 Pages 可以录菜单、在校时段、体育课和实际活动分钟；
 - Health Connect 无权限、不可用、无学校时段时均有可理解提示；
+- 学生可以手动补录运动数据；
 - 家庭餐识别失败不会直接写入营养统计；
 - 管理端全校/班级统计口径一致；
-- release APK 使用比赛提交用 keystore 签名；
-- API URL 指向实际比赛环境，而不是 example.invalid；
+- Android API URL 指向 `https://h2609.lunarlab.uk/`；
+- 管理端使用自定义域名而不是 `pages.dev`；
 - 录制演示前准备当天菜单、体育课和至少一组可见统计数据。
