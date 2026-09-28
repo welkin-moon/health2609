@@ -1,33 +1,58 @@
-# Android release 与签名
+# Android APK 构建与提交
 
 ## 构建要求
 
-当前 Android 工具链使用 API 37、AGP 9.1.1、Gradle 9.3.1 和 JDK 17。Material 3 Expressive 来自 Compose alpha BOM，因此 release 构建也需要同一套工具链。
+当前 Android 工具链使用 API 37、AGP 9.1.1、Gradle 9.3.1 和 JDK 17。Material 3 Expressive 来自 Compose alpha BOM，因此 debug 和 release 变体都需要同一套工具链。
 
-调试 APK：
+## 比赛提交包
+
+本比赛 Demo 可以直接提交 Android debug 签名 APK，不需要额外准备 release keystore。
+
+本地构建：
 
 ```bash
 gradle -p apps/android assembleDebug
 ```
 
-未提供签名参数时，release 任务仍可用于检查 release 变体是否能编译，但输出不会作为最终比赛提交包。
+输出路径：
 
-## 创建比赛 keystore
-
-只需创建一次，并把 keystore 放在仓库外：
-
-```bash
-keytool -genkeypair -v \
-  -keystore health2609-release.jks \
-  -alias health2609 \
-  -keyalg RSA \
-  -keysize 3072 \
-  -validity 3650
+```text
+apps/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-不要把 `.jks`、密码或任何密钥提交到 GitHub。
+Debug APK 默认已经使用 Android debug key 签名，可直接安装到演示机。若比赛平台要求记录校验值，可对该文件计算 SHA-256。
 
-## 签名构建
+## API 地址
+
+比赛 Demo 的默认 Worker 基址已经设置为：
+
+```text
+https://h2609.lunarlab.uk/
+```
+
+仍可通过 `HEALTH2609_API_BASE_URL` 在构建时覆盖；地址必须以 `/` 结尾。
+
+示例：
+
+```bash
+gradle -p apps/android assembleDebug -PHEALTH2609_API_BASE_URL=https://h2609.lunarlab.uk/
+```
+
+## GitHub Actions
+
+主 CI 在每次 push 后执行：
+
+```bash
+gradle -p apps/android assembleDebug
+```
+
+并上传 `health2609-debug-apk` artifact。普通提交不再需要 release 签名流程。
+
+`.github/workflows/release.yml` 仍保留为可选项：如果之后需要正式 release 变体，可以手动触发或打 `v*` tag 运行；但这不是当前比赛 Demo 的提交 blocker。
+
+## 可选：release 签名
+
+只有在比赛或后续分发明确要求 release 签名时，才需要创建 keystore。不要把 `.jks`、密码或任何密钥提交到 GitHub。
 
 支持 Gradle property 或同名环境变量：
 
@@ -46,16 +71,4 @@ $env:HEALTH2609_KEY_PASSWORD="..."
 gradle -p apps/android assembleRelease -PHEALTH2609_API_BASE_URL=https://h2609.lunarlab.uk/
 ```
 
-成功后 APK 位于 `apps/android/app/build/outputs/apk/release/`。
-
-## API 地址
-
-比赛 Demo 的默认 Worker 基址已经设置为 `https://h2609.lunarlab.uk/`。仍可通过 `HEALTH2609_API_BASE_URL` 在构建时覆盖；地址必须以 `/` 结尾。
-
-## GitHub Actions
-
-`.github/workflows/release.yml` 只在手动触发或 `v*` tag 时运行，因此普通 push 不会不断产生 APK artifact。
-
-默认 workflow 生成的是 release 变体编译产物。若要让 GitHub Actions 直接签名，先把 keystore 以 base64 secret 方式安全注入 runner，再设置上述四个签名变量；仓库本身不保存密钥。
-
-本比赛 Demo 更推荐在可信本机完成最终签名，然后把 SHA-256 记录进提交材料。
+成功后 release APK 位于 `apps/android/app/build/outputs/apk/release/`。
