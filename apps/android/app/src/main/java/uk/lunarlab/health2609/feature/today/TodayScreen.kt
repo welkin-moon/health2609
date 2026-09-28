@@ -85,6 +85,7 @@ fun TodayScreen(
     onActivityMinutesChange: (Int) -> Unit,
     onActivityIntensityChange: (String) -> Unit,
     onSaveActivity: () -> Unit,
+    onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit
 ) {
@@ -269,6 +270,14 @@ fun TodayScreen(
                     },
                     title = "补记运动",
                     subtitle = "手机数据不足时，可以自己补充当天运动时间和强度"
+                )
+            }
+
+            item {
+                PhoneActivityCard(
+                    summary = state.summary,
+                    syncing = state.syncingPhoneActivity,
+                    onSync = onSyncPhoneActivity
                 )
             }
 
@@ -648,6 +657,82 @@ private fun DishCard(
                     keyboardType = KeyboardType.Number
                 )
             )
+        }
+    }
+}
+
+@Composable
+private fun PhoneActivityCard(
+    summary: DailySummaryDto?,
+    syncing: Boolean,
+    onSync: () -> Unit
+) {
+    val activity = summary?.activity
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        modifier = Modifier.animateContentSize(
+            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        "手机自动记录",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "只统计管理员配置的在校时段之外",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                Text(
+                    "${activity?.healthConnectOutsideMinutes ?: 0} min",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                SmallMetric(
+                    modifier = Modifier.weight(1f),
+                    value = "${activity?.peMinutes ?: 0} min",
+                    label = "校内体育"
+                )
+                SmallMetric(
+                    modifier = Modifier.weight(1f),
+                    value = activity?.activeEnergyKcal
+                        ?.let { "${it.roundToInt()} kcal" }
+                        ?: "—",
+                    label = "校外活动能量"
+                )
+            }
+
+            FilledTonalButton(
+                onClick = onSync,
+                enabled = !syncing,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (syncing) "正在同步 Health Connect…"
+                    else "同步手机校外运动"
+                )
+            }
         }
     }
 }
