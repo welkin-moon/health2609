@@ -71,6 +71,8 @@ export type Overview = {
   activity?: {
     avg_outside_minutes?: number;
     avg_active_energy_kcal?: number;
+    avg_total_minutes?: number;
+    target_completion_rate?: number;
   };
 };
 
