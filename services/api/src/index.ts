@@ -153,7 +153,13 @@ app.post(
       allowed.results.map((row) => [row.id, row])
     );
 
-    const normalized = body.items.map((item) => {
+    const normalized: Array<{
+      dishId: string;
+      multiplier: number;
+      grams: number | null;
+    }> = [];
+
+    for (const item of body.items) {
       const dish = dishById.get(item.dishId)!;
       const standardGrams =
         dish.standard_serving_grams == null
@@ -175,19 +181,22 @@ app.post(
       }
 
       if (multiplier === undefined) {
-        throw new Error("serving_multiplier_required_without_standard_grams");
+        return c.json(
+          { error: "serving_multiplier_required_without_standard_grams" },
+          400
+        );
       }
 
       if (multiplier < 0 || multiplier > 5) {
-        throw new Error("meal_amount_out_of_range");
+        return c.json({ error: "meal_amount_out_of_range" }, 400);
       }
 
-      return {
+      normalized.push({
         dishId: item.dishId,
         multiplier,
         grams: grams ?? null
-      };
-    });
+      });
+    }
 
     const statements = normalized.map((item) =>
       c.env.DB.prepare(
@@ -811,6 +820,13 @@ app.get("/v1/admin/pe/sessions", async (c) => {
     return c.json({ error: "date_and_class_group_required" }, 400);
   }
 
+  const parsedDate = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return c.json({ error: "invalid_date" }, 400);
+  }
+  const day = parsedDate.getUTCDay();
+  const weekday = day === 0 ? 7 : day;
+
   const rows = await c.env.DB.prepare(
     `SELECT pt.id AS timetable_id, pt.weekday, pt.start_time, pt.end_time,
             ps.actual_activity_minutes
@@ -819,11 +835,13 @@ app.get("/v1/admin/pe/sessions", async (c) => {
          ON ps.timetable_id = pt.id AND ps.date = ?
       WHERE pt.school_id = ?
         AND pt.class_group_id = ?
+        AND pt.weekday = ?
       ORDER BY pt.start_time`
   ).bind(
     date,
     c.get("schoolId"),
-    classGroupId
+    classGroupId,
+    weekday
   ).all();
 
   return c.json({
