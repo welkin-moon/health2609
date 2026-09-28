@@ -120,6 +120,7 @@ app.get("/v1/today/menu", async (c) => {
        FROM menus m
        JOIN dishes d ON d.menu_id = m.id
       WHERE m.school_id = ? AND m.date = ? AND m.meal_slot = ?
+        AND d.active = 1
       ORDER BY d.sort_order, d.name`
   ).bind(c.get("schoolId"), date, mealSlot).all();
 
@@ -168,6 +169,7 @@ app.post(
         WHERE m.school_id = ?
           AND m.date = ?
           AND m.meal_slot = ?
+          AND d.active = 1
           AND d.id IN (${placeholders})`
     ).bind(
       schoolId,
@@ -772,7 +774,7 @@ app.get("/v1/admin/menus", async (c) => {
     `SELECT m.id AS menu_id, m.meal_slot, d.id, d.name, d.standard_serving_grams,
             d.nutrition_per_serving_json, d.sort_order
        FROM menus m
-       LEFT JOIN dishes d ON d.menu_id = m.id
+       LEFT JOIN dishes d ON d.menu_id = m.id AND d.active = 1
       WHERE m.school_id = ? AND m.date = ?
       ORDER BY m.meal_slot, d.sort_order, d.name`
   ).bind(c.get("schoolId"), date).all();
@@ -835,26 +837,75 @@ app.put(
       menu = { id };
     }
 
-    const statements = [
-      c.env.DB.prepare("DELETE FROM dishes WHERE menu_id = ?").bind(menu.id),
-      ...body.dishes.map((dish, index) =>
-        c.env.DB.prepare(
-          `INSERT INTO dishes
-             (id, menu_id, name, standard_serving_grams,
-              nutrition_per_serving_json, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).bind(
-          crypto.randomUUID(),
-          menu!.id,
-          dish.name,
-          dish.standardServingGrams,
-          dish.nutritionPerServing
-            ? JSON.stringify(dish.nutritionPerServing)
-            : null,
-          index
-        )
-      )
+    const providedIds = body.dishes
+      .map((dish) => dish.id)
+      .filter((id): id is string => Boolean(id));
+
+    if (new Set(providedIds).size !== providedIds.length) {
+      return c.json({ error: "duplicate_dish_id" }, 400);
+    }
+
+    if (providedIds.length) {
+      const placeholders = providedIds.map(() => "?").join(",");
+      const owned = await c.env.DB.prepare(
+        `SELECT id
+           FROM dishes
+          WHERE menu_id = ? AND id IN (${placeholders})`
+      ).bind(menu.id, ...providedIds).all<{ id: string }>();
+
+      if (owned.results.length !== providedIds.length) {
+        return c.json({ error: "dish_scope_mismatch" }, 400);
+      }
+    }
+
+    const statements: D1PreparedStatement[] = [
+      c.env.DB.prepare(
+        "UPDATE dishes SET active = 0 WHERE menu_id = ?"
+      ).bind(menu.id)
     ];
+
+    body.dishes.forEach((dish, index) => {
+      const nutrition = dish.nutritionPerServing
+        ? JSON.stringify(dish.nutritionPerServing)
+        : null;
+
+      if (dish.id) {
+        statements.push(
+          c.env.DB.prepare(
+            `UPDATE dishes
+                SET name = ?,
+                    standard_serving_grams = ?,
+                    nutrition_per_serving_json = ?,
+                    sort_order = ?,
+                    active = 1
+              WHERE id = ? AND menu_id = ?`
+          ).bind(
+            dish.name,
+            dish.standardServingGrams,
+            nutrition,
+            index,
+            dish.id,
+            menu!.id
+          )
+        );
+      } else {
+        statements.push(
+          c.env.DB.prepare(
+            `INSERT INTO dishes
+               (id, menu_id, name, standard_serving_grams,
+                nutrition_per_serving_json, sort_order, active)
+             VALUES (?, ?, ?, ?, ?, ?, 1)`
+          ).bind(
+            crypto.randomUUID(),
+            menu!.id,
+            dish.name,
+            dish.standardServingGrams,
+            nutrition,
+            index
+          )
+        );
+      }
+    });
 
     await c.env.DB.batch(statements);
     return c.json({ ok: true, menuId: menu.id });
