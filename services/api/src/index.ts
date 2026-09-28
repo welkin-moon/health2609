@@ -720,35 +720,26 @@ app.put(
     }
 
     const body = c.req.valid("json");
-    const existing = await c.env.DB.prepare(
-      `SELECT id
-         FROM school_day_windows
-        WHERE school_id = ?
-          AND weekday = ?
-          AND start_time = ?
-          AND end_time = ?
-        LIMIT 1`
-    ).bind(
-      c.get("schoolId"),
-      body.weekday,
-      body.startTime,
-      body.endTime
-    ).first<{ id: string }>();
-
-    if (existing) return c.json({ ok: true, id: existing.id });
-
+    const schoolId = c.get("schoolId");
     const id = crypto.randomUUID();
-    await c.env.DB.prepare(
-      `INSERT INTO school_day_windows
-         (id, school_id, weekday, start_time, end_time)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(
-      id,
-      c.get("schoolId"),
-      body.weekday,
-      body.startTime,
-      body.endTime
-    ).run();
+
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `DELETE FROM school_day_windows
+          WHERE school_id = ? AND weekday = ?`
+      ).bind(schoolId, body.weekday),
+      c.env.DB.prepare(
+        `INSERT INTO school_day_windows
+           (id, school_id, weekday, start_time, end_time)
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(
+        id,
+        schoolId,
+        body.weekday,
+        body.startTime,
+        body.endTime
+      )
+    ]);
 
     return c.json({ ok: true, id });
   }
