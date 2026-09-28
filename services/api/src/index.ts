@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import {
   adminPeSessionSchema,
   adminPeTimetableSchema,
+  adminSchoolDayWindowSchema,
   adminUpsertMenuSchema,
   confirmedHomeMealSchema,
   energyReferenceSchema,
@@ -59,6 +60,13 @@ app.use("/v1/*", async (c, next) => {
 
 const requireAdmin = (role: string) => role === "admin";
 
+function weekdayFromDate(date: string): number | null {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const day = parsed.getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
 async function membershipFor(
   db: D1Database,
   schoolId: string,
@@ -76,6 +84,31 @@ async function membershipFor(
 }
 
 app.get("/health", (c) => c.json({ ok: true }));
+
+app.get("/v1/school/day-windows", async (c) => {
+  const date = c.req.query("date");
+  if (!date) return c.json({ error: "date_required" }, 400);
+
+  const weekday = weekdayFromDate(date);
+  if (weekday == null) return c.json({ error: "invalid_date" }, 400);
+
+  const rows = await c.env.DB.prepare(
+    `SELECT id, start_time, end_time
+       FROM school_day_windows
+      WHERE school_id = ? AND weekday = ?
+      ORDER BY start_time`
+  ).bind(c.get("schoolId"), weekday).all();
+
+  return c.json({
+    date,
+    weekday,
+    windows: rows.results.map((row) => ({
+      id: String(row.id),
+      startTime: String(row.start_time),
+      endTime: String(row.end_time)
+    }))
+  });
+});
 
 app.get("/v1/today/menu", async (c) => {
   const date = c.req.query("date");
@@ -650,6 +683,69 @@ app.post("/v1/home-meals/analyze", async (c) => {
   return c.json(parsed.data);
 });
 
+app.get("/v1/admin/school/day-windows", async (c) => {
+  if (!requireAdmin(c.get("role"))) return c.json({ error: "forbidden" }, 403);
+
+  const rows = await c.env.DB.prepare(
+    `SELECT id, weekday, start_time, end_time
+       FROM school_day_windows
+      WHERE school_id = ?
+      ORDER BY weekday, start_time`
+  ).bind(c.get("schoolId")).all();
+
+  return c.json({
+    items: rows.results.map((row) => ({
+      id: String(row.id),
+      weekday: Number(row.weekday),
+      startTime: String(row.start_time),
+      endTime: String(row.end_time)
+    }))
+  });
+});
+
+app.put(
+  "/v1/admin/school/day-windows",
+  zValidator("json", adminSchoolDayWindowSchema),
+  async (c) => {
+    if (!requireAdmin(c.get("role"))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
+    const body = c.req.valid("json");
+    const existing = await c.env.DB.prepare(
+      `SELECT id
+         FROM school_day_windows
+        WHERE school_id = ?
+          AND weekday = ?
+          AND start_time = ?
+          AND end_time = ?
+        LIMIT 1`
+    ).bind(
+      c.get("schoolId"),
+      body.weekday,
+      body.startTime,
+      body.endTime
+    ).first<{ id: string }>();
+
+    if (existing) return c.json({ ok: true, id: existing.id });
+
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(
+      `INSERT INTO school_day_windows
+         (id, school_id, weekday, start_time, end_time)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      id,
+      c.get("schoolId"),
+      body.weekday,
+      body.startTime,
+      body.endTime
+    ).run();
+
+    return c.json({ ok: true, id });
+  }
+);
+
 app.get("/v1/admin/classes", async (c) => {
   if (!requireAdmin(c.get("role"))) return c.json({ error: "forbidden" }, 403);
 
@@ -903,12 +999,10 @@ app.get("/v1/admin/pe/sessions", async (c) => {
     return c.json({ error: "date_and_class_group_required" }, 400);
   }
 
-  const parsedDate = new Date(`${date}T00:00:00Z`);
-  if (Number.isNaN(parsedDate.getTime())) {
+  const weekday = weekdayFromDate(date);
+  if (weekday == null) {
     return c.json({ error: "invalid_date" }, 400);
   }
-  const day = parsedDate.getUTCDay();
-  const weekday = day === 0 ? 7 : day;
 
   const rows = await c.env.DB.prepare(
     `SELECT pt.id AS timetable_id, pt.weekday, pt.start_time, pt.end_time,
