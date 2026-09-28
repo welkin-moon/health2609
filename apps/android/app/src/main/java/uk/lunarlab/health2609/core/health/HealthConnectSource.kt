@@ -96,8 +96,8 @@ class HealthConnectSource(
             exerciseMinutes = exerciseDuration.toMinutes()
                 .coerceAtMost(1440)
                 .toInt(),
-            steps = steps.coerceAtLeast(0L),
-            activeEnergyKcal = activeEnergyKcal.coerceAtLeast(0.0)
+            steps = steps.coerceIn(0L, 200_000L),
+            activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
         )
     }
 
