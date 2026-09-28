@@ -629,6 +629,13 @@ app.post(
 );
 
 app.post("/v1/home-meals/analyze", async (c) => {
+  const membership = await membershipFor(
+    c.env.DB,
+    c.get("schoolId"),
+    c.get("participantId")
+  );
+  if (!membership) return c.json({ error: "membership_not_found" }, 404);
+
   const contentType = c.req.header("content-type") ?? "";
   if (!contentType.includes("multipart/form-data")) {
     return c.json({ error: "multipart_required" }, 415);
@@ -658,7 +665,8 @@ app.post("/v1/home-meals/analyze", async (c) => {
     headers: c.env.AGY_TASK_TOKEN
       ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
       : undefined,
-    body: outbound
+    body: outbound,
+    signal: AbortSignal.timeout(25_000)
   });
 
   if (!response.ok) {
