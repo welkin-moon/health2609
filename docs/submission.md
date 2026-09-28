@@ -8,7 +8,7 @@ health2609 把学校掌握的“菜单与体育课事实”和学生手机掌握
 
 ```mermaid
 flowchart LR
-    A[管理员 Pages] -->|菜单/标准份| W[Cloudflare Worker]
+    A[管理员 Web] -->|菜单/标准份| W[Cloudflare Worker]
     A -->|体育课安排与实际活动分钟| W
     S[Android 学生端] -->|校园餐实际食用量| W
     H[Health Connect] -->|原始运动记录仅在手机本地读取| S
@@ -58,7 +58,7 @@ flowchart LR
 
 Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地 UI 状态使用 Preferences DataStore；业务数据以 Worker 为准。Health Connect 只在端侧读取。
 
-后台使用 Cloudflare Worker + D1。跨端 schema 位于 `packages/contracts`。管理员端是 Vite + React Pages 应用，与 Android 共用同一 Worker API。
+后台使用 Cloudflare Worker + D1。跨端 schema 位于 `packages/contracts`。管理员端是 Vite + React Web 应用，生产环境计划与 Worker API 统一使用 `https://h2609.lunarlab.uk/` 自定义域名，不依赖 `pages.dev` / `workers.dev` 作为比赛入口。
 
 家庭餐模型能力不单独部署新的模型服务，而是通过受约束提示词调用现有 AGY。这样模型负责“看图并提出结构化候选”，营养和活动统计仍由普通程序计算。
 
@@ -83,7 +83,7 @@ Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地
 ## 提交前检查
 
 - Android 可以安装并完成校园餐记录主流程；
-- 管理员 Pages 可以录菜单、在校时段、体育课和实际活动分钟；
+- 管理员 Web 可以录菜单、在校时段、体育课和实际活动分钟；
 - Health Connect 无权限、不可用、无学校时段时均有可理解提示；
 - 家庭餐识别失败不会直接写入营养统计；
 - 管理端全校/班级统计口径一致；
