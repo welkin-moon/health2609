@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: health2609-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   web-and-worker:
     runs-on: ubuntu-latest
@@ -35,6 +39,7 @@ jobs:
           name: health2609-worker-bundle
           path: services/api/dist
           retention-days: 3
+          if-no-files-found: error
       - name: Publish Admin static branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
