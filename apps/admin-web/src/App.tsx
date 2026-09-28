@@ -314,7 +314,10 @@ export function App() {
           <strong>
             {Math.round(Number(overview?.activity?.avg_outside_minutes ?? 0))} min
           </strong>
-          <small>学生手机校外聚合均值</small>
+          <small>
+            {Math.round(Number(overview?.activity?.target_completion_rate ?? 0) * 100)}%
+            达到学校运动目标
+          </small>
         </article>
       </section>
 
