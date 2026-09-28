@@ -23,6 +23,7 @@ data class TodayUiState(
     val savingMeal: Boolean = false,
     val savingActivity: Boolean = false,
     val savingEnergyReference: Boolean = false,
+    val syncingPhoneActivity: Boolean = false,
     val menu: TodayMenuDto? = null,
     val summary: DailySummaryDto? = null,
     val amounts: Map<String, DishAmount> = emptyMap(),
@@ -135,6 +136,46 @@ class TodayViewModel(
     fun setManualActivityIntensity(intensity: String) {
         if (intensity !in setOf("light", "moderate", "vigorous")) return
         _uiState.update { it.copy(manualActivityIntensity = intensity) }
+    }
+
+    fun phoneActivitySyncStarted() {
+        _uiState.update {
+            it.copy(syncingPhoneActivity = true, message = null)
+        }
+    }
+
+    fun phoneActivitySyncFinished(message: String = "手机校外运动已同步") {
+        val date = _uiState.value.date
+        viewModelScope.launch {
+            runCatching { repository.loadSummary(date) }
+                .onSuccess { summary ->
+                    _uiState.update {
+                        it.copy(
+                            summary = summary,
+                            syncingPhoneActivity = false,
+                            message = message
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            syncingPhoneActivity = false,
+                            message = error.message
+                                ?: "手机数据已提交，但汇总刷新失败"
+                        )
+                    }
+                }
+        }
+    }
+
+    fun phoneActivitySyncFailed(message: String) {
+        _uiState.update {
+            it.copy(
+                syncingPhoneActivity = false,
+                message = message
+            )
+        }
     }
 
     fun setEnergyReferenceInput(value: String) {
