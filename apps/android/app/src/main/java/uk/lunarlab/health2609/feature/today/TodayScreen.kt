@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package uk.lunarlab.health2609.feature.today
 
 import androidx.compose.animation.animateContentSize
