@@ -39,6 +39,14 @@ jobs:
           git add index.js SOURCE_COMMIT
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "build: worker bundle $GITHUB_SHA"
           git push --force origin HEAD:refs/heads/cf-bundle
+      - name: Smoke test deployed API
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 https://h2609.lunarlab.uk/healthz | grep -q '"ok":true'
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 \
+            -H 'x-demo-role: admin' \
+            -H 'x-demo-school: demo-school' \
+            https://h2609.lunarlab.uk/v1/admin/classes | grep -q 'demo-class'
 
   android:
     runs-on: ubuntu-latest
@@ -52,3 +60,8 @@ jobs:
         with:
           gradle-version: "9.3.1"
       - run: gradle -p apps/android assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: health2609-debug-apk
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 3
