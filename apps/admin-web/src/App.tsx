@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, type DishDraft, type Overview } from "./api";
+import { api, type DishDraft, type Nutrition, type Overview } from "./api";
 
 const emptyDish = (): DishDraft => ({
   name: "",
@@ -12,6 +12,30 @@ const localDate = () => {
   const offset = now.getTimezoneOffset() * 60_000;
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 };
+
+const nutritionKeys: Array<{
+  key: keyof Nutrition;
+  label: string;
+  unit: string;
+}> = [
+  { key: "energyKcal", label: "能量", unit: "kcal" },
+  { key: "proteinG", label: "蛋白质", unit: "g" },
+  { key: "fatG", label: "脂肪", unit: "g" },
+  { key: "carbohydrateG", label: "碳水", unit: "g" }
+];
+
+function normalizeDish(dish: DishDraft): DishDraft {
+  const nutrition = dish.nutritionPerServing;
+  const hasNutrition = nutrition && Object.values(nutrition).some(
+    (value) => typeof value === "number" && Number.isFinite(value)
+  );
+
+  return {
+    ...dish,
+    name: dish.name.trim(),
+    nutritionPerServing: hasNutrition ? nutrition : null
+  };
+}
 
 export function App() {
   const [date, setDate] = useState(localDate());
@@ -65,10 +89,30 @@ export function App() {
     );
   }
 
+  function updateNutrition(
+    index: number,
+    key: keyof Nutrition,
+    rawValue: string
+  ) {
+    const parsed = rawValue === "" ? undefined : Number(rawValue);
+    setDishes((items) =>
+      items.map((item, i) => {
+        if (i !== index) return item;
+        return {
+          ...item,
+          nutritionPerServing: {
+            ...(item.nutritionPerServing ?? {}),
+            [key]: parsed
+          }
+        };
+      })
+    );
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const valid = dishes
-      .map((dish) => ({ ...dish, name: dish.name.trim() }))
+      .map(normalizeDish)
       .filter((dish) => dish.name);
 
     if (!valid.length) {
@@ -157,45 +201,65 @@ export function App() {
 
           <div className="dish-list">
             {dishes.map((dish, index) => (
-              <div className="dish-row" key={index}>
-                <label>
-                  <span>菜品</span>
-                  <input
-                    value={dish.name}
-                    onChange={(event) =>
-                      updateDish(index, { name: event.target.value })
-                    }
-                    placeholder="例如 番茄炒蛋"
-                  />
-                </label>
+              <div className="dish-editor" key={index}>
+                <div className="dish-row">
+                  <label>
+                    <span>菜品</span>
+                    <input
+                      value={dish.name}
+                      onChange={(event) =>
+                        updateDish(index, { name: event.target.value })
+                      }
+                      placeholder="例如 番茄炒蛋"
+                    />
+                  </label>
 
-                <label className="grams">
-                  <span>标准份 / g</span>
-                  <input
-                    min="1"
-                    max="3000"
-                    type="number"
-                    value={dish.standardServingGrams ?? ""}
-                    onChange={(event) =>
-                      updateDish(index, {
-                        standardServingGrams: event.target.value
-                          ? Number(event.target.value)
-                          : null
-                      })
-                    }
-                  />
-                </label>
+                  <label className="grams">
+                    <span>标准份 / g</span>
+                    <input
+                      min="1"
+                      max="3000"
+                      type="number"
+                      value={dish.standardServingGrams ?? ""}
+                      onChange={(event) =>
+                        updateDish(index, {
+                          standardServingGrams: event.target.value
+                            ? Number(event.target.value)
+                            : null
+                        })
+                      }
+                    />
+                  </label>
 
-                <button
-                  aria-label="删除菜品"
-                  className="icon-button"
-                  type="button"
-                  onClick={() =>
-                    setDishes((items) => items.filter((_, i) => i !== index))
-                  }
-                >
-                  ×
-                </button>
+                  <button
+                    aria-label="删除菜品"
+                    className="icon-button"
+                    type="button"
+                    onClick={() =>
+                      setDishes((items) => items.filter((_, i) => i !== index))
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="nutrition-grid">
+                  {nutritionKeys.map(({ key, label, unit }) => (
+                    <label key={key}>
+                      <span>{label} / {unit}</span>
+                      <input
+                        min="0"
+                        step="0.1"
+                        type="number"
+                        value={dish.nutritionPerServing?.[key] ?? ""}
+                        onChange={(event) =>
+                          updateNutrition(index, key, event.target.value)
+                        }
+                        placeholder="可选"
+                      />
+                    </label>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
