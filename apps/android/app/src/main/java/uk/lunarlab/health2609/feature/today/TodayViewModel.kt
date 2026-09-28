@@ -99,13 +99,17 @@ class TodayViewModel(
 
     fun setConsumedGrams(dishId: String, grams: Double?) {
         val dish = _uiState.value.menu?.dishes?.firstOrNull { it.id == dishId }
-        val safeGrams = grams?.coerceIn(0.0, 5000.0)
+        val maxGrams = dish?.standardServingGrams
+            ?.takeIf { it > 0 }
+            ?.times(5.0)
+            ?: 5000.0
+        val safeGrams = grams?.coerceIn(0.0, maxGrams)
         val multiplier = if (
             safeGrams != null &&
             dish?.standardServingGrams != null &&
             dish.standardServingGrams > 0
         ) {
-            (safeGrams / dish.standardServingGrams).coerceIn(0.0, 5.0)
+            safeGrams / dish.standardServingGrams
         } else {
             _uiState.value.amounts[dishId]?.servingMultiplier ?: 0.0
         }
