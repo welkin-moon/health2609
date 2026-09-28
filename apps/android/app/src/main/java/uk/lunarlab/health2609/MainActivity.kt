@@ -15,7 +15,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uk.lunarlab.health2609.core.health.HealthConnectSource
 import uk.lunarlab.health2609.core.network.ApiFactory
 import uk.lunarlab.health2609.feature.today.TodayRepository
@@ -51,7 +53,9 @@ class MainActivity : ComponentActivity() {
                         if (uri != null) {
                             lifecycleScope.launch {
                                 runCatching {
-                                    readImageForUpload(uri)
+                                    withContext(Dispatchers.IO) {
+                                        readImageForUpload(uri)
+                                    }
                                 }.onSuccess { image ->
                                     viewModel.analyzeHomeMeal(
                                         bytes = image.bytes,
