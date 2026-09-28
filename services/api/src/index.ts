@@ -83,6 +83,28 @@ app.post("/v1/meals/consumption", zValidator("json", recordMealSchema), async (c
 
   if (!membership) return c.json({ error: "membership_not_found" }, 404);
 
+  if (body.items.length) {
+    const placeholders = body.items.map(() => "?").join(",");
+    const allowed = await c.env.DB.prepare(
+      `SELECT d.id
+         FROM dishes d
+         JOIN menus m ON m.id = d.menu_id
+        WHERE m.school_id = ?
+          AND m.date = ?
+          AND m.meal_slot = ?
+          AND d.id IN (${placeholders})`
+    ).bind(
+      schoolId,
+      body.date,
+      body.mealSlot,
+      ...body.items.map((item) => item.dishId)
+    ).all<{ id: string }>();
+
+    if (allowed.results.length !== body.items.length) {
+      return c.json({ error: "dish_scope_mismatch" }, 400);
+    }
+  }
+
   const statements = body.items.map((item) =>
     c.env.DB.prepare(
       `INSERT INTO meal_consumption
