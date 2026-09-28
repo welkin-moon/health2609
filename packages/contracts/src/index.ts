@@ -52,6 +52,7 @@ export const adminUpsertMenuSchema = z.object({
   date: z.string(),
   mealSlot: mealSlotSchema,
   dishes: z.array(z.object({
+    id: z.string().optional(),
     name: z.string().trim().min(1).max(80),
     standardServingGrams: z.number().positive().max(3000).nullable(),
     nutritionPerServing: nutritionSchema.nullable()
