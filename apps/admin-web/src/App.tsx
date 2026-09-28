@@ -5,7 +5,8 @@ import {
   type DishDraft,
   type Nutrition,
   type Overview,
-  type PeSessionItem
+  type PeSessionItem,
+  type SchoolDayWindow
 } from "./api";
 
 const emptyDish = (): DishDraft => ({
@@ -64,12 +65,16 @@ export function App() {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [peSessions, setPeSessions] = useState<PeSessionItem[]>([]);
+  const [schoolWindows, setSchoolWindows] = useState<SchoolDayWindow[]>([]);
   const [peActual, setPeActual] = useState<Record<string, string>>({});
   const [peStartTime, setPeStartTime] = useState("14:00");
   const [peEndTime, setPeEndTime] = useState("14:45");
+  const [schoolStartTime, setSchoolStartTime] = useState("08:00");
+  const [schoolEndTime, setSchoolEndTime] = useState("17:00");
   const [status, setStatus] = useState("正在载入…");
   const [saving, setSaving] = useState(false);
   const [savingPe, setSavingPe] = useState(false);
+  const [savingSchoolWindow, setSavingSchoolWindow] = useState(false);
 
   const participation = useMemo(
     () => Math.round((overview?.meal?.participationRate ?? 0) * 100),
@@ -79,11 +84,13 @@ export function App() {
   async function refresh(targetDate = date) {
     setStatus("正在同步");
     try {
-      const [menuResult, stats, classResult] = await Promise.all([
-        api.menus(targetDate),
-        api.overview(targetDate),
-        api.classes()
-      ]);
+      const [menuResult, stats, classResult, schoolWindowResult] =
+        await Promise.all([
+          api.menus(targetDate),
+          api.overview(targetDate),
+          api.classes(),
+          api.schoolDayWindows()
+        ]);
 
       const lunch = menuResult.menus.find((menu) => menu.mealSlot === "lunch");
       if (lunch?.dishes.length) {
@@ -100,6 +107,7 @@ export function App() {
 
       setOverview(stats);
       setClasses(classResult.classes);
+      setSchoolWindows(schoolWindowResult.items);
       setSelectedClassId((current) =>
         current || classResult.classes[0]?.id || ""
       );
@@ -188,6 +196,29 @@ export function App() {
       setStatus(error instanceof Error ? error.message : "菜单保存失败");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function addSchoolWindow() {
+    if (schoolStartTime >= schoolEndTime) {
+      setStatus("在校结束时间需要晚于开始时间");
+      return;
+    }
+
+    setSavingSchoolWindow(true);
+    try {
+      await api.saveSchoolDayWindow({
+        weekday: weekdayForDate(date),
+        startTime: schoolStartTime,
+        endTime: schoolEndTime
+      });
+      const result = await api.schoolDayWindows();
+      setSchoolWindows(result.items);
+      setStatus("在校时段已保存，学生手机会排除这段时间");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "在校时段保存失败");
+    } finally {
+      setSavingSchoolWindow(false);
     }
   }
 
@@ -378,6 +409,52 @@ export function App() {
         </form>
 
         <div className="side-stack">
+          <section className="surface school-window-surface">
+            <span className="eyebrow">在校时段</span>
+            <h2>手机数据排除范围</h2>
+            <p>
+              按星期保存。学生同步 Health Connect 时只会读取这段时间之外的运动汇总。
+            </p>
+
+            <div className="time-grid">
+              <label className="stack-field">
+                <span>到校</span>
+                <input
+                  type="time"
+                  value={schoolStartTime}
+                  onChange={(event) => setSchoolStartTime(event.target.value)}
+                />
+              </label>
+              <label className="stack-field">
+                <span>离校</span>
+                <input
+                  type="time"
+                  value={schoolEndTime}
+                  onChange={(event) => setSchoolEndTime(event.target.value)}
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              className="tonal-button"
+              disabled={savingSchoolWindow}
+              onClick={() => void addSchoolWindow()}
+            >
+              {savingSchoolWindow ? "保存中…" : "保存当前星期的在校时段"}
+            </button>
+
+            <div className="window-list">
+              {schoolWindows
+                .filter((item) => item.weekday === weekdayForDate(date))
+                .map((item) => (
+                  <span className="window-chip" key={item.id}>
+                    {item.startTime}–{item.endTime}
+                  </span>
+                ))}
+            </div>
+          </section>
+
           <section className="surface pe-surface">
             <span className="eyebrow">体育课</span>
             <h2>课程安排 + 实际活动</h2>
