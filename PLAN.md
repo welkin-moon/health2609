@@ -54,6 +54,8 @@ The Android app should:
 
 Raw GPS tracks are not required.
 
+Students can also manually add activity sessions with type, duration and intensity. This covers unsupported devices, missing permissions, activities not captured by Health Connect, and demo correction cases.
+
 ### Meals at home
 
 The student may:
@@ -62,9 +64,9 @@ The student may:
 - manually edit the detected foods and serving amounts;
 - save only after confirmation.
 
-Image understanding is delegated to AGY using a constrained prompt. We do not build another model-serving product inside this repository.
+Image understanding is delegated to a resident AGY CLI using a constrained prompt. We do not build another model-serving product inside this repository.
 
-AGY should return structured output matching the repository contract. Nutrition and activity totals remain deterministic code paths.
+AGY should read the task requirements before the demo, stay open in the CLI, and create a fresh child agent/task context for each incoming home-meal image. Nutrition and activity totals remain deterministic code paths.
 
 ### Administrator statistics
 
@@ -91,6 +93,7 @@ Android app
   ├─ Repositories
   ├─ Room / DataStore
   ├─ Health Connect
+  ├─ manual activity entry
   └─ API client
            │
            ▼
@@ -102,7 +105,7 @@ Cloudflare Worker API
   ├─ no persistent meal-image object storage
   └─ AGY task adapter
            │
-           └─ Cloudflare Tunnel / existing bridge -> AGY with prompt
+           └─ Cloudflare Tunnel / existing ingress -> resident AGY CLI -> child agent
 
 Admin Pages
   └─ same Worker API
@@ -149,8 +152,9 @@ docs/
 ### M4 — home meal + AGY
 
 - photo selection/capture
-- direct image forwarding through the configured Cloudflare Tunnel
+- direct image forwarding through the configured Cloudflare Tunnel / AGY ingress
 - AGY structured task prompt
+- resident CLI + per-task child agent operating model
 - editable detection result
 - deterministic commit into daily nutrition
 
@@ -163,7 +167,7 @@ docs/
 
 ### M6 — submission polish
 
-- signed release APK
+- debug-signed APK artifact
 - technical documentation
 - screenshots
 - <=60 s demo video
@@ -194,4 +198,4 @@ The first vertical slice should already be demonstrable:
 6. Android displays today's nutrition summary;
 7. admin statistics shows participation and per-dish consumption.
 
-After this works, add PE and Health Connect.
+After this works, add PE and Health Connect / manual activity.
