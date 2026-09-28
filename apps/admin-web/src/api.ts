@@ -18,6 +18,7 @@ export type Nutrition = {
 };
 
 export type DishDraft = {
+  id?: string;
   name: string;
   standardServingGrams: number | null;
   nutritionPerServing: Nutrition | null;
