@@ -46,6 +46,14 @@ flowchart LR
 
 统计以聚合为主，Demo 不提供无必要的个体健康明细。
 
+## 线上 Demo
+
+- 管理台与 API 统一入口：`https://h2609.lunarlab.uk`
+- 管理台静态文件由 CI 构建；生产 Demo 当前由同一 Worker 在根路径直接提供，`/v1/*` 保留给 API。
+- 独立 Cloudflare Pages 项目 `health2609-admin` 已连接 GitHub，作为静态管理台的备用部署路径。
+- 生产 D1：`health2609`，7 个 schema migration 已全部应用。
+- CI 会从公网检查根页面、`/healthz`，以及通过管理员接口读取 Demo 班级，避免“面板显示已部署但实际不可用”。
+
 ## 技术组成
 
 Android 使用 Kotlin、Jetpack Compose 与 Material 3 Expressive。轻量本地 UI 状态使用 Preferences DataStore；业务数据以 Worker 为准。Health Connect 只在端侧读取。
