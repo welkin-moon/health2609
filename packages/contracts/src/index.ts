@@ -75,7 +75,7 @@ export const manualActivitySchema = z.object({
 });
 
 export const energyReferenceSchema = z.object({
-  baselineEnergyReferenceKcal: z.number().int().min(500).max(6000).nullable()
+  dailyEnergyReferenceKcal: z.number().int().min(500).max(6000).nullable()
 });
 
 export const adminPeTimetableSchema = z.object({
