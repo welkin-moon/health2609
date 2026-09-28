@@ -24,6 +24,8 @@ import uk.lunarlab.health2609.feature.today.TodayRepository
 import uk.lunarlab.health2609.feature.today.TodayScreen
 import uk.lunarlab.health2609.feature.today.TodayViewModel
 import uk.lunarlab.health2609.feature.today.TodayViewModelFactory
+import uk.lunarlab.health2609.core.storage.Health2609Preferences
+import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
 
 class MainActivity : ComponentActivity() {
@@ -33,6 +35,10 @@ class MainActivity : ComponentActivity() {
 
     private val healthConnectSource by lazy {
         HealthConnectSource(this)
+    }
+
+    private val preferences by lazy {
+        Health2609Preferences(this)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,7 +100,18 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                TodayScreen(
+                val selectedDestination by preferences.startDestination
+                    .collectAsStateWithLifecycle(initialValue = "today")
+
+                StudentAppShell(
+                    selectedDestination = selectedDestination,
+                    onDestinationChange = { destination ->
+                        lifecycleScope.launch {
+                            preferences.setStartDestination(destination)
+                        }
+                    }
+                ) {
+                    TodayScreen(
                     state = state,
                     onPortionChange = viewModel::setPortion,
                     onGramsChange = viewModel::setConsumedGrams,
@@ -148,7 +165,8 @@ class MainActivity : ComponentActivity() {
                         viewModel::setEnergyReferenceInput,
                     onSaveEnergyReference =
                         viewModel::saveEnergyReference
-                )
+                    )
+                }
             }
         }
     }

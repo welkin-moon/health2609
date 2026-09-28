@@ -1,12 +1,11 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "uk.lunarlab.health2609"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "uk.lunarlab.health2609"
@@ -32,9 +31,6 @@ android {
     }
 }
 
-kotlin {
-    jvmToolchain(17)
-}
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom-alpha:2026.09.00")
@@ -48,6 +44,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.health.connect:connect-client:1.1.0")
 
     implementation("com.squareup.retrofit2:retrofit:2.11.0")

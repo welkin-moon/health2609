@@ -16,7 +16,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm check
       - run: pnpm --filter @health2609/admin-web build
@@ -31,5 +30,5 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.13"
+          gradle-version: "9.3.1"
       - run: gradle -p apps/android assembleDebug
