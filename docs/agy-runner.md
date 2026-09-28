@@ -14,7 +14,7 @@ Android photo upload
   -> student confirmation UI
 ```
 
-The resident AGY CLI should be opened before the demo. It should read:
+On MSDT, `tools/agy-bridge/server.mjs` starts one resident AGY stream session before the demo. The bridge listens only on `127.0.0.1:18787`; Cloudflare Tunnel publishes it as `https://h2609-agy.lunarlab.uk/`. Port 8787 is intentionally left to the existing PC agent.\n\nThe resident AGY session reads:
 
 - `docs/submission.md`
 - `docs/architecture.md`
@@ -89,3 +89,20 @@ These values must stay server-side. Android and Pages never receive the tunnel s
 ## Failure behavior
 
 If the AGY bridge is unavailable, times out, or returns invalid JSON, the Worker returns an error and the Android UI falls back to manual entry / retry. The app must not persist model output until the student confirms the food names and quantities.
+
+
+## MSDT start command
+
+From the health2609 repository on MSDT:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\agy-bridge\start.ps1
+```
+
+The bridge uses AGY CLI's persistent stream-json mode and the repository JSON schema. It serializes requests so one resident coordinator handles the queue, but each meal request explicitly requires a fresh child/subagent for visual analysis. If AGY exits or a turn times out, the bridge discards that process and bootstraps a fresh resident session on the next request.
+
+Local health check:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18787/healthz
+```
