@@ -1,15 +1,19 @@
 package uk.lunarlab.health2609
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 import uk.lunarlab.health2609.core.health.HealthConnectSource
@@ -40,6 +44,29 @@ class MainActivity : ComponentActivity() {
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+                val homeMealPicker =
+                    rememberLauncherForActivityResult(
+                        ActivityResultContracts.PickVisualMedia()
+                    ) { uri ->
+                        if (uri != null) {
+                            lifecycleScope.launch {
+                                runCatching {
+                                    readImageForUpload(uri)
+                                }.onSuccess { image ->
+                                    viewModel.analyzeHomeMeal(
+                                        bytes = image.bytes,
+                                        mimeType = image.mimeType,
+                                        fileName = image.fileName
+                                    )
+                                }.onFailure { error ->
+                                    viewModel.showMessage(
+                                        error.message ?: "读取图片失败"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                 val healthPermissionLauncher =
                     rememberLauncherForActivityResult(
                         PermissionController
@@ -69,6 +96,20 @@ class MainActivity : ComponentActivity() {
                     onGramsChange = viewModel::setConsumedGrams,
                     onRefresh = viewModel::refresh,
                     onSaveMeal = viewModel::saveMeal,
+                    onPickHomeMealImage = {
+                        homeMealPicker.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts
+                                    .PickVisualMedia
+                                    .ImageOnly
+                            )
+                        )
+                    },
+                    onHomeMealSlotChange = viewModel::setHomeMealSlot,
+                    onHomeMealNameChange = viewModel::setHomeMealName,
+                    onHomeMealGramsChange = viewModel::setHomeMealGrams,
+                    onRemoveHomeMealItem = viewModel::removeHomeMealItem,
+                    onSaveHomeMeal = viewModel::saveHomeMeal,
                     onActivityMinutesChange =
                         viewModel::setManualActivityMinutes,
                     onActivityIntensityChange =
@@ -106,6 +147,51 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private data class UploadImage(
+        val bytes: ByteArray,
+        val mimeType: String,
+        val fileName: String
+    )
+
+    private fun readImageForUpload(uri: Uri): UploadImage {
+        val maxBytes = 8 * 1024 * 1024
+        val output = ByteArrayOutputStream()
+
+        contentResolver.openInputStream(uri).use { input ->
+            requireNotNull(input) { "无法读取这张图片" }
+
+            val buffer = ByteArray(64 * 1024)
+            var total = 0
+
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= maxBytes) {
+                    "图片不能超过 8 MB"
+                }
+                output.write(buffer, 0, count)
+            }
+        }
+
+        val mimeType = contentResolver.getType(uri)
+            ?.takeIf { it.startsWith("image/") }
+            ?: "image/jpeg"
+
+        val suffix = when (mimeType) {
+            "image/png" -> "png"
+            "image/webp" -> "webp"
+            "image/heic", "image/heif" -> "heic"
+            else -> "jpg"
+        }
+
+        return UploadImage(
+            bytes = output.toByteArray(),
+            mimeType = mimeType,
+            fileName = "home-meal.$suffix"
+        )
     }
 
     private suspend fun syncPhoneActivity(
