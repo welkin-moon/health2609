@@ -1,0 +1,14 @@
+.idea/
+.gradle/
+build/
+local.properties
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.apk
+*.aab
+.DS_Store
