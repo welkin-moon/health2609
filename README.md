@@ -8,7 +8,7 @@
 - 校内体育：按管理员维护的课程安排，并由管理员录入该节课实际活动分钟数统计。
 - 校外运动：Android 端通过 Health Connect 读取，只聚合在校外时段的数据后上传。
 - 家庭餐：学生可拍照或手动记录。图片识别由经提示词约束的 AGY 处理；仓库内不再单独维护模型服务。
-- 管理端：Cloudflare Pages，提供学校配置、菜单、体育课录入和统计看板。
+- 管理端：Vite + React 静态前端，生产环境与 API 统一部署在 `https://h2609.lunarlab.uk/`，不依赖 `pages.dev`/`workers.dev` 域名。
 - 后端：Cloudflare Workers + D1；家庭餐图片不落对象存储，Worker 仅校验后经 Cloudflare Tunnel 直接转发给 AGY。目标是免费层即可跑比赛 Demo。
 - Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E)，前后端和领域层解耦。
 
@@ -17,7 +17,7 @@
 ```text
 apps/
   android/       Android 主作品
-  admin-web/     学校管理员 Pages
+  admin-web/     学校管理员 Web
 services/
   api/           Cloudflare Worker API
 packages/
