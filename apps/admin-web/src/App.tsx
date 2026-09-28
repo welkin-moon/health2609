@@ -272,6 +272,7 @@ export function App() {
       <header className="topbar">
         <div>
           <span className="eyebrow">health2609 · 学校管理台</span>
+          <span className="environment-badge">线上 Demo · h2609</span>
           <h1>今天的校园健康概览</h1>
           <p>
             菜单、营养构成和体育课实际活动统一录入，学生端只需要确认自己真正吃了多少。

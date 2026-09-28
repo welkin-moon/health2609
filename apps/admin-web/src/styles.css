@@ -81,6 +81,17 @@ p {
   letter-spacing: .06em;
 }
 
+.environment-badge {
+  display: inline-flex;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border-radius: 999px 999px 999px 10px;
+  background: #eee6ff;
+  color: #573d88;
+  font-size: .72rem;
+  font-weight: 760;
+}
+
 .date-field,
 .stack-field,
 .dish-row label,
