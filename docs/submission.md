@@ -53,7 +53,7 @@ flowchart LR
 - API：Cloudflare Worker `health2609-api`，自定义域名 `https://h2609.lunarlab.uk/`，不使用 `workers.dev` 作为比赛入口。
 - 生产 D1：`health2609`，schema migration 已全部应用。
 - Android：比赛包可以直接使用 debug 签名 APK；CI 保留 `health2609-debug-apk` artifact。
-- AGY：赛前在 AGY CLI 中预加载本文件和 `prompts/home-meal-analysis.md`，保持 CLI 常驻，由 Worker 触发每次图片识别任务。
+- AGY：MSDT 上的 bridge 监听 `127.0.0.1:18787`，经 `https://h2609-agy.lunarlab.uk/` 暴露；赛前启动一个常驻 AGY stream 会话预加载任务要求，由 Worker 触发任务，并要求每张图片使用新的子 agent。现有 PC agent 的 8787 端口不复用。
 
 ## 技术组成
 
