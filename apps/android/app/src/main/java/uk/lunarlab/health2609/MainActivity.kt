@@ -33,8 +33,14 @@ class MainActivity : ComponentActivity() {
                 TodayScreen(
                     state = state,
                     onPortionChange = viewModel::setPortion,
+                    onGramsChange = viewModel::setConsumedGrams,
                     onRefresh = viewModel::refresh,
-                    onSave = viewModel::save
+                    onSaveMeal = viewModel::saveMeal,
+                    onActivityMinutesChange = viewModel::setManualActivityMinutes,
+                    onActivityIntensityChange = viewModel::setManualActivityIntensity,
+                    onSaveActivity = viewModel::saveManualActivity,
+                    onEnergyReferenceChange = viewModel::setEnergyReferenceInput,
+                    onSaveEnergyReference = viewModel::saveEnergyReference
                 )
             }
         }
