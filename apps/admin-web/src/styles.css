@@ -116,8 +116,15 @@ input:focus {
 
 .dish-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   margin: 22px 0;
+}
+
+.dish-editor {
+  padding: 14px;
+  border: 1px solid #ece8f1;
+  border-radius: 20px;
+  background: #fcf9ff;
 }
 
 .dish-row {
@@ -125,6 +132,20 @@ input:focus {
   grid-template-columns: minmax(0, 1fr) 140px 44px;
   gap: 10px;
   align-items: end;
+}
+
+.nutrition-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.nutrition-grid label {
+  display: grid;
+  gap: 7px;
+  color: #5f5f68;
+  font-size: .78rem;
 }
 
 .icon-button,
@@ -207,4 +228,5 @@ input:focus {
   }
   .stats-grid { grid-template-columns: 1fr; }
   .dish-row { grid-template-columns: 1fr 110px 44px; }
+  .nutrition-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
