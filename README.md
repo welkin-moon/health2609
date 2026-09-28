@@ -10,7 +10,7 @@
 - 家庭餐：学生可拍照或手动记录。图片识别由经提示词约束的 AGY 处理；仓库内不再单独维护模型服务。
 - 管理端：Cloudflare Pages，提供学校配置、菜单、体育课录入和统计看板。
 - 后端：Cloudflare Workers + D1；图片如需暂存则使用 R2。目标是免费层即可跑比赛 Demo。
-- Android：Kotlin + Jetpack Compose + Material 3，前后端和领域层解耦。
+- Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E) Expressive (M3E)，前后端和领域层解耦。
 
 ## 仓库结构
 
@@ -29,7 +29,7 @@ prompts/         AGY 结构化处理提示词
 ## 开发原则
 
 1. 先完成真实主流程，再补比赛包装。
-2. UI 使用 Material 3 / Material You；不做 WebView 套壳 APK。
+2. UI 使用 Material 3 Expressive (M3E)；不做 WebView 套壳 APK。
 3. API、领域模型和持久化层分离；Android 采用 feature + clean-ish 分层。
 4. 学校数据按 school tenant 隔离，管理员有统计能力。
 5. AI 只负责家庭餐的结构化识别与解释，营养汇总和运动分钟计算由确定性代码完成。
