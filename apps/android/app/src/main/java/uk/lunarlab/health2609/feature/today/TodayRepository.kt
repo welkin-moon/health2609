@@ -8,6 +8,8 @@ import uk.lunarlab.health2609.core.network.HealthApi
 import uk.lunarlab.health2609.core.network.ManualActivityRequest
 import uk.lunarlab.health2609.core.network.MealConsumptionRequest
 import uk.lunarlab.health2609.core.network.MealItemRequest
+import uk.lunarlab.health2609.core.network.OutsideSchoolActivityRequest
+import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
 data class TodayData(
@@ -26,6 +28,25 @@ class TodayRepository(
 
     suspend fun loadSummary(date: String): DailySummaryDto =
         api.todaySummary(date)
+
+    suspend fun loadSchoolDayWindows(date: String): List<SchoolDayWindowDto> =
+        api.schoolDayWindows(date).windows
+
+    suspend fun saveOutsideSchoolActivity(
+        date: String,
+        exerciseMinutes: Int,
+        steps: Long?,
+        activeEnergyKcal: Double?
+    ) {
+        api.saveOutsideSchoolActivity(
+            OutsideSchoolActivityRequest(
+                date = date,
+                exerciseMinutes = exerciseMinutes,
+                steps = steps,
+                activeEnergyKcal = activeEnergyKcal
+            )
+        )
+    }
 
     suspend fun saveMeal(
         date: String,
