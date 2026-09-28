@@ -1,0 +1,11 @@
+name = "health2609-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-27"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "health2609"
+database_id = "REPLACE_ME"
+
+[vars]
+AGY_TASK_URL = "https://REPLACE_ME/health2609/agy"
