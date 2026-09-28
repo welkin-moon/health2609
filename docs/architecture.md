@@ -7,7 +7,7 @@ health2609 has two user-facing clients:
 - Android student app
 - school administrator web app
 
-Both use one Cloudflare Worker API. D1 is the system of record for structured data. R2 is optional for short-lived home-meal images.
+Both use one Cloudflare Worker API. D1 is the system of record for structured data. Home-meal images are not persisted in R2. The Worker validates the request and forwards the image directly through the configured Cloudflare Tunnel to the AGY machine.
 
 The application is intentionally modular but small enough for a competition demo.
 
