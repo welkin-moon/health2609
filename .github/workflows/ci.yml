@@ -19,6 +19,12 @@ jobs:
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm check
       - run: pnpm --filter @health2609/admin-web build
+      - run: pnpm --filter @health2609/api exec wrangler deploy --dry-run --outdir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: health2609-worker-bundle
+          path: services/api/dist
+          retention-days: 3
 
   android:
     runs-on: ubuntu-latest
