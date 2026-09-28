@@ -305,6 +305,10 @@ class TodayViewModel(
         }
     }
 
+    fun showMessage(message: String) {
+        _uiState.update { it.copy(message = message) }
+    }
+
     fun phoneActivitySyncStarted() {
         _uiState.update {
             it.copy(syncingPhoneActivity = true, message = null)
