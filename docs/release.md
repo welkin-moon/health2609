@@ -48,7 +48,7 @@ gradle -p apps/android assembleDebug
 
 并上传 `health2609-debug-apk` artifact。普通提交不再需要 release 签名流程。
 
-`.github/workflows/release.yml` 仍保留为可选项：如果之后需要正式 release 变体，可以手动触发或打 `v*` tag 运行；但这不是当前比赛 Demo 的提交 blocker。
+`.github/workflows/release.yml` 现在也是比赛用 debug 签名构建：可以手动触发或打 `v*` tag，默认 API 为 `https://h2609.lunarlab.uk/`，并上传保留 7 天的 `health2609-debug-apk` artifact。正式 release 签名仍只是后续可选项。
 
 ## 可选：release 签名
 
