@@ -1118,14 +1118,14 @@ app.get("/v1/admin/stats/overview", async (c) => {
     activityTrend
   ] = await Promise.all([
     c.env.DB.prepare(
-      \`SELECT COUNT(*) AS count
+      `SELECT COUNT(*) AS count
          FROM student_memberships
         WHERE school_id = ?
-          AND (? IS NULL OR class_group_id = ?)\`
+          AND (? IS NULL OR class_group_id = ?)`
     ).bind(schoolId, classGroupId, classGroupId).first<{ count: number }>(),
 
     c.env.DB.prepare(
-      \`SELECT COUNT(DISTINCT sm.id) AS participants,
+      `SELECT COUNT(DISTINCT sm.id) AS participants,
               AVG(mc.serving_multiplier) AS avg_serving_multiplier,
               AVG(mc.consumed_grams) AS avg_consumed_grams
          FROM meal_consumption mc
@@ -1134,11 +1134,11 @@ app.get("/v1/admin/stats/overview", async (c) => {
          JOIN menus m ON m.id = d.menu_id
         WHERE sm.school_id = ?
           AND m.date = ?
-          AND (? IS NULL OR sm.class_group_id = ?)\`
+          AND (? IS NULL OR sm.class_group_id = ?)`
     ).bind(schoolId, date, classGroupId, classGroupId).first(),
 
     c.env.DB.prepare(
-      \`SELECT
+      `SELECT
           AVG(student_energy) AS avg_energy_kcal,
           AVG(student_protein) AS avg_protein_g,
           AVG(student_fat) AS avg_fat_g,
@@ -1165,11 +1165,11 @@ app.get("/v1/admin/stats/overview", async (c) => {
           AND m.date = ?
           AND (? IS NULL OR sm.class_group_id = ?)
         GROUP BY sm.id
-       )\`
+       )`
     ).bind(schoolId, date, classGroupId, classGroupId).first(),
 
     c.env.DB.prepare(
-      \`SELECT AVG(ps.actual_activity_minutes) AS avg_pe_minutes,
+      `SELECT AVG(ps.actual_activity_minutes) AS avg_pe_minutes,
               COUNT(ps.id) AS recorded_sessions,
               COUNT(pt.id) AS scheduled_sessions
          FROM pe_timetable pt
@@ -1177,21 +1177,21 @@ app.get("/v1/admin/stats/overview", async (c) => {
            ON ps.timetable_id = pt.id AND ps.date = ?
         WHERE pt.school_id = ?
           AND pt.weekday = ?
-          AND (? IS NULL OR pt.class_group_id = ?)\`
+          AND (? IS NULL OR pt.class_group_id = ?)`
     ).bind(date, schoolId, weekday, classGroupId, classGroupId).first(),
 
     c.env.DB.prepare(
-      \`SELECT AVG(a.exercise_minutes) AS avg_outside_minutes,
+      `SELECT AVG(a.exercise_minutes) AS avg_outside_minutes,
               AVG(a.active_energy_kcal) AS avg_active_energy_kcal
          FROM outside_school_activity_daily a
          JOIN student_memberships sm ON sm.id = a.student_membership_id
         WHERE sm.school_id = ?
           AND a.date = ?
-          AND (? IS NULL OR sm.class_group_id = ?)\`
+          AND (? IS NULL OR sm.class_group_id = ?)`
     ).bind(schoolId, date, classGroupId, classGroupId).first(),
 
     c.env.DB.prepare(
-      \`WITH
+      `WITH
          pe_by_class AS (
            SELECT pt.class_group_id,
                   SUM(ps.actual_activity_minutes) AS pe_minutes
@@ -1237,7 +1237,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
                   CASE WHEN total_minutes >= target_minutes
                        THEN 1.0 ELSE 0.0 END
                 ) AS target_completion_rate
-           FROM totals\`
+           FROM totals`
     ).bind(
       date,
       schoolId,
@@ -1249,7 +1249,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).first(),
 
     c.env.DB.prepare(
-      \`SELECT d.id,
+      `SELECT d.id,
               d.name,
               d.standard_serving_grams,
               COUNT(DISTINCT sm.id) AS participants,
@@ -1276,7 +1276,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
         WHERE m.school_id = ? AND m.date = ?
         GROUP BY d.id, d.name, d.standard_serving_grams, d.sort_order, d.active
        HAVING d.active = 1 OR COUNT(DISTINCT sm.id) > 0
-        ORDER BY d.sort_order, d.name\`
+        ORDER BY d.sort_order, d.name`
     ).bind(
       schoolId,
       classGroupId,
@@ -1286,7 +1286,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).all(),
 
     c.env.DB.prepare(
-      \`WITH RECURSIVE days(day) AS (
+      `WITH RECURSIVE days(day) AS (
          SELECT date(?, '-6 day')
          UNION ALL
          SELECT date(day, '+1 day') FROM days WHERE day < date(?)
@@ -1303,7 +1303,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
           AND sm.school_id = ?
           AND (? IS NULL OR sm.class_group_id = ?)
         GROUP BY days.day
-        ORDER BY days.day\`
+        ORDER BY days.day`
     ).bind(
       date,
       date,
@@ -1314,7 +1314,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).all(),
 
     c.env.DB.prepare(
-      \`WITH RECURSIVE days(day) AS (
+      `WITH RECURSIVE days(day) AS (
          SELECT date(?, '-6 day')
          UNION ALL
          SELECT date(day, '+1 day') FROM days WHERE day < date(?)
@@ -1382,7 +1382,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
               ) AS target_completion_rate
          FROM totals
         GROUP BY date
-        ORDER BY date\`
+        ORDER BY date`
     ).bind(
       date,
       date,
