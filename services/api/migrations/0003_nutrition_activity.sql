@@ -21,3 +21,6 @@ CREATE TABLE student_preferences (
 
 CREATE INDEX idx_manual_activity_student_date
   ON manual_activity_sessions(student_membership_id, date);
+
+CREATE UNIQUE INDEX idx_pe_timetable_unique_slot
+  ON pe_timetable(school_id, class_group_id, weekday, start_time, end_time);
