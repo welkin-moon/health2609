@@ -78,6 +78,12 @@ export const energyReferenceSchema = z.object({
   dailyEnergyReferenceKcal: z.number().int().min(500).max(6000).nullable()
 });
 
+export const adminSchoolDayWindowSchema = z.object({
+  weekday: z.number().int().min(1).max(7),
+  startTime: z.string().regex(/^([01]\\d|2[0-3]):[0-5]\\d$/),
+  endTime: z.string().regex(/^([01]\\d|2[0-3]):[0-5]\\d$/)
+});
+
 export const adminPeTimetableSchema = z.object({
   classGroupId: z.string().min(1),
   weekday: z.number().int().min(1).max(7),
