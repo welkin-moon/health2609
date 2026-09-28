@@ -23,15 +23,30 @@ jobs:
       - run: pnpm check
       - run: pnpm --filter @health2609/admin-web build
       - run: pnpm --filter @health2609/api exec wrangler deploy --dry-run --outdir dist
+      - name: Stage deploy bundles
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p /tmp/health2609-admin
+          cp -R apps/admin-web/dist/. /tmp/health2609-admin/
+          cp services/api/dist/index.js /tmp/health2609-worker-index.js
       - uses: actions/upload-artifact@v4
         with:
           name: health2609-worker-bundle
           path: services/api/dist
           retention-days: 3
+      - name: Publish Admin static branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git checkout --orphan cf-admin-publish
+          git rm -rf .
+          cp -R /tmp/health2609-admin/. .
+          printf '%s\n' "$GITHUB_SHA" > SOURCE_COMMIT
+          git add .
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "build: admin static $GITHUB_SHA"
+          git push --force origin HEAD:refs/heads/cf-admin
       - name: Publish Worker bundle branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          cp services/api/dist/index.js /tmp/health2609-worker-index.js
           git checkout --orphan cf-bundle-publish
           git rm -rf .
           cp /tmp/health2609-worker-index.js index.js
