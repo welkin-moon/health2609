@@ -1044,7 +1044,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
 
   const schoolId = c.get("schoolId");
 
-  const [membershipCount, meal, nutrition, pe, activity] = await Promise.all([
+  const [membershipCount, meal, nutrition, pe, activity, activityGoal] =
+    await Promise.all([
     c.env.DB.prepare(
       "SELECT COUNT(*) AS count FROM student_memberships WHERE school_id = ?"
     ).bind(schoolId).first<{ count: number }>(),
@@ -1091,7 +1092,55 @@ app.get("/v1/admin/stats/overview", async (c) => {
          FROM outside_school_activity_daily a
          JOIN student_memberships sm ON sm.id = a.student_membership_id
         WHERE sm.school_id = ? AND a.date = ?`
-    ).bind(schoolId, date).first()
+    ).bind(schoolId, date).first(),
+    c.env.DB.prepare(
+      `WITH
+         pe_by_class AS (
+           SELECT pt.class_group_id,
+                  SUM(ps.actual_activity_minutes) AS pe_minutes
+             FROM pe_sessions ps
+             JOIN pe_timetable pt ON pt.id = ps.timetable_id
+            WHERE ps.date = ? AND pt.school_id = ?
+            GROUP BY pt.class_group_id
+         ),
+         manual_by_student AS (
+           SELECT student_membership_id,
+                  SUM(duration_minutes) AS manual_minutes
+             FROM manual_activity_sessions
+            WHERE date = ?
+            GROUP BY student_membership_id
+         ),
+         phone_by_student AS (
+           SELECT student_membership_id,
+                  exercise_minutes AS phone_minutes
+             FROM outside_school_activity_daily
+            WHERE date = ?
+         ),
+         totals AS (
+           SELECT sm.id,
+                  s.daily_activity_target_minutes AS target_minutes,
+                  COALESCE(pe.pe_minutes, 0) +
+                    MAX(
+                      COALESCE(phone.phone_minutes, 0),
+                      COALESCE(manual.manual_minutes, 0)
+                    ) AS total_minutes
+             FROM student_memberships sm
+             JOIN schools s ON s.id = sm.school_id
+             LEFT JOIN pe_by_class pe
+               ON pe.class_group_id = sm.class_group_id
+             LEFT JOIN manual_by_student manual
+               ON manual.student_membership_id = sm.id
+             LEFT JOIN phone_by_student phone
+               ON phone.student_membership_id = sm.id
+            WHERE sm.school_id = ?
+         )
+         SELECT AVG(total_minutes) AS avg_total_minutes,
+                AVG(
+                  CASE WHEN total_minutes >= target_minutes
+                       THEN 1.0 ELSE 0.0 END
+                ) AS target_completion_rate
+           FROM totals`
+    ).bind(date, schoolId, date, date, schoolId).first()
   ]);
 
   const total = Number(membershipCount?.count ?? 0);
@@ -1105,7 +1154,10 @@ app.get("/v1/admin/stats/overview", async (c) => {
     },
     nutrition,
     pe,
-    activity
+    activity: {
+      ...(activity ?? {}),
+      ...(activityGoal ?? {})
+    }
   });
 });
 
