@@ -1,8 +1,11 @@
 package uk.lunarlab.health2609.core.network
 
+import okhttp3.MultipartBody
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.PUT
 import retrofit2.http.Query
 
@@ -22,6 +25,17 @@ interface HealthApi {
     suspend fun schoolDayWindows(
         @Query("date") date: String
     ): SchoolDayWindowsDto
+
+    @Multipart
+    @POST("v1/home-meals/analyze")
+    suspend fun analyzeHomeMeal(
+        @Part image: MultipartBody.Part
+    ): HomeMealAnalysisResultDto
+
+    @POST("v1/home-meals")
+    suspend fun saveHomeMeal(
+        @Body request: ConfirmedHomeMealRequest
+    ): ApiWriteResult
 
     @POST("v1/meals/consumption")
     suspend fun saveMeal(
