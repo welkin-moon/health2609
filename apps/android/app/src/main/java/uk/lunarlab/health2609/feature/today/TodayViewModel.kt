@@ -9,12 +9,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import uk.lunarlab.health2609.core.network.ConfirmedHomeMealItemRequest
 import uk.lunarlab.health2609.core.network.DailySummaryDto
+import uk.lunarlab.health2609.core.network.NutritionDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
 data class DishAmount(
     val servingMultiplier: Double = 0.0,
     val consumedGrams: Double? = null
+)
+
+data class HomeMealDraftItem(
+    val name: String,
+    val sourceGrams: Double?,
+    val grams: Double?,
+    val confidence: Double,
+    val nutritionAtSource: NutritionDto?,
+    val needsConfirmation: List<String>
 )
 
 data class TodayUiState(
@@ -24,6 +35,8 @@ data class TodayUiState(
     val savingActivity: Boolean = false,
     val savingEnergyReference: Boolean = false,
     val syncingPhoneActivity: Boolean = false,
+    val analyzingHomeMeal: Boolean = false,
+    val savingHomeMeal: Boolean = false,
     val menu: TodayMenuDto? = null,
     val summary: DailySummaryDto? = null,
     val amounts: Map<String, DishAmount> = emptyMap(),
@@ -31,6 +44,9 @@ data class TodayUiState(
     val manualActivityMinutes: Int = 30,
     val manualActivityIntensity: String = "moderate",
     val energyReferenceInput: String = "",
+    val homeMealSlot: String = "dinner",
+    val homeMealDraft: List<HomeMealDraftItem> = emptyList(),
+    val homeMealNotes: List<String> = emptyList(),
     val message: String? = null
 )
 
@@ -136,6 +152,157 @@ class TodayViewModel(
     fun setManualActivityIntensity(intensity: String) {
         if (intensity !in setOf("light", "moderate", "vigorous")) return
         _uiState.update { it.copy(manualActivityIntensity = intensity) }
+    }
+
+    fun analyzeHomeMeal(
+        bytes: ByteArray,
+        mimeType: String,
+        fileName: String = "meal.jpg"
+    ) {
+        if (_uiState.value.analyzingHomeMeal) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    analyzingHomeMeal = true,
+                    message = "正在让 AGY 看这顿饭…"
+                )
+            }
+
+            runCatching {
+                repository.analyzeHomeMeal(
+                    bytes = bytes,
+                    mimeType = mimeType,
+                    fileName = fileName
+                )
+            }.onSuccess { result ->
+                val draft = result.items.map { item ->
+                    HomeMealDraftItem(
+                        name = item.name,
+                        sourceGrams = item.estimatedGrams,
+                        grams = item.estimatedGrams,
+                        confidence = item.confidence,
+                        nutritionAtSource = item.nutrition,
+                        needsConfirmation = item.needsConfirmation
+                    )
+                }
+
+                _uiState.update {
+                    it.copy(
+                        analyzingHomeMeal = false,
+                        homeMealDraft = draft,
+                        homeMealNotes = result.notes,
+                        message = if (draft.isEmpty()) {
+                            "没有识别出明确食物，可以换一张图或手动记录"
+                        } else {
+                            "识别完成，请确认名称和实际吃下的克数"
+                        }
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        analyzingHomeMeal = false,
+                        message = error.message ?: "家庭餐识别失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun setHomeMealSlot(slot: String) {
+        if (slot !in setOf("breakfast", "lunch", "dinner")) return
+        _uiState.update { it.copy(homeMealSlot = slot) }
+    }
+
+    fun setHomeMealName(index: Int, name: String) {
+        _uiState.update { state ->
+            state.copy(
+                homeMealDraft = state.homeMealDraft.mapIndexed { i, item ->
+                    if (i == index) item.copy(name = name) else item
+                }
+            )
+        }
+    }
+
+    fun setHomeMealGrams(index: Int, grams: Double?) {
+        _uiState.update { state ->
+            state.copy(
+                homeMealDraft = state.homeMealDraft.mapIndexed { i, item ->
+                    if (i == index) {
+                        item.copy(grams = grams?.coerceIn(0.0, 5000.0))
+                    } else {
+                        item
+                    }
+                }
+            )
+        }
+    }
+
+    fun removeHomeMealItem(index: Int) {
+        _uiState.update { state ->
+            state.copy(
+                homeMealDraft = state.homeMealDraft.filterIndexed { i, _ ->
+                    i != index
+                }
+            )
+        }
+    }
+
+    fun saveHomeMeal() {
+        val state = _uiState.value
+        if (state.savingHomeMeal || state.homeMealDraft.isEmpty()) return
+
+        val confirmed = state.homeMealDraft
+            .filter { it.name.trim().isNotEmpty() }
+            .map { item ->
+                ConfirmedHomeMealItemRequest(
+                    name = item.name.trim(),
+                    grams = item.grams,
+                    nutrition = repository.scaledNutrition(
+                        nutrition = item.nutritionAtSource,
+                        sourceGrams = item.sourceGrams,
+                        confirmedGrams = item.grams
+                    )
+                )
+            }
+
+        if (confirmed.isEmpty()) {
+            _uiState.update {
+                it.copy(message = "至少保留一项家庭餐食物")
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(savingHomeMeal = true, message = null)
+            }
+
+            runCatching {
+                repository.saveHomeMeal(
+                    date = state.date,
+                    mealSlot = state.homeMealSlot,
+                    items = confirmed
+                )
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        savingHomeMeal = false,
+                        homeMealDraft = emptyList(),
+                        homeMealNotes = emptyList()
+                    )
+                }
+                refreshSummary("家庭餐已加入今天的营养汇总")
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        savingHomeMeal = false,
+                        message = error.message ?: "家庭餐保存失败"
+                    )
+                }
+            }
+        }
     }
 
     fun phoneActivitySyncStarted() {
