@@ -152,7 +152,7 @@ docs/
 ### M4 — home meal + AGY
 
 - photo selection/capture
-- direct image forwarding through the configured Cloudflare Tunnel / AGY ingress
+- direct image forwarding through the configured Cloudflare Tunnel to the MSDT resident AGY bridge / AGY ingress
 - AGY structured task prompt
 - resident CLI + per-task child agent operating model
 - editable detection result
