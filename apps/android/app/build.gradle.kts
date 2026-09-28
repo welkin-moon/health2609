@@ -20,6 +20,38 @@ android {
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
+    signingConfigs {
+        val keystorePath = providers.gradleProperty("HEALTH2609_KEYSTORE_PATH").orNull
+            ?: System.getenv("HEALTH2609_KEYSTORE_PATH")
+        val keystorePassword = providers.gradleProperty("HEALTH2609_KEYSTORE_PASSWORD").orNull
+            ?: System.getenv("HEALTH2609_KEYSTORE_PASSWORD")
+        val keyAliasValue = providers.gradleProperty("HEALTH2609_KEY_ALIAS").orNull
+            ?: System.getenv("HEALTH2609_KEY_ALIAS")
+        val keyPasswordValue = providers.gradleProperty("HEALTH2609_KEY_PASSWORD").orNull
+            ?: System.getenv("HEALTH2609_KEY_PASSWORD")
+
+        if (
+            keystorePath != null &&
+            keystorePassword != null &&
+            keyAliasValue != null &&
+            keyPasswordValue != null
+        ) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

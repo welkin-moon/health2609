@@ -1,0 +1,42 @@
+name: Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Worker API base URL, ending with /"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+      - name: Build release APK
+        env:
+          INPUT_API_BASE_URL: ${{ inputs.api_base_url }}
+          TAG_API_BASE_URL: ${{ vars.HEALTH2609_API_BASE_URL }}
+        run: |
+          API_BASE_URL="${INPUT_API_BASE_URL:-$TAG_API_BASE_URL}"
+          if [ -z "$API_BASE_URL" ]; then
+            echo "API base URL is required"
+            exit 1
+          fi
+          gradle -p apps/android assembleRelease -PHEALTH2609_API_BASE_URL="$API_BASE_URL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: health2609-release
+          path: apps/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
