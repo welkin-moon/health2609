@@ -41,7 +41,7 @@ jobs:
           git rm -rf .
           cp -R /tmp/health2609-admin/. .
           printf '%s\n' "$GITHUB_SHA" > SOURCE_COMMIT
-          git add .
+          git add index.html assets SOURCE_COMMIT
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "build: admin static $GITHUB_SHA"
           git push --force origin HEAD:refs/heads/cf-admin
       - name: Publish Worker bundle branch
