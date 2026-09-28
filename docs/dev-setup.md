@@ -26,7 +26,7 @@ cd services/api
 pnpm exec wrangler d1 migrations apply health2609 --local
 ```
 
-The second migration creates a tiny demo school/class/student membership.
+The migrations also create a tiny demo school/class/student membership and weekday 08:00–17:00 school windows so Health Connect exclusion can be demonstrated immediately.
 
 ## Run Worker
 
@@ -68,12 +68,14 @@ gradle -p apps/android assembleDebug \
 
 The API base URL must end with `/`.
 
-The Android project currently implements the first vertical slice:
+The Android demo currently includes the main vertical flow:
 
-1. load today's lunch menu;
-2. choose 0 / 1/4 / 1/2 / 3/4 / 1 serving per dish;
-3. show deterministic nutrition totals from the selected servings;
-4. submit the record to the Worker.
+1. load today's school menu and enter quick portions or exact consumed grams;
+2. show macro composition, fiber/sodium and the optional daily energy-reference gap;
+3. combine administrator-confirmed PE minutes with outside-school activity;
+4. sync Health Connect only outside the administrator-configured school window;
+5. allow manual duration/intensity correction;
+6. select a home-meal photo, forward it directly through the Worker/Tunnel to AGY, edit the structured result, and persist only the confirmed meal data.
 
 ## Checks
 
