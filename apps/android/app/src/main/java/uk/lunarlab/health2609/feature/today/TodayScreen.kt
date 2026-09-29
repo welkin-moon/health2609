@@ -64,6 +64,7 @@ fun TodayScreen(
     onGramsChange: (String, Double?) -> Unit,
     onRefresh: () -> Unit,
     onSaveMeal: () -> Unit,
+    onTakeHomeMealPhoto: () -> Unit,
     onPickHomeMealImage: () -> Unit,
     onHomeMealSlotChange: (String) -> Unit,
     onHomeMealNameChange: (Int, String) -> Unit,
@@ -146,16 +147,6 @@ fun TodayScreen(
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 126.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            item {
-                TodayOverview(
-                    summary = state.summary,
-                    energyReferenceInput = state.energyReferenceInput,
-                    savingReference = state.savingEnergyReference,
-                    onEnergyReferenceChange = onEnergyReferenceChange,
-                    onSaveEnergyReference = onSaveEnergyReference
-                )
-            }
-
             state.message?.let { message -> item { StatusMessage(message) } }
 
             item {
@@ -186,6 +177,16 @@ fun TodayScreen(
                 item { LunchSummary(lunchPreview, state.savingMeal, onSaveMeal) }
             }
 
+            item {
+                TodayOverview(
+                    summary = state.summary,
+                    energyReferenceInput = state.energyReferenceInput,
+                    savingReference = state.savingEnergyReference,
+                    onEnergyReferenceChange = onEnergyReferenceChange,
+                    onSaveEnergyReference = onSaveEnergyReference
+                )
+            }
+
             item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
 
             item {
@@ -203,6 +204,7 @@ fun TodayScreen(
                     notes = state.homeMealNotes,
                     analyzing = state.analyzingHomeMeal,
                     saving = state.savingHomeMeal,
+                    onTakePhoto = onTakeHomeMealPhoto,
                     onPickImage = onPickHomeMealImage,
                     onSlotChange = onHomeMealSlotChange,
                     onNameChange = onHomeMealNameChange,
@@ -408,34 +410,19 @@ private fun DishRow(
         modifier = Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec())
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    val details = buildList {
-                        dish.standardServingGrams?.let { add("一份约 " + it.roundToInt().toString() + " 克") }
-                        dish.nutritionPerServing?.energyKcal?.let { add(it.roundToInt().toString() + " 千卡") }
-                    }
-                    if (details.isNotEmpty()) {
-                        Text(
-                            details.joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                val details = buildList {
+                    dish.standardServingGrams?.let { add("一份约 " + it.roundToInt().toString() + " 克") }
+                    dish.nutritionPerServing?.energyKcal?.let { add(it.roundToInt().toString() + " 千卡") }
                 }
-                OutlinedTextField(
-                    value = amount.consumedGrams?.let { if (it == 0.0) "0" else it.roundToInt().toString() } ?: "",
-                    onValueChange = { onGramsChange(it.toDoubleOrNull()) },
-                    modifier = Modifier.widthIn(min = 96.dp, max = 118.dp),
-                    singleLine = true,
-                    label = { Text("克数") },
-                    suffix = { Text("克") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
+                if (details.isNotEmpty()) {
+                    Text(
+                        details.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Row(
@@ -449,6 +436,25 @@ private fun DishRow(
                         label = { Text(label) }
                     )
                 }
+            }
+
+            var showExactGrams by rememberSaveable(dish.id) { mutableStateOf(false) }
+            TextButton(
+                onClick = { showExactGrams = !showExactGrams },
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+            ) {
+                Text(if (showExactGrams) "收起精确克数" else "精确填写克数")
+            }
+            AnimatedVisibility(showExactGrams) {
+                OutlinedTextField(
+                    value = amount.consumedGrams?.let { if (it == 0.0) "0" else it.roundToInt().toString() } ?: "",
+                    onValueChange = { onGramsChange(it.toDoubleOrNull()) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("实际克数") },
+                    suffix = { Text("克") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
             }
         }
     }
@@ -491,6 +497,7 @@ private fun HomeMealPanel(
     notes: List<String>,
     analyzing: Boolean,
     saving: Boolean,
+    onTakePhoto: () -> Unit,
     onPickImage: () -> Unit,
     onSlotChange: (String) -> Unit,
     onNameChange: (Int, String) -> Unit,
@@ -516,10 +523,26 @@ private fun HomeMealPanel(
             }
         }
 
-        FilledTonalButton(onClick = onPickImage, enabled = !analyzing && !saving) {
-            Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(if (analyzing) "正在看这顿饭…" else "拍照或从相册选择")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = onTakePhoto,
+                enabled = !analyzing && !saving,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (analyzing) "正在识别…" else "拍照")
+            }
+            FilledTonalButton(
+                onClick = onPickImage,
+                enabled = !analyzing && !saving,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("从相册选择")
+            }
         }
 
         if (analyzing) {
@@ -554,19 +577,19 @@ private fun HomeMealPanel(
                             singleLine = true,
                             label = { Text("食物") }
                         )
-                        OutlinedTextField(
-                            value = item.grams?.roundToInt()?.toString() ?: "",
-                            onValueChange = { onGramsChange(index, it.toDoubleOrNull()) },
-                            modifier = Modifier.widthIn(min = 90.dp, max = 110.dp),
-                            singleLine = true,
-                            label = { Text("克数") },
-                            suffix = { Text("克") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
                         IconButton(onClick = { onRemoveItem(index) }) {
                             Icon(Icons.Rounded.Close, contentDescription = "移除")
                         }
                     }
+                    OutlinedTextField(
+                        value = item.grams?.roundToInt()?.toString() ?: "",
+                        onValueChange = { onGramsChange(index, it.toDoubleOrNull()) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("分量") },
+                        suffix = { Text("克") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
 
                     item.nutritionAtSource?.let { nutrition ->
                         val factor = if (
