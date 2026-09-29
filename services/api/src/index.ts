@@ -681,23 +681,59 @@ app.post("/v1/home-meals/analyze", async (c) => {
   outbound.set("prompt", HOME_MEAL_AGY_PROMPT);
   outbound.set("schemaVersion", "1");
 
-  const response = await fetch(c.env.AGY_TASK_URL, {
-    method: "POST",
-    headers: c.env.AGY_TASK_TOKEN
-      ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
-      : undefined,
-    body: outbound,
-    signal: AbortSignal.timeout(90_000)
-  });
-
-  if (!response.ok) {
+  let response: Response;
+  try {
+    response = await fetch(c.env.AGY_TASK_URL, {
+      method: "POST",
+      headers: c.env.AGY_TASK_TOKEN
+        ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
+        : undefined,
+      body: outbound,
+      signal: AbortSignal.timeout(25_000)
+    });
+  } catch (err: any) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      return c.json(
+        {
+          error: "agy_timeout",
+          message: "Upstream analysis timed out after 25s"
+        },
+        504
+      );
+    }
     return c.json(
-      { error: "agy_failed", status: response.status },
+      {
+        error: "agy_unreachable",
+        message: err.message || "Failed to reach upstream analysis service"
+      },
       502
     );
   }
 
-  const raw = await response.json();
+  if (!response.ok) {
+    return c.json(
+      {
+        error: "agy_failed",
+        status: response.status,
+        message: `Upstream service returned status ${response.status}`
+      },
+      502
+    );
+  }
+
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
+    return c.json(
+      {
+        error: "agy_invalid_json",
+        message: "Failed to parse upstream response as JSON"
+      },
+      502
+    );
+  }
+
   const parsed = homeMealAnalysisResultSchema.safeParse(raw);
   if (!parsed.success) {
     return c.json(
@@ -1037,16 +1073,26 @@ app.put(
 
     const body = c.req.valid("json");
     const timetable = await c.env.DB.prepare(
-      `SELECT pt.id
+      `SELECT pt.id, pt.weekday
          FROM pe_timetable pt
         WHERE pt.id = ? AND pt.school_id = ?
         LIMIT 1`
     ).bind(
       body.timetableId,
       c.get("schoolId")
-    ).first<{ id: string }>();
+    ).first<{ id: string; weekday: number }>();
 
     if (!timetable) return c.json({ error: "timetable_not_found" }, 404);
+
+    if (weekdayFromDate(body.date) !== timetable.weekday) {
+      return c.json(
+        {
+          error: "pe_date_weekday_mismatch",
+          message: "PE session date does not match timetable weekday"
+        },
+        400
+      );
+    }
 
     await c.env.DB.prepare(
       `INSERT INTO pe_sessions
@@ -1208,8 +1254,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).bind(date, schoolId, weekday, classGroupId, classGroupId).first(),
 
     c.env.DB.prepare(
-      `SELECT AVG(a.exercise_minutes) AS avg_outside_minutes,
-              AVG(a.active_energy_kcal) AS avg_active_energy_kcal
+      `SELECT AVG(a.active_energy_kcal) AS avg_active_energy_kcal
          FROM outside_school_activity_daily a
          JOIN student_memberships sm ON sm.id = a.student_membership_id
         WHERE sm.school_id = ?
@@ -1243,6 +1288,10 @@ app.get("/v1/admin/stats/overview", async (c) => {
          totals AS (
            SELECT sm.id,
                   s.daily_activity_target_minutes AS target_minutes,
+                  MAX(
+                    COALESCE(phone.phone_minutes, 0),
+                    COALESCE(manual.manual_minutes, 0)
+                  ) AS outside_minutes,
                   COALESCE(pe.pe_minutes, 0) +
                     MAX(
                       COALESCE(phone.phone_minutes, 0),
@@ -1259,7 +1308,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
             WHERE sm.school_id = ?
               AND (? IS NULL OR sm.class_group_id = ?)
          )
-         SELECT AVG(total_minutes) AS avg_total_minutes,
+         SELECT AVG(outside_minutes) AS avg_outside_minutes,
+                AVG(total_minutes) AS avg_total_minutes,
                 AVG(
                   CASE WHEN total_minutes >= target_minutes
                        THEN 1.0 ELSE 0.0 END
@@ -1428,8 +1478,23 @@ app.get("/v1/admin/stats/overview", async (c) => {
 
   const totalStudents = Number(membershipCount?.count ?? 0);
   const participants = Number((meal as any)?.participants ?? 0);
+  const totalEatenStudents = participants;
   const recordedSessions = Number((pe as any)?.recorded_sessions ?? 0);
   const scheduledSessions = Number((pe as any)?.scheduled_sessions ?? 0);
+
+  const privacyMasked = totalStudents < 3 || totalEatenStudents < 3;
+  const maskedNutrition = privacyMasked
+    ? {
+        avg_energy_kcal: null,
+        avg_protein_g: null,
+        avg_fat_g: null,
+        avg_carbohydrate_g: null,
+        avg_fiber_g: null,
+        avg_sodium_mg: null,
+        avg_sugar_g: null,
+        avg_saturated_fat_g: null
+      }
+    : nutrition;
 
   const activityTrendByDate = new Map(
     activityTrend.results.map((row) => [
@@ -1459,12 +1524,19 @@ app.get("/v1/admin/stats/overview", async (c) => {
     date,
     classGroupId,
     totalStudents,
+    privacyMasked,
     meal: {
       ...(meal ?? {}),
+      total_eaten_students: totalEatenStudents,
       participationRate:
         totalStudents === 0 ? 0 : participants / totalStudents
     },
-    nutrition,
+    participation: {
+      total_eaten_students: totalEatenStudents,
+      participationRate:
+        totalStudents === 0 ? 0 : participants / totalStudents
+    },
+    nutrition: maskedNutrition,
     pe: {
       ...(pe ?? {}),
       recordCoverage:

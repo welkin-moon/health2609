@@ -1,18 +1,22 @@
 import { z } from "zod";
 
+export const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/, "Invalid ISO date YYYY-MM-DD");
+
 export const mealSlotSchema = z.enum(["breakfast", "lunch", "dinner"]);
 export const activityIntensitySchema = z.enum(["light", "moderate", "vigorous"]);
 export const portionSchema = z.number().min(0).max(5);
 
 export const nutritionSchema = z.object({
-  energyKcal: z.number().nonnegative().optional(),
-  proteinG: z.number().nonnegative().optional(),
-  fatG: z.number().nonnegative().optional(),
-  carbohydrateG: z.number().nonnegative().optional(),
-  fiberG: z.number().nonnegative().optional(),
-  sodiumMg: z.number().nonnegative().optional(),
-  sugarG: z.number().nonnegative().optional(),
-  saturatedFatG: z.number().nonnegative().optional()
+  energyKcal: z.number().nonnegative().nullish(),
+  proteinG: z.number().nonnegative().nullish(),
+  fatG: z.number().nonnegative().nullish(),
+  carbohydrateG: z.number().nonnegative().nullish(),
+  fiberG: z.number().nonnegative().nullish(),
+  sodiumMg: z.number().nonnegative().nullish(),
+  sugarG: z.number().nonnegative().nullish(),
+  saturatedFatG: z.number().nonnegative().nullish()
 });
 
 export const dishSchema = z.object({
@@ -23,7 +27,7 @@ export const dishSchema = z.object({
 });
 
 export const todayMenuSchema = z.object({
-  date: z.string(),
+  date: isoDateSchema,
   mealSlot: mealSlotSchema,
   dishes: z.array(dishSchema)
 });
@@ -38,7 +42,7 @@ export const mealItemSchema = z.object({
 );
 
 export const recordMealSchema = z.object({
-  date: z.string(),
+  date: isoDateSchema,
   mealSlot: mealSlotSchema,
   items: z.array(mealItemSchema)
     .max(40)
@@ -49,7 +53,7 @@ export const recordMealSchema = z.object({
 });
 
 export const adminUpsertMenuSchema = z.object({
-  date: z.string(),
+  date: isoDateSchema,
   mealSlot: mealSlotSchema,
   dishes: z.array(z.object({
     id: z.string().optional(),
@@ -60,14 +64,14 @@ export const adminUpsertMenuSchema = z.object({
 });
 
 export const outsideActivitySchema = z.object({
-  date: z.string(),
+  date: isoDateSchema,
   exerciseMinutes: z.number().int().min(0).max(1440),
   steps: z.number().int().min(0).max(200000).optional(),
   activeEnergyKcal: z.number().min(0).max(20000).optional()
 });
 
 export const manualActivitySchema = z.object({
-  date: z.string(),
+  date: isoDateSchema,
   activityType: z.string().trim().min(1).max(80),
   startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   durationMinutes: z.number().int().min(1).max(600),
@@ -100,12 +104,12 @@ export const adminPeTimetableSchema = z.object({
 
 export const adminPeSessionSchema = z.object({
   timetableId: z.string().min(1),
-  date: z.string(),
+  date: isoDateSchema,
   actualActivityMinutes: z.number().int().min(0).max(300)
 });
 
 export const confirmedHomeMealSchema = z.object({
-  date: z.string(),
+  date: isoDateSchema,
   mealSlot: mealSlotSchema,
   items: z.array(z.object({
     name: z.string().trim().min(1).max(120),
@@ -127,9 +131,26 @@ export const homeMealAnalysisResultSchema = z.object({
   notes: z.array(z.string().max(240)).max(20)
 });
 
+export const menuQuerySchema = z.object({
+  date: isoDateSchema,
+  mealSlot: mealSlotSchema.optional()
+});
+
+export const todayQuerySchema = z.object({
+  date: isoDateSchema.optional(),
+  mealSlot: mealSlotSchema.optional()
+});
+
+export const saveSchoolMenuSchema = adminUpsertMenuSchema;
+export const peSessionSchema = adminPeSessionSchema;
+
 export type HomeMealAnalysisResult = z.infer<typeof homeMealAnalysisResultSchema>;
 export type RecordMealInput = z.infer<typeof recordMealSchema>;
 export type OutsideActivityInput = z.infer<typeof outsideActivitySchema>;
 export type ManualActivityInput = z.infer<typeof manualActivitySchema>;
 export type AdminUpsertMenuInput = z.infer<typeof adminUpsertMenuSchema>;
 export type ConfirmedHomeMealInput = z.infer<typeof confirmedHomeMealSchema>;
+export type SaveSchoolMenuInput = z.infer<typeof saveSchoolMenuSchema>;
+export type PeSessionInput = z.infer<typeof peSessionSchema>;
+export type MenuQueryInput = z.infer<typeof menuQuerySchema>;
+export type TodayQueryInput = z.infer<typeof todayQuerySchema>;
