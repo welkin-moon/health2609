@@ -128,7 +128,7 @@ class TodayViewModel(
         ) {
             safeGrams / dish.standardServingGrams
         } else {
-            _uiState.value.amounts[dishId]?.servingMultiplier ?: 0.0
+            0.0
         }
 
         _uiState.update {
@@ -147,6 +147,10 @@ class TodayViewModel(
         _uiState.update {
             it.copy(manualActivityMinutes = minutes.coerceIn(5, 300))
         }
+    }
+
+    fun setManualActivityType(type: String) {
+        _uiState.update { it.copy(manualActivityType = type) }
     }
 
     fun setManualActivityIntensity(intensity: String) {
@@ -381,16 +385,18 @@ class TodayViewModel(
         }
     }
 
-    fun saveManualActivity() {
+    fun saveManualActivity(type: String = "自主运动") {
         val state = _uiState.value
         if (state.savingActivity) return
+
+        val activityType = type.ifBlank { state.manualActivityType.ifBlank { "自主运动" } }
 
         viewModelScope.launch {
             _uiState.update { it.copy(savingActivity = true, message = null) }
             runCatching {
                 repository.saveManualActivity(
                     date = state.date,
-                    activityType = state.manualActivityType,
+                    activityType = activityType,
                     durationMinutes = state.manualActivityMinutes,
                     intensity = state.manualActivityIntensity
                 )

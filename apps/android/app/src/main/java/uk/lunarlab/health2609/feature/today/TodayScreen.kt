@@ -46,9 +46,13 @@ private val portionOptions = listOf(
     1.0 to "1份"
 )
 
+private fun roundOneDecimal(value: Double): Double =
+    (value * 10.0).roundToInt() / 10.0
+
 private data class NutritionTotals(
     val energyKcal: Double = 0.0,
     val proteinG: Double = 0.0,
+    val fatG: Double = 0.0,
     val carbohydrateG: Double = 0.0
 )
 
@@ -68,21 +72,31 @@ fun TodayScreen(
     onSaveHomeMeal: () -> Unit,
     onActivityMinutesChange: (Int) -> Unit,
     onActivityIntensityChange: (String) -> Unit,
-    onSaveActivity: () -> Unit,
+    onSaveActivity: (String) -> Unit,
     onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit
 ) {
     val lunchPreview = remember(state.menu, state.amounts) {
-        state.menu?.dishes.orEmpty().fold(NutritionTotals()) { acc, dish ->
-            val amount = state.amounts[dish.id] ?: DishAmount()
-            val nutrition = dish.nutritionPerServing
-            NutritionTotals(
-                energyKcal = acc.energyKcal + (nutrition?.energyKcal ?: 0.0) * amount.servingMultiplier,
-                proteinG = acc.proteinG + (nutrition?.proteinG ?: 0.0) * amount.servingMultiplier,
-                carbohydrateG = acc.carbohydrateG + (nutrition?.carbohydrateG ?: 0.0) * amount.servingMultiplier
-            )
-        }
+        val dishes = state.menu?.dishes.orEmpty()
+        NutritionTotals(
+            energyKcal = dishes.sumOf {
+                val amount = state.amounts[it.id] ?: DishAmount()
+                (it.nutritionPerServing?.energyKcal ?: 0.0) * amount.servingMultiplier
+            },
+            proteinG = roundOneDecimal(dishes.sumOf {
+                val amount = state.amounts[it.id] ?: DishAmount()
+                (it.nutritionPerServing?.proteinG ?: 0.0) * amount.servingMultiplier
+            }),
+            fatG = roundOneDecimal(dishes.sumOf {
+                val amount = state.amounts[it.id] ?: DishAmount()
+                (it.nutritionPerServing?.fatG ?: 0.0) * amount.servingMultiplier
+            }),
+            carbohydrateG = roundOneDecimal(dishes.sumOf {
+                val amount = state.amounts[it.id] ?: DishAmount()
+                (it.nutritionPerServing?.carbohydrateG ?: 0.0) * amount.servingMultiplier
+            })
+        )
     }
 
     val prettyDate = remember(state.date) {
@@ -212,6 +226,7 @@ fun TodayScreen(
                 ActivityPanel(
                     summary = state.summary,
                     syncing = state.syncingPhoneActivity,
+                    initialType = state.manualActivityType,
                     minutes = state.manualActivityMinutes,
                     intensity = state.manualActivityIntensity,
                     saving = state.savingActivity,
@@ -258,10 +273,23 @@ private fun TodayOverview(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OverviewMetric(Modifier.weight(1f), (nutrition?.energyKcal?.roundToInt() ?: 0).toString() + " 千卡", "摄入热量")
                 OverviewMetric(Modifier.weight(1f), (activity?.totalMinutes ?: 0).toString() + " 分钟", "运动")
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OverviewMetric(
                     Modifier.weight(1f),
                     String.format(Locale.US, "%.0f", nutrition?.proteinG ?: 0.0) + " 克",
                     "蛋白质"
+                )
+                OverviewMetric(
+                    Modifier.weight(1f),
+                    String.format(Locale.US, "%.0f", nutrition?.fatG ?: 0.0) + " 克",
+                    "脂肪"
+                )
+                OverviewMetric(
+                    Modifier.weight(1f),
+                    String.format(Locale.US, "%.0f", nutrition?.carbohydrateG ?: 0.0) + " 克",
+                    "碳水"
                 )
             }
 
@@ -400,7 +428,7 @@ private fun DishRow(
                     }
                 }
                 OutlinedTextField(
-                    value = amount.consumedGrams?.takeIf { it > 0.0 }?.roundToInt()?.toString() ?: "",
+                    value = amount.consumedGrams?.let { if (it == 0.0) "0" else it.roundToInt().toString() } ?: "",
                     onValueChange = { onGramsChange(it.toDoubleOrNull()) },
                     modifier = Modifier.widthIn(min = 96.dp, max = 118.dp),
                     singleLine = true,
@@ -442,7 +470,9 @@ private fun LunchSummary(totals: NutritionTotals, saving: Boolean, onSave: () ->
                 Text("午餐合计", style = MaterialTheme.typography.labelLarge)
                 Text(
                     totals.energyKcal.roundToInt().toString() + " 千卡 · 蛋白质 " +
-                        String.format(Locale.US, "%.1f", totals.proteinG) + " 克",
+                        String.format(Locale.US, "%.1f", totals.proteinG) + " 克 · 脂肪 " +
+                        String.format(Locale.US, "%.1f", totals.fatG) + " 克 · 碳水 " +
+                        String.format(Locale.US, "%.1f", totals.carbohydrateG) + " 克",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -581,16 +611,18 @@ private fun HomeMealPanel(
 private fun ActivityPanel(
     summary: DailySummaryDto?,
     syncing: Boolean,
+    initialType: String = "自主运动",
     minutes: Int,
     intensity: String,
     saving: Boolean,
     onSync: () -> Unit,
     onMinutesChange: (Int) -> Unit,
     onIntensityChange: (String) -> Unit,
-    onSave: () -> Unit
+    onSave: (String) -> Unit
 ) {
     val activity = summary?.activity
     var showManual by rememberSaveable { mutableStateOf(false) }
+    var activityType by rememberSaveable(initialType) { mutableStateOf(initialType) }
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -648,6 +680,30 @@ private fun ActivityPanel(
 
             AnimatedVisibility(showManual) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("运动类型", style = MaterialTheme.typography.labelLarge)
+
+                    val presetTypes = listOf("跑步", "跳绳", "羽毛球", "篮球", "自主运动")
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetTypes.forEach { type ->
+                            FilterChip(
+                                selected = activityType == type,
+                                onClick = { activityType = type },
+                                label = { Text(type) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = activityType,
+                        onValueChange = { activityType = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("运动项目") }
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -698,7 +754,10 @@ private fun ActivityPanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    Button(onClick = onSave, enabled = !saving) {
+                    Button(
+                        onClick = { onSave(activityType.ifBlank { "自主运动" }) },
+                        enabled = !saving
+                    ) {
                         Text(if (saving) "正在保存" else "保存这次运动")
                     }
                 }
