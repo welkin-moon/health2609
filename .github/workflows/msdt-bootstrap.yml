@@ -10,16 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Probe existing MSDT relay diagnostics
+      - name: Probe MSDT through fixed relay bootstrap
         shell: bash
         run: |
           set -euo pipefail
-          for u in \
-            "https://pc-control.20100823.xyz/__msdtrepoprobe2_7cfe83b1" \
-            "https://pc-control.20100823.xyz/__msdtpreupgrade5_74bd2f61" \
-            "https://pc-control.20100823.xyz/__msdtlocalbuild3_12af9e7c"
-          do
-            echo "===== $u ====="
-            curl --fail-with-body --silent --show-error --max-time 40 "$u"
-            echo
-          done
+          curl --fail-with-body --silent --show-error --max-time 45 \
+            "https://pc-control.20100823.xyz/__h2609_bootstrap_diag_20260929_7c2a"
+          echo
