@@ -20,6 +20,7 @@ Rules:
 - When the image is unclear, lower confidence and state what needs user confirmation.
 - Quantities are estimates and are always user-confirmed before being counted.
 - Treat each image request as independent; do not carry food items or quantities from earlier child-agent tasks.
+- If the image contains NO visible edible food or meal items (e.g. blank background, person face, pet, household object, medicine), return empty items: {"items": [], "notes": ["no_food_detected"]}.
 - Return JSON only. No Markdown fences.
 
 Expected conceptual shape:

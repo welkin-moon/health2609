@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -44,6 +44,9 @@ function log(message) {
 function stopAgy(reason) {
   if (agyProcess) {
     log(`restarting AGY process: ${reason}`);
+    if (process.platform === "win32" && agyProcess?.pid) {
+      try { execSync(`taskkill /pid ${agyProcess.pid} /T /F`, { stdio: "ignore" }); } catch {}
+    }
     agyProcess.kill();
   }
   agyProcess = null;
@@ -94,6 +97,8 @@ function spawnAgy() {
   child.stderr.on("data", (chunk) => {
     process.stderr.write(`[health2609-agy][agy] ${String(chunk)}`);
   });
+
+  child.stdin.on("error", (err) => log("stdin error: " + err.message));
 
   child.on("exit", (code, signal) => {
     const wasCurrent = agyProcess === child;
@@ -158,7 +163,11 @@ async function ensureAgy() {
 
 function safeParseJson(value) {
   try {
-    return JSON.parse(String(value || "").trim());
+    let str = String(value || "").trim();
+    if (str.startsWith("```") && str.endsWith("```")) {
+      str = str.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+    }
+    return JSON.parse(str);
   } catch {
     return null;
   }
@@ -303,6 +312,11 @@ server.listen(port, host, async () => {
 });
 
 process.on("SIGINT", () => {
+  if (agyProcess) agyProcess.kill();
+  server.close(() => process.exit(0));
+});
+
+process.on("SIGTERM", () => {
   if (agyProcess) agyProcess.kill();
   server.close(() => process.exit(0));
 });
