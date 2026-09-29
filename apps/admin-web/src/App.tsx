@@ -9,7 +9,10 @@ import {
   type SchoolDayWindow
 } from "./api";
 
+const createTempId = () => Math.random().toString(36).substring(2, 9);
+
 const emptyDish = (): DishDraft => ({
+  tempId: createTempId(),
   name: "",
   standardServingGrams: 150,
   nutritionPerServing: null
@@ -76,22 +79,42 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [savingPe, setSavingPe] = useState(false);
   const [savingSchoolWindow, setSavingSchoolWindow] = useState(false);
+  const [peError, setPeError] = useState("");
+
+  const studentCount =
+    typeof overview?.totalStudents === "number"
+      ? overview.totalStudents
+      : typeof (overview as any)?.studentCount === "number"
+      ? (overview as any).studentCount
+      : undefined;
+
+  const isPrivacyMasked = Boolean(
+    overview &&
+      (overview.privacyMasked === true ||
+        (studentCount !== undefined && studentCount < 3))
+  );
 
   const participation = useMemo(
     () => Math.round((overview?.meal?.participationRate ?? 0) * 100),
     [overview]
   );
 
-  async function refresh(targetDate = date, classGroupId = statsClassId) {
+  async function refresh(
+    targetDate = date,
+    classGroupId = statsClassId,
+    signal?: AbortSignal
+  ) {
     setStatus("正在同步");
     try {
       const [menuResult, stats, classResult, schoolWindowResult] =
         await Promise.all([
-          api.menus(targetDate),
-          api.overview(targetDate, classGroupId),
-          api.classes(),
-          api.schoolDayWindows()
+          api.menus(targetDate, signal),
+          api.overview(targetDate, classGroupId, signal),
+          api.classes(signal),
+          api.schoolDayWindows(signal)
         ]);
+
+      if (signal?.aborted) return;
 
       const lunch = menuResult.menus.find((menu) => menu.mealSlot === "lunch");
       setDishes(
@@ -99,6 +122,7 @@ export function App() {
           ? lunch.dishes.map(
               ({ id, name, standardServingGrams, nutritionPerServing }) => ({
                 id,
+                tempId: id || createTempId(),
                 name,
                 standardServingGrams,
                 nutritionPerServing
@@ -115,6 +139,9 @@ export function App() {
       );
       setStatus("已同步");
     } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+        return;
+      }
       setStatus(error instanceof Error ? error.message : "载入失败");
     }
   }
@@ -145,7 +172,11 @@ export function App() {
   }
 
   useEffect(() => {
-    void refresh(date, statsClassId);
+    const controller = new AbortController();
+    void refresh(date, statsClassId, controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [date, statsClassId]);
 
   useEffect(() => {
@@ -224,8 +255,16 @@ export function App() {
     }
   }
 
-  async function addPeSchedule() {
+  async function handleAddPe() {
     if (!selectedClassId) return;
+
+    if (peStartTime >= peEndTime) {
+      const msg = "体育课结束时间需要晚于开始时间";
+      setStatus(msg);
+      setPeError(msg);
+      return;
+    }
+    setPeError("");
 
     setSavingPe(true);
     try {
@@ -243,6 +282,8 @@ export function App() {
       setSavingPe(false);
     }
   }
+
+  const addPeSchedule = handleAddPe;
 
   async function savePeActual(item: PeSessionItem) {
     const minutes = Number(peActual[item.timetableId]);
@@ -306,6 +347,13 @@ export function App() {
         </div>
       </header>
 
+      {isPrivacyMasked && (
+        <aside className="privacy-notice" role="status" aria-live="polite">
+          <span className="privacy-badge">隐私保护</span>
+          <span>已启用小样本隐私保护：当前班级样本过少，已脱敏个体精细营养均值</span>
+        </aside>
+      )}
+
       <section className="stats-grid" aria-label="统计概览">
         <article className="metric-card strong">
           <span>餐食记录参与率</span>
@@ -316,9 +364,11 @@ export function App() {
         <article className="metric-card">
           <span>平均记录能量</span>
           <strong>
-            {Math.round(Number(overview?.nutrition?.avg_energy_kcal ?? 0))}
+            {isPrivacyMasked
+              ? "已脱敏"
+              : Math.round(Number(overview?.nutrition?.avg_energy_kcal ?? 0))}
           </strong>
-          <small>kcal / 已记录学生</small>
+          <small>{isPrivacyMasked ? "小样本隐私保护" : "kcal / 已记录学生"}</small>
         </article>
 
         <article className="metric-card">
@@ -358,20 +408,37 @@ export function App() {
             </span>
           </div>
 
-          <div className="macro-strip">
-            <span>
-              <b>{Math.round(Number(overview?.nutrition?.avg_protein_g ?? 0))}g</b>
-              蛋白质
-            </span>
-            <span>
-              <b>{Math.round(Number(overview?.nutrition?.avg_fat_g ?? 0))}g</b>
-              脂肪
-            </span>
-            <span>
-              <b>{Math.round(Number(overview?.nutrition?.avg_carbohydrate_g ?? 0))}g</b>
-              碳水
-            </span>
-          </div>
+          {isPrivacyMasked ? (
+            <div className="macro-strip masked">
+              <span className="masked-cell">
+                <b>已脱敏</b>
+                蛋白质
+              </span>
+              <span className="masked-cell">
+                <b>已脱敏</b>
+                脂肪
+              </span>
+              <span className="masked-cell">
+                <b>已脱敏</b>
+                碳水
+              </span>
+            </div>
+          ) : (
+            <div className="macro-strip">
+              <span>
+                <b>{Math.round(Number(overview?.nutrition?.avg_protein_g ?? 0))}g</b>
+                蛋白质
+              </span>
+              <span>
+                <b>{Math.round(Number(overview?.nutrition?.avg_fat_g ?? 0))}g</b>
+                脂肪
+              </span>
+              <span>
+                <b>{Math.round(Number(overview?.nutrition?.avg_carbohydrate_g ?? 0))}g</b>
+                碳水
+              </span>
+            </div>
+          )}
 
           <div className="trend-list">
             {(overview?.trend ?? []).map((point) => {
@@ -387,7 +454,15 @@ export function App() {
                     <strong>{point.date.slice(5)}</strong>
                     <small>{Math.round(point.avgTotalMinutes)} min</small>
                   </div>
-                  <div className="trend-meter" title={`餐食记录 ${mealRate}%`}>
+                  <div
+                    className="trend-meter"
+                    role="progressbar"
+                    aria-valuenow={mealRate}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`${point.date} 餐食记录率`}
+                    title={`餐食记录 ${mealRate}%`}
+                  >
                     <span style={{ width: `${mealRate}%` }} />
                   </div>
                   <b>{mealRate}%</b>
@@ -419,7 +494,14 @@ export function App() {
                         {item.participants}/{overview?.totalStudents ?? 0} 人记录
                       </small>
                     </div>
-                    <div className="dish-meter">
+                    <div
+                      className="dish-meter"
+                      role="progressbar"
+                      aria-valuenow={meter}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${item.name} 完成度`}
+                    >
                       <span style={{ width: `${meter}%` }} />
                     </div>
                     <strong>{completion}%</strong>
@@ -450,7 +532,10 @@ export function App() {
 
           <div className="dish-list">
             {dishes.map((dish, index) => (
-              <div className="dish-editor" key={index}>
+              <div
+                className="dish-editor"
+                key={dish.tempId || `dish-${dish.id || index}`}
+              >
                 <div className="dish-row">
                   <label>
                     <span>菜品</span>
@@ -609,10 +694,15 @@ export function App() {
               type="button"
               className="tonal-button"
               disabled={savingPe || !selectedClassId}
-              onClick={() => void addPeSchedule()}
+              onClick={() => void handleAddPe()}
             >
               添加到每周课程安排
             </button>
+            {peError && (
+              <p className="pe-error-notice" role="alert">
+                {peError}
+              </p>
+            )}
 
             <div className="pe-session-list">
               {peSessions.length === 0 ? (
