@@ -15,5 +15,5 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail-with-body --silent --show-error --max-time 45 \
-            "https://pc-control.20100823.xyz/__h2609_agy_help_20260929_6d91"
+            "https://pc-control.20100823.xyz/__h2609_start_bridge_20260929_b73e"
           echo
