@@ -19,6 +19,7 @@ export type Nutrition = {
 
 export type DishDraft = {
   id?: string;
+  tempId?: string;
   name: string;
   standardServingGrams: number | null;
   nutritionPerServing: Nutrition | null;
@@ -55,6 +56,7 @@ export type Overview = {
   date: string;
   classGroupId?: string | null;
   totalStudents?: number;
+  privacyMasked?: boolean;
   meal?: {
     participants?: number;
     avg_serving_multiplier?: number;
@@ -118,19 +120,20 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  overview(date: string, classGroupId?: string) {
+  overview(date: string, classGroupId?: string, signal?: AbortSignal) {
     const params = new URLSearchParams({ date });
     if (classGroupId) params.set("classGroupId", classGroupId);
-    return json<Overview>(`/v1/admin/stats/overview?${params.toString()}`);
+    return json<Overview>(`/v1/admin/stats/overview?${params.toString()}`, { signal });
   },
 
-  classes() {
-    return json<{ classes: ClassGroup[] }>("/v1/admin/classes");
+  classes(signal?: AbortSignal) {
+    return json<{ classes: ClassGroup[] }>("/v1/admin/classes", { signal });
   },
 
-  schoolDayWindows() {
+  schoolDayWindows(signal?: AbortSignal) {
     return json<{ items: SchoolDayWindow[] }>(
-      "/v1/admin/school/day-windows"
+      "/v1/admin/school/day-windows",
+      { signal }
     );
   },
 
@@ -148,7 +151,7 @@ export const api = {
     );
   },
 
-  menus(date: string) {
+  menus(date: string, signal?: AbortSignal) {
     return json<{
       date: string;
       menus: Array<{
@@ -156,7 +159,7 @@ export const api = {
         mealSlot: string;
         dishes: Array<DishDraft & { id: string }>;
       }>;
-    }>(`/v1/admin/menus?date=${encodeURIComponent(date)}`);
+    }>(`/v1/admin/menus?date=${encodeURIComponent(date)}`, { signal });
   },
 
   saveMenu(
