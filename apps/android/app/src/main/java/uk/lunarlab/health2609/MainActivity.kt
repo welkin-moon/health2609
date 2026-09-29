@@ -9,11 +9,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.core.content.FileProvider
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,29 +56,38 @@ class MainActivity : ComponentActivity() {
                     factory = TodayViewModelFactory(repository)
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+                var pendingCameraFile by remember { mutableStateOf<File?>(null) }
 
                 val homeMealPicker =
                     rememberLauncherForActivityResult(
                         ActivityResultContracts.PickVisualMedia()
                     ) { uri ->
                         if (uri != null) {
-                            lifecycleScope.launch {
-                                runCatching {
-                                    withContext(Dispatchers.IO) {
-                                        readImageForUpload(uri)
-                                    }
-                                }.onSuccess { image ->
-                                    viewModel.analyzeHomeMeal(
-                                        bytes = image.bytes,
-                                        mimeType = image.mimeType,
-                                        fileName = image.fileName
-                                    )
-                                }.onFailure { error ->
-                                    viewModel.showMessage(
-                                        error.message ?: "读取图片失败"
-                                    )
-                                }
-                            }
+                            analyzeHomeMealUri(
+                                uri = uri,
+                                viewModel = viewModel
+                            )
+                        }
+                    }
+
+                val homeMealCamera =
+                    rememberLauncherForActivityResult(
+                        ActivityResultContracts.TakePicture()
+                    ) { captured ->
+                        val uri = pendingCameraUri
+                        val file = pendingCameraFile
+                        pendingCameraUri = null
+                        pendingCameraFile = null
+
+                        if (captured && uri != null) {
+                            analyzeHomeMealUri(
+                                uri = uri,
+                                viewModel = viewModel,
+                                cleanupFile = file
+                            )
+                        } else {
+                            file?.delete()
                         }
                     }
 
@@ -117,6 +131,34 @@ class MainActivity : ComponentActivity() {
                     onGramsChange = viewModel::setConsumedGrams,
                     onRefresh = viewModel::refresh,
                     onSaveMeal = viewModel::saveMeal,
+                    onTakeHomeMealPhoto = {
+                        runCatching {
+                            val captureDir = File(
+                                cacheDir,
+                                "home-meal-camera"
+                            ).apply { mkdirs() }
+                            val captureFile = File.createTempFile(
+                                "home-meal-",
+                                ".jpg",
+                                captureDir
+                            )
+                            val captureUri = FileProvider.getUriForFile(
+                                this@MainActivity,
+                                "${BuildConfig.APPLICATION_ID}.fileprovider",
+                                captureFile
+                            )
+                            pendingCameraFile = captureFile
+                            pendingCameraUri = captureUri
+                            homeMealCamera.launch(captureUri)
+                        }.onFailure { error ->
+                            pendingCameraFile?.delete()
+                            pendingCameraFile = null
+                            pendingCameraUri = null
+                            viewModel.showMessage(
+                                error.message ?: "无法打开相机"
+                            )
+                        }
+                    },
                     onPickHomeMealImage = {
                         homeMealPicker.launch(
                             PickVisualMediaRequest(
@@ -176,6 +218,31 @@ class MainActivity : ComponentActivity() {
         val mimeType: String,
         val fileName: String
     )
+
+    private fun analyzeHomeMealUri(
+        uri: Uri,
+        viewModel: TodayViewModel,
+        cleanupFile: File? = null
+    ) {
+        lifecycleScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    readImageForUpload(uri)
+                }
+            }.onSuccess { image ->
+                viewModel.analyzeHomeMeal(
+                    bytes = image.bytes,
+                    mimeType = image.mimeType,
+                    fileName = image.fileName
+                )
+            }.onFailure { error ->
+                viewModel.showMessage(
+                    error.message ?: "读取图片失败"
+                )
+            }
+            cleanupFile?.delete()
+        }
+    }
 
     private fun readImageForUpload(uri: Uri): UploadImage {
         val maxBytes = 8 * 1024 * 1024
