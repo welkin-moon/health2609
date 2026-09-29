@@ -1,8 +1,11 @@
 name: agy-smoke
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
+      - tools/agy-bridge/**
+      - services/api/src/integrations/agy/**
       - .github/workflows/agy-smoke.yml
 
 jobs:
@@ -10,10 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Public AGY health
+      - name: Verify public AGY readiness
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error --max-time 20 \
-            https://h2609-agy.lunarlab.uk/healthz
-          echo
+          body="$(curl --fail-with-body --silent --show-error --max-time 20             https://h2609-agy.lunarlab.uk/healthz)"
+          echo "$body"
+          printf '%s' "$body" | grep -q '"ok":true'
+          printf '%s' "$body" | grep -q '"agyReady":true'
