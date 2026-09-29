@@ -625,7 +625,11 @@ app.post(
     await c.env.DB.prepare(
       `INSERT INTO home_meals
          (id, student_membership_id, date, meal_slot, confirmed_items_json)
-       VALUES (?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(student_membership_id, date, meal_slot)
+       DO UPDATE SET
+         confirmed_items_json = excluded.confirmed_items_json,
+         created_at = datetime('now')`
     ).bind(
       id,
       membership.id,
@@ -634,7 +638,14 @@ app.post(
       JSON.stringify(body.items)
     ).run();
 
-    return c.json({ ok: true, id });
+    const saved = await c.env.DB.prepare(
+      `SELECT id
+         FROM home_meals
+        WHERE student_membership_id = ? AND date = ? AND meal_slot = ?
+        LIMIT 1`
+    ).bind(membership.id, body.date, body.mealSlot).first<{ id: string }>();
+
+    return c.json({ ok: true, id: saved?.id ?? id });
   }
 );
 
@@ -829,7 +840,19 @@ app.put(
     const body = c.req.valid("json");
     const schoolId = c.get("schoolId");
 
-    let menu = await c.env.DB.prepare(
+    const candidateMenuId = crypto.randomUUID();
+    await c.env.DB.prepare(
+      `INSERT INTO menus (id, school_id, date, meal_slot)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(school_id, date, meal_slot) DO NOTHING`
+    ).bind(
+      candidateMenuId,
+      schoolId,
+      body.date,
+      body.mealSlot
+    ).run();
+
+    const menu = await c.env.DB.prepare(
       "SELECT id FROM menus WHERE school_id = ? AND date = ? AND meal_slot = ? LIMIT 1"
     ).bind(
       schoolId,
@@ -838,11 +861,7 @@ app.put(
     ).first<{ id: string }>();
 
     if (!menu) {
-      const id = crypto.randomUUID();
-      await c.env.DB.prepare(
-        "INSERT INTO menus (id, school_id, date, meal_slot) VALUES (?, ?, ?, ?)"
-      ).bind(id, schoolId, body.date, body.mealSlot).run();
-      menu = { id };
+      return c.json({ error: "menu_upsert_failed" }, 500);
     }
 
     const providedIds = body.dishes
