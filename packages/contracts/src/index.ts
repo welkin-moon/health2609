@@ -2,7 +2,16 @@ import { z } from "zod";
 
 export const isoDateSchema = z
   .string()
-  .regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/, "Invalid ISO date YYYY-MM-DD");
+  .regex(/^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/, "Invalid ISO date YYYY-MM-DD")
+  .refine((val) => {
+    const [y, m, d] = val.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return (
+      date.getUTCFullYear() === y &&
+      date.getUTCMonth() === m - 1 &&
+      date.getUTCDate() === d
+    );
+  }, "Invalid calendar date");
 
 export const mealSlotSchema = z.enum(["breakfast", "lunch", "dinner"]);
 export const activityIntensitySchema = z.enum(["light", "moderate", "vigorous"]);
@@ -154,3 +163,192 @@ export type SaveSchoolMenuInput = z.infer<typeof saveSchoolMenuSchema>;
 export type PeSessionInput = z.infer<typeof peSessionSchema>;
 export type MenuQueryInput = z.infer<typeof menuQuerySchema>;
 export type TodayQueryInput = z.infer<typeof todayQuerySchema>;
+
+/* -------------------------------------------------------------------------- */
+/*                        Deterministic Nutrition Math                         */
+/* -------------------------------------------------------------------------- */
+
+export type NutritionValues = {
+  energyKcal?: number | null;
+  proteinG?: number | null;
+  fatG?: number | null;
+  carbohydrateG?: number | null;
+  fiberG?: number | null;
+  sodiumMg?: number | null;
+  sugarG?: number | null;
+  saturatedFatG?: number | null;
+};
+
+/**
+ * Calculates nutrition for a given portion/multiplier deterministically.
+ * Multiplier is bounded >= 0. Results rounded to 2 decimal places.
+ */
+export function calculateServingNutrition(
+  nutrition: NutritionValues | null | undefined,
+  multiplier: number
+): Record<string, number> {
+  const m = Math.max(0, Number(multiplier ?? 0));
+  if (!nutrition) {
+    return {
+      energyKcal: 0,
+      proteinG: 0,
+      fatG: 0,
+      carbohydrateG: 0,
+      fiberG: 0,
+      sodiumMg: 0,
+      sugarG: 0,
+      saturatedFatG: 0
+    };
+  }
+  return {
+    energyKcal: Math.round(Number(nutrition.energyKcal ?? 0) * m * 100) / 100,
+    proteinG: Math.round(Number(nutrition.proteinG ?? 0) * m * 100) / 100,
+    fatG: Math.round(Number(nutrition.fatG ?? 0) * m * 100) / 100,
+    carbohydrateG: Math.round(Number(nutrition.carbohydrateG ?? 0) * m * 100) / 100,
+    fiberG: Math.round(Number(nutrition.fiberG ?? 0) * m * 100) / 100,
+    sodiumMg: Math.round(Number(nutrition.sodiumMg ?? 0) * m * 100) / 100,
+    sugarG: Math.round(Number(nutrition.sugarG ?? 0) * m * 100) / 100,
+    saturatedFatG: Math.round(Number(nutrition.saturatedFatG ?? 0) * m * 100) / 100
+  };
+}
+
+/**
+ * Calculates energy from macronutrients: 4 kcal/g protein, 9 kcal/g fat, 4 kcal/g carbohydrate.
+ */
+export function calculateMacroEnergy(
+  proteinG: number | null | undefined,
+  fatG: number | null | undefined,
+  carbohydrateG: number | null | undefined
+): number {
+  const p = Math.max(0, Number(proteinG ?? 0));
+  const f = Math.max(0, Number(fatG ?? 0));
+  const c = Math.max(0, Number(carbohydrateG ?? 0));
+  return Math.round((p * 4 + f * 9 + c * 4) * 100) / 100;
+}
+
+/**
+ * Calculates multiplier from consumed grams and standard serving grams.
+ */
+export function calculateGramsMultiplier(
+  consumedGrams: number | null | undefined,
+  standardServingGrams: number | null | undefined
+): number | null {
+  if (
+    consumedGrams == null ||
+    standardServingGrams == null ||
+    standardServingGrams <= 0 ||
+    consumedGrams < 0
+  ) {
+    return null;
+  }
+  return Math.round((consumedGrams / standardServingGrams) * 1000) / 1000;
+}
+
+/**
+ * Aggregates a list of nutrition items into total nutrients.
+ */
+export function aggregateNutrients(
+  items: Array<NutritionValues | null | undefined>
+): Record<string, number> {
+  const total = {
+    energyKcal: 0,
+    proteinG: 0,
+    fatG: 0,
+    carbohydrateG: 0,
+    fiberG: 0,
+    sodiumMg: 0,
+    sugarG: 0,
+    saturatedFatG: 0
+  };
+  for (const item of items) {
+    if (!item) continue;
+    total.energyKcal += Number(item.energyKcal ?? 0);
+    total.proteinG += Number(item.proteinG ?? 0);
+    total.fatG += Number(item.fatG ?? 0);
+    total.carbohydrateG += Number(item.carbohydrateG ?? 0);
+    total.fiberG += Number(item.fiberG ?? 0);
+    total.sodiumMg += Number(item.sodiumMg ?? 0);
+    total.sugarG += Number(item.sugarG ?? 0);
+    total.saturatedFatG += Number(item.saturatedFatG ?? 0);
+  }
+  for (const key of Object.keys(total) as Array<keyof typeof total>) {
+    total[key] = Math.round(total[key] * 100) / 100;
+  }
+  return total;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                         Privacy Guard & K-Anonymity                        */
+/* -------------------------------------------------------------------------- */
+
+export const MIN_COHORT_SIZE = 3;
+
+export type NutrientAverages = {
+  avg_energy_kcal?: number | null;
+  avg_protein_g?: number | null;
+  avg_fat_g?: number | null;
+  avg_carbohydrate_g?: number | null;
+  avg_fiber_g?: number | null;
+  avg_sodium_mg?: number | null;
+  avg_sugar_g?: number | null;
+  avg_saturated_fat_g?: number | null;
+};
+
+export type MaskedNutrientAverages = {
+  avg_energy_kcal: number | null;
+  avg_protein_g: number | null;
+  avg_fat_g: number | null;
+  avg_carbohydrate_g: number | null;
+  avg_fiber_g: number | null;
+  avg_sodium_mg: number | null;
+  avg_sugar_g: number | null;
+  avg_saturated_fat_g: number | null;
+  masked?: boolean;
+};
+
+/**
+ * Checks whether cohort size is below the minimum threshold for k-anonymity (default: 3).
+ */
+export function isCohortPrivacyMasked(
+  cohortSize: number,
+  minCohort: number = MIN_COHORT_SIZE
+): boolean {
+  return cohortSize < minCohort;
+}
+
+/**
+ * Applies minimum-cell k-anonymity masking.
+ * When cohort < minCohort (default 3), nutrient averages are suppressed to null to prevent
+ * reverse-engineering individual students' dietary intake.
+ */
+export function maskNutritionCohort(
+  nutrition: NutrientAverages | null | undefined,
+  cohortSize: number,
+  minCohort: number = MIN_COHORT_SIZE
+): MaskedNutrientAverages {
+  const masked = isCohortPrivacyMasked(cohortSize, minCohort);
+  if (masked || !nutrition) {
+    return {
+      avg_energy_kcal: null,
+      avg_protein_g: null,
+      avg_fat_g: null,
+      avg_carbohydrate_g: null,
+      avg_fiber_g: null,
+      avg_sodium_mg: null,
+      avg_sugar_g: null,
+      avg_saturated_fat_g: null,
+      masked: true
+    };
+  }
+  return {
+    avg_energy_kcal: nutrition.avg_energy_kcal != null ? Number(nutrition.avg_energy_kcal) : null,
+    avg_protein_g: nutrition.avg_protein_g != null ? Number(nutrition.avg_protein_g) : null,
+    avg_fat_g: nutrition.avg_fat_g != null ? Number(nutrition.avg_fat_g) : null,
+    avg_carbohydrate_g: nutrition.avg_carbohydrate_g != null ? Number(nutrition.avg_carbohydrate_g) : null,
+    avg_fiber_g: nutrition.avg_fiber_g != null ? Number(nutrition.avg_fiber_g) : null,
+    avg_sodium_mg: nutrition.avg_sodium_mg != null ? Number(nutrition.avg_sodium_mg) : null,
+    avg_sugar_g: nutrition.avg_sugar_g != null ? Number(nutrition.avg_sugar_g) : null,
+    avg_saturated_fat_g: nutrition.avg_saturated_fat_g != null ? Number(nutrition.avg_saturated_fat_g) : null,
+    masked: false
+  };
+}
