@@ -1,4 +1,4 @@
-﻿@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 
 package uk.lunarlab.health2609.feature.today
 
@@ -98,7 +98,7 @@ fun TodayScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("青衡", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text("今天", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Text(
                             prettyDate,
                             style = MaterialTheme.typography.labelMedium,
@@ -146,8 +146,8 @@ fun TodayScreen(
 
             item {
                 SectionHeading(
-                    title = "学校午餐",
-                    subtitle = "按实际吃下的量记录",
+                    title = "午餐",
+                    subtitle = "学校今天的菜单，选你实际吃下的量",
                     icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
                 )
             }
@@ -156,8 +156,8 @@ fun TodayScreen(
             if (dishes.isEmpty()) {
                 item {
                     EmptyState(
-                        title = "今天还没有午餐菜单",
-                        body = "学校录入菜单后会自动出现在这里。"
+                        title = "今天的午餐还没发布",
+                        body = "学校录入后会自动出现在这里。"
                     )
                 }
             } else {
@@ -177,7 +177,7 @@ fun TodayScreen(
             item {
                 SectionHeading(
                     title = "其他餐食",
-                    subtitle = "拍照识别，再由你确认",
+                    subtitle = "早餐、晚餐或其他不在学校吃的东西",
                     icon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) }
                 )
             }
@@ -203,7 +203,7 @@ fun TodayScreen(
             item {
                 SectionHeading(
                     title = "运动",
-                    subtitle = "校内和校外分开统计",
+                    subtitle = "学校记校内，手机补校外",
                     icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
                 )
             }
@@ -247,9 +247,9 @@ private fun TodayOverview(
     ) {
         Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("今天", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+                Text("今日概况", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "吃了什么、动了多少，一眼看清。",
+                    "先记真实发生的，数字自然会完整起来。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
                 )
@@ -489,7 +489,7 @@ private fun HomeMealPanel(
         FilledTonalButton(onClick = onPickImage, enabled = !analyzing && !saving) {
             Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
-            Text(if (analyzing) "正在识别…" else "拍照或选择图片")
+            Text(if (analyzing) "正在看这顿饭…" else "拍照或从相册选择")
         }
 
         if (analyzing) {
@@ -498,7 +498,7 @@ private fun HomeMealPanel(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 LoadingIndicator(modifier = Modifier.size(24.dp))
-                Text("正在整理这顿饭", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("正在整理食物和分量", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -566,10 +566,10 @@ private fun HomeMealPanel(
 
         if (draft.isNotEmpty()) {
             Button(onClick = onSave, enabled = !saving && !analyzing) {
-                Text(if (saving) "保存中" else "确认并保存")
+                Text(if (saving) "正在保存" else "确认并记入今天")
             }
             Text(
-                "识别结果可能有误，保存前请核对食物和分量。",
+                "名称和分量由你最后确认；确认前不会记进今天。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -615,7 +615,7 @@ private fun ActivityPanel(
                     )
                 }
                 FilledTonalButton(onClick = onSync, enabled = !syncing) {
-                    Text(if (syncing) "更新中" else "从手机更新")
+                    Text(if (syncing) "正在更新" else "更新手机里的运动")
                 }
             }
 
@@ -643,7 +643,7 @@ private fun ActivityPanel(
             ) {
                 Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(if (showManual) "收起补记" else "手动补记")
+                Text(if (showManual) "收起补记" else "补记一次运动")
             }
 
             AnimatedVisibility(showManual) {
@@ -693,13 +693,13 @@ private fun ActivityPanel(
                     }
 
                     Text(
-                        "如果手机也记录了同一段运动，会优先采用较长的时长，减少重复计算。",
+                        "如果手机已经记到同一段运动，会尽量避免重复累加。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Button(onClick = onSave, enabled = !saving) {
-                        Text(if (saving) "保存中" else "保存补记")
+                        Text(if (saving) "正在保存" else "保存这次运动")
                     }
                 }
             }
