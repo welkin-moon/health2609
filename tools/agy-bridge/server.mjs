@@ -162,17 +162,6 @@ async function ensureAgy() {
   }
 }
 
-function safeParseJson(value) {
-  try {
-    let str = String(value || "").trim();
-    if (str.startsWith("```") && str.endsWith("```")) {
-      str = str.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-    }
-    return JSON.parse(str);
-  } catch {
-    return null;
-  }
-}
 
 function extForMime(type) {
   const map = {
