@@ -56,6 +56,7 @@ function stopAgy(reason) {
 
 function spawnAgy() {
   const args = [
+    "--print",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
     "--json-schema", schemaPath,
