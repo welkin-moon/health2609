@@ -16,9 +16,8 @@ class Health2609Preferences(context: Context) {
 
     val startDestination: Flow<String> = dataStore.data.map { preferences ->
         when (val saved = preferences[START_DESTINATION]) {
-            "data" -> "privacy"
-            "privacy" -> "privacy"
-            else -> saved ?: "today"
+            "today", "meals", "activity" -> saved
+            else -> "today"
         }
     }
 
@@ -31,6 +30,6 @@ class Health2609Preferences(context: Context) {
 
     private companion object {
         val START_DESTINATION = stringPreferencesKey("start_destination")
-        val ALLOWED_DESTINATIONS = setOf("today", "privacy", "data")
+        val ALLOWED_DESTINATIONS = setOf("today", "meals", "activity")
     }
 }
