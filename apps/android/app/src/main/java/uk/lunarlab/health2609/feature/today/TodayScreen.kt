@@ -59,6 +59,7 @@ private data class NutritionTotals(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TodayScreen(
+    destination: String,
     state: TodayUiState,
     onPortionChange: (String, Double) -> Unit,
     onGramsChange: (String, Double?) -> Unit,
@@ -108,12 +109,18 @@ fun TodayScreen(
         }.getOrDefault(state.date)
     }
 
+    val screenTitle = when (destination) {
+        "meals" -> "饮食"
+        "activity" -> "运动"
+        else -> "今天"
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("今天", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(screenTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Text(
                             prettyDate,
                             style = MaterialTheme.typography.labelMedium,
@@ -129,7 +136,7 @@ fun TodayScreen(
             )
         }
     ) { innerPadding ->
-        if (state.loading && state.menu == null) {
+        if (state.loading && state.menu == null && state.summary == null) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -149,94 +156,100 @@ fun TodayScreen(
         ) {
             state.message?.let { message -> item { StatusMessage(message) } }
 
-            item {
-                SectionHeading(
-                    title = "午餐",
-                    subtitle = "学校今天的菜单，选你实际吃下的量",
-                    icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
-                )
-            }
+            when (destination) {
+                "meals" -> {
+                    item {
+                        SectionHeading(
+                            title = "学校午餐",
+                            subtitle = "按实际吃下的分量快速记录",
+                            icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
+                        )
+                    }
 
-            val dishes = state.menu?.dishes.orEmpty()
-            if (dishes.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "今天的午餐还没发布",
-                        body = "学校录入后会自动出现在这里。"
-                    )
+                    val dishes = state.menu?.dishes.orEmpty()
+                    if (dishes.isEmpty()) {
+                        item {
+                            EmptyState(
+                                title = "今天的午餐还没发布",
+                                body = "学校录入后会自动出现在这里。"
+                            )
+                        }
+                    } else {
+                        items(dishes, key = { it.id }) { dish ->
+                            DishRow(
+                                dish = dish,
+                                amount = state.amounts[dish.id] ?: DishAmount(),
+                                onPortionChange = { onPortionChange(dish.id, it) },
+                                onGramsChange = { onGramsChange(dish.id, it) }
+                            )
+                        }
+                        item { LunchSummary(lunchPreview, state.savingMeal, onSaveMeal) }
+                    }
+
+                    item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+
+                    item {
+                        SectionHeading(
+                            title = "其他餐食",
+                            subtitle = "拍照识别，再由你确认名称和分量",
+                            icon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) }
+                        )
+                    }
+
+                    item {
+                        HomeMealPanel(
+                            slot = state.homeMealSlot,
+                            draft = state.homeMealDraft,
+                            notes = state.homeMealNotes,
+                            analyzing = state.analyzingHomeMeal,
+                            saving = state.savingHomeMeal,
+                            onTakePhoto = onTakeHomeMealPhoto,
+                            onPickImage = onPickHomeMealImage,
+                            onSlotChange = onHomeMealSlotChange,
+                            onNameChange = onHomeMealNameChange,
+                            onGramsChange = onHomeMealGramsChange,
+                            onRemoveItem = onRemoveHomeMealItem,
+                            onSave = onSaveHomeMeal
+                        )
+                    }
                 }
-            } else {
-                items(dishes, key = { it.id }) { dish ->
-                    DishRow(
-                        dish = dish,
-                        amount = state.amounts[dish.id] ?: DishAmount(),
-                        onPortionChange = { onPortionChange(dish.id, it) },
-                        onGramsChange = { onGramsChange(dish.id, it) }
-                    )
+
+                "activity" -> {
+                    item {
+                        SectionHeading(
+                            title = "今天的运动",
+                            subtitle = "同步手机记录，也可以手动补记",
+                            icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
+                        )
+                    }
+
+                    item {
+                        ActivityPanel(
+                            summary = state.summary,
+                            syncing = state.syncingPhoneActivity,
+                            initialType = state.manualActivityType,
+                            minutes = state.manualActivityMinutes,
+                            intensity = state.manualActivityIntensity,
+                            saving = state.savingActivity,
+                            onSync = onSyncPhoneActivity,
+                            onMinutesChange = onActivityMinutesChange,
+                            onIntensityChange = onActivityIntensityChange,
+                            onSave = onSaveActivity
+                        )
+                    }
                 }
-                item { LunchSummary(lunchPreview, state.savingMeal, onSaveMeal) }
-            }
 
-            item {
-                TodayOverview(
-                    summary = state.summary,
-                    energyReferenceInput = state.energyReferenceInput,
-                    savingReference = state.savingEnergyReference,
-                    onEnergyReferenceChange = onEnergyReferenceChange,
-                    onSaveEnergyReference = onSaveEnergyReference
-                )
-            }
-
-            item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
-
-            item {
-                SectionHeading(
-                    title = "其他餐食",
-                    subtitle = "早餐、晚餐或其他不在学校吃的东西",
-                    icon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) }
-                )
-            }
-
-            item {
-                HomeMealPanel(
-                    slot = state.homeMealSlot,
-                    draft = state.homeMealDraft,
-                    notes = state.homeMealNotes,
-                    analyzing = state.analyzingHomeMeal,
-                    saving = state.savingHomeMeal,
-                    onTakePhoto = onTakeHomeMealPhoto,
-                    onPickImage = onPickHomeMealImage,
-                    onSlotChange = onHomeMealSlotChange,
-                    onNameChange = onHomeMealNameChange,
-                    onGramsChange = onHomeMealGramsChange,
-                    onRemoveItem = onRemoveHomeMealItem,
-                    onSave = onSaveHomeMeal
-                )
-            }
-
-            item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
-
-            item {
-                SectionHeading(
-                    title = "运动",
-                    subtitle = "学校记校内，手机补校外",
-                    icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
-                )
-            }
-
-            item {
-                ActivityPanel(
-                    summary = state.summary,
-                    syncing = state.syncingPhoneActivity,
-                    initialType = state.manualActivityType,
-                    minutes = state.manualActivityMinutes,
-                    intensity = state.manualActivityIntensity,
-                    saving = state.savingActivity,
-                    onSync = onSyncPhoneActivity,
-                    onMinutesChange = onActivityMinutesChange,
-                    onIntensityChange = onActivityIntensityChange,
-                    onSave = onSaveActivity
-                )
+                else -> {
+                    item {
+                        TodayOverview(
+                            summary = state.summary,
+                            energyReferenceInput = state.energyReferenceInput,
+                            savingReference = state.savingEnergyReference,
+                            onEnergyReferenceChange = onEnergyReferenceChange,
+                            onSaveEnergyReference = onSaveEnergyReference
+                        )
+                    }
+                }
             }
         }
     }
