@@ -224,9 +224,6 @@ class MainActivity : ComponentActivity() {
 
         runCatching {
             val windows = repository.loadSchoolDayWindows(date)
-            require(windows.isNotEmpty()) {
-                "学校管理员还没有配置当天的在校时段"
-            }
 
             val aggregate = healthConnectSource.readOutsideSchoolDay(
                 date = LocalDate.parse(date),
