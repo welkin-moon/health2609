@@ -124,8 +124,9 @@ class MainActivity : ComponentActivity() {
                             preferences.setStartDestination(destination)
                         }
                     }
-                ) {
+                ) { destination ->
                     TodayScreen(
+                    destination = destination,
                     state = state,
                     onPortionChange = viewModel::setPortion,
                     onGramsChange = viewModel::setConsumedGrams,
