@@ -1,4 +1,4 @@
-﻿package uk.lunarlab.health2609.ui
+package uk.lunarlab.health2609.ui
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +37,7 @@ private data class StudentDestination(
 
 private val destinations = listOf(
     StudentDestination("today", "今天", Icons.Rounded.CalendarToday),
-    StudentDestination("data", "数据", Icons.Rounded.Security)
+    StudentDestination("privacy", "隐私", Icons.Rounded.Security)
 )
 
 @Composable
@@ -48,7 +48,7 @@ fun StudentAppShell(
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         when (selectedDestination) {
-            "data" -> DataNotesScreen()
+            "data", "privacy" -> DataNotesScreen()
             else -> todayContent()
         }
 
@@ -134,12 +134,12 @@ private fun DataNotesScreen() {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    text = "数据与隐私",
+                    text = "你的数据，边界很清楚",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "只收集完成每日记录需要的信息。",
+                    text = "学校、手机和你本人，只提供完成当天记录真正需要的那一部分。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -149,27 +149,27 @@ private fun DataNotesScreen() {
         item {
             PrivacySection(
                 icon = Icons.Rounded.CalendarToday,
-                title = "校内体育",
-                body = "按学校课程和管理员确认的实际活动时间记录，不用手机数据猜测。",
-                detail = "这样能避免把课间走动误算成体育课。"
+                title = "校内体育由学校记录",
+                body = "只用课程安排和老师确认的实际活动时间，不拿手机数据猜体育课。",
+                detail = "课间走动不会被误算成体育课。"
             )
         }
 
         item {
             PrivacySection(
                 icon = Icons.Rounded.CalendarToday,
-                title = "校外运动",
-                body = "从手机健康数据读取当天活动，并自动排除学校设置的在校时段。",
-                detail = "Android 设备通过 Health Connect 读取汇总数据；不会上传运动轨迹。"
+                title = "手机只补校外运动",
+                body = "先在手机上排除学校设置的在校时段，再汇总当天运动。",
+                detail = "上传的是当天汇总，不是运动轨迹。"
             )
         }
 
         item {
             PrivacySection(
                 icon = Icons.Rounded.Security,
-                title = "餐食照片",
-                body = "照片只用于识别食物。保存前由你确认名称和分量。",
-                detail = "最终保存的是食物、分量和营养估算，不保存原始照片。"
+                title = "餐食照片由你确认",
+                body = "照片先用来识别食物，名称和分量都可以改，确认后才会记进当天。",
+                detail = "保存确认后的餐食结果，不保存原始照片。"
             )
         }
     }
