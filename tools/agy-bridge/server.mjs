@@ -49,8 +49,10 @@ function stopAgy(reason) {
   agyProcess = null;
   agyReady = false;
   if (pendingResult) {
-    pendingResult.reject(new Error(`agy_stopped:${reason}`));
+    const pending = pendingResult;
     pendingResult = null;
+    clearTimeout(pending.timer);
+    pending.reject(new Error(`agy_stopped:${reason}`));
   }
 }
 
@@ -229,7 +231,7 @@ function json(res, status, body) {
 
 const server = createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/healthz") {
-    json(res, 200, { ok: true, agyReady, queueDepth, port });
+    json(res, agyReady ? 200 : 503, { ok: agyReady, agyReady, queueDepth, port });
     return;
   }
 
@@ -238,7 +240,7 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (bearerToken && req.headers.authorization !== `Bearer ${bearerToken}`) {
+  if (!bearerToken || req.headers.authorization !== `Bearer ${bearerToken}`) {
     json(res, 401, { error: "unauthorized" });
     return;
   }
@@ -292,7 +294,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, host, async () => {
   log(`listening on http://${host}:${port}`);
-  if (!bearerToken) log("warning: HEALTH2609_AGY_TOKEN is not set");
+  if (!bearerToken) log("error: HEALTH2609_AGY_TOKEN is not set; analysis requests will be rejected");
   try {
     await ensureAgy();
   } catch (error) {
