@@ -44,7 +44,7 @@ jobs:
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
           else
-            TAG="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | sed -n 's#^demo/screenshots/\([^/]*\)/.*#\1#p' | head -n1)"
+            TAG="$(find demo/screenshots -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | tail -n1)"
           fi
           test -n "$TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
