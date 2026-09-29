@@ -13,6 +13,9 @@ on:
         default: "https://h2609.lunarlab.uk/"
         type: string
   push:
+    branches: [main]
+    paths:
+      - "demo/screenshots/**"
     tags:
       - "v*-debug.*"
 
@@ -38,9 +41,12 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             TAG="${{ inputs.release_tag }}"
-          else
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | sed -n 's#^demo/screenshots/\([^/]*\)/.*#\1#p' | head -n1)"
           fi
+          test -n "$TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "screens=demo/screenshots/$TAG" >> "$GITHUB_OUTPUT"
 
