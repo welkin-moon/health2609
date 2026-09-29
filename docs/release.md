@@ -1,4 +1,4 @@
-# Android APK 构建与提交
+# 青衡 Android 测试版构建与提交
 
 ## 构建要求
 
@@ -48,7 +48,7 @@ gradle -p apps/android assembleDebug
 
 并上传 `health2609-debug-apk` artifact。普通提交不再需要 release 签名流程。
 
-`.github/workflows/release.yml` 现在也是比赛用 debug 签名构建：可以手动触发或打 `v*` tag，默认 API 为 `https://h2609.lunarlab.uk/`，并上传保留 7 天的 `health2609-debug-apk` artifact。正式 release 签名仍只是后续可选项。
+`.github/workflows/release.yml` 负责青衡测试版发布：每个测试版必须在 `demo/screenshots/<tag>/` 放入本版演示 PNG，workflow 才会构建 debug APK，并把 PNG 与 APK 一起作为 GitHub prerelease 资产发布。演示图直接作为 Release assets，不再只打进 ZIP。
 
 ## 可选：release 签名
 
