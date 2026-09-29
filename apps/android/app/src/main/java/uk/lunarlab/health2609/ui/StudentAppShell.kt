@@ -46,14 +46,19 @@ fun StudentAppShell(
     onDestinationChange: (String) -> Unit,
     todayContent: @Composable () -> Unit
 ) {
+    val currentDestination = when (selectedDestination) {
+        "data" -> "privacy"
+        else -> selectedDestination
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        when (selectedDestination) {
-            "data", "privacy" -> DataNotesScreen()
+        when (currentDestination) {
+            "privacy" -> DataNotesScreen()
             else -> todayContent()
         }
 
         FloatingStudentDock(
-            selectedDestination = selectedDestination,
+            selectedDestination = currentDestination,
             onDestinationChange = onDestinationChange,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
