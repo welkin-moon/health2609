@@ -94,18 +94,18 @@ export function App() {
         ]);
 
       const lunch = menuResult.menus.find((menu) => menu.mealSlot === "lunch");
-      if (lunch?.dishes.length) {
-        setDishes(
-          lunch.dishes.map(
-            ({ id, name, standardServingGrams, nutritionPerServing }) => ({
-              id,
-              name,
-              standardServingGrams,
-              nutritionPerServing
-            })
-          )
-        );
-      }
+      setDishes(
+        lunch?.dishes.length
+          ? lunch.dishes.map(
+              ({ id, name, standardServingGrams, nutritionPerServing }) => ({
+                id,
+                name,
+                standardServingGrams,
+                nutritionPerServing
+              })
+            )
+          : [emptyDish()]
+      );
 
       setOverview(stats);
       setClasses(classResult.classes);
