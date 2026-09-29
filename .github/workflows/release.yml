@@ -1,8 +1,12 @@
-name: Android competition APK
+name: Qingheng test release
 
 on:
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: "Test release tag, e.g. v0.2.0-debug.20260929"
+        required: true
+        type: string
       api_base_url:
         description: "Worker API base URL, ending with /"
         required: false
@@ -10,10 +14,13 @@ on:
         type: string
   push:
     tags:
-      - "v*"
+      - "v*-debug.*"
+
+permissions:
+  contents: write
 
 jobs:
-  apk:
+  test-release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,15 +31,53 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
-      - name: Build debug-signed competition APK
+
+      - name: Resolve metadata
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.release_tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "screens=demo/screenshots/$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Require this version screenshots
+        shell: bash
+        run: |
+          test -d "${{ steps.meta.outputs.screens }}"
+          compgen -G "${{ steps.meta.outputs.screens }}/*.png" > /dev/null
+
+      - name: Build debug APK
         env:
           INPUT_API_BASE_URL: ${{ inputs.api_base_url }}
+        shell: bash
         run: |
           API_BASE_URL="${INPUT_API_BASE_URL:-https://h2609.lunarlab.uk/}"
           gradle -p apps/android assembleDebug -PHEALTH2609_API_BASE_URL="$API_BASE_URL"
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk "qingheng-${{ steps.meta.outputs.tag }}-debug.apk"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: health2609-debug-apk
-          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          name: qingheng-${{ steps.meta.outputs.tag }}
+          path: |
+            qingheng-${{ steps.meta.outputs.tag }}-debug.apk
+            ${{ steps.meta.outputs.screens }}/*.png
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish prerelease assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          SCREEN_DIR="${{ steps.meta.outputs.screens }}"
+          APK="qingheng-${TAG}-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" "$SCREEN_DIR"/*.png --clobber
+          else
+            gh release create "$TAG" "$APK" "$SCREEN_DIR"/*.png --prerelease --title "青衡 $TAG" --notes "本测试版 Release 固定包含本版实机演示图片与 debug 签名 APK。"
+          fi
