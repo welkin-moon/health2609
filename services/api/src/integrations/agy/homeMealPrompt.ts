@@ -15,6 +15,7 @@ For each visible food item return:
 Also return a notes array.
 
 Rules:
+- If the image contains no recognizable food or meal, return an empty items array and explain that in notes. Do not invent food items.
 - Quantities and nutrition are estimates and are never committed until the student confirms them.
 - Prefer uncertainty over fabricated precision.
 - Do not infer identity, body type, medical condition, ethnicity, religion, income, or other sensitive traits.
