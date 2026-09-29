@@ -1,6 +1,6 @@
-# health2609
+# 青衡（health2609）
 
-面向中学生的校园健康记录 Demo：把学校已知的食堂菜单、体育课安排与实际活动时间，与学生在校外的手机运动数据和家庭餐记录合并，形成当天的饮食、运动与建议视图。
+「青衡」是面向中学生的校园健康记录 Demo：把学校已知的食堂菜单、体育课安排与实际活动时间，与学生在校外的手机运动数据和家庭餐记录合并，形成当天的饮食、运动与建议视图。
 
 ## 核心边界
 
@@ -10,7 +10,7 @@
 - 家庭餐：学生可拍照或手动记录。图片识别由经提示词约束的常驻 AGY CLI 处理；AGY 预读任务要求，收到新任务后触发子 agent 输出结构化候选结果，仓库内不再单独维护模型服务。
 - 管理端：Cloudflare Pages + Vite/React，使用自定义域名作为比赛入口，不依赖 `pages.dev`。
 - 后端：Cloudflare Workers + D1，使用自定义域名作为 API 入口，不依赖 `workers.dev`；家庭餐图片不落对象存储，Worker 仅校验后经 Cloudflare Tunnel/AGY 入口触发分析任务。目标是免费层即可跑比赛 Demo。
-- Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E)，前后端和领域层解耦。
+- Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E)，固定竖屏，主导航使用底部浮动 dock；前后端和领域层解耦。
 
 ## 仓库结构
 
