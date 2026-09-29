@@ -165,7 +165,7 @@ class TodayViewModel(
             _uiState.update {
                 it.copy(
                     analyzingHomeMeal = true,
-                    message = "正在让 AGY 看这顿饭…"
+                    message = "正在识别这顿饭…"
                 )
             }
 
@@ -203,7 +203,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         analyzingHomeMeal = false,
-                        message = error.message ?: "家庭餐识别失败"
+                        message = error.message ?: "餐食识别失败"
                     )
                 }
             }
@@ -269,7 +269,7 @@ class TodayViewModel(
 
         if (confirmed.isEmpty()) {
             _uiState.update {
-                it.copy(message = "至少保留一项家庭餐食物")
+                it.copy(message = "至少保留一项食物")
             }
             return
         }
@@ -293,12 +293,12 @@ class TodayViewModel(
                         homeMealNotes = emptyList()
                     )
                 }
-                refreshSummary("家庭餐已加入今天的营养汇总")
+                refreshSummary("这顿饭已加入今天的记录")
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(
                         savingHomeMeal = false,
-                        message = error.message ?: "家庭餐保存失败"
+                        message = error.message ?: "餐食保存失败"
                     )
                 }
             }
@@ -315,7 +315,7 @@ class TodayViewModel(
         }
     }
 
-    fun phoneActivitySyncFinished(message: String = "手机校外运动已同步") {
+    fun phoneActivitySyncFinished(message: String = "手机运动数据已更新") {
         val date = _uiState.value.date
         viewModelScope.launch {
             runCatching { repository.loadSummary(date) }

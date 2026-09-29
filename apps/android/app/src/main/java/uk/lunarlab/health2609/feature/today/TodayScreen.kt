@@ -1,50 +1,30 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+﻿@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 
 package uk.lunarlab.health2609.feature.today
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsRun
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
-import androidx.compose.material.icons.rounded.SsidChart
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -60,25 +40,19 @@ import uk.lunarlab.health2609.core.network.DishDto
 
 private val portionOptions = listOf(
     0.0 to "没吃",
-    0.25 to "1/4",
-    0.5 to "1/2",
-    0.75 to "3/4",
+    0.25 to "¼份",
+    0.5 to "半份",
+    0.75 to "¾份",
     1.0 to "1份"
 )
 
 private data class NutritionTotals(
     val energyKcal: Double = 0.0,
     val proteinG: Double = 0.0,
-    val fatG: Double = 0.0,
-    val carbohydrateG: Double = 0.0,
-    val fiberG: Double = 0.0,
-    val sodiumMg: Double = 0.0
+    val carbohydrateG: Double = 0.0
 )
 
-@OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3ExpressiveApi::class
-)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TodayScreen(
     state: TodayUiState,
@@ -102,16 +76,11 @@ fun TodayScreen(
     val lunchPreview = remember(state.menu, state.amounts) {
         state.menu?.dishes.orEmpty().fold(NutritionTotals()) { acc, dish ->
             val amount = state.amounts[dish.id] ?: DishAmount()
-            val portion = amount.servingMultiplier
             val nutrition = dish.nutritionPerServing
             NutritionTotals(
-                energyKcal = acc.energyKcal + (nutrition?.energyKcal ?: 0.0) * portion,
-                proteinG = acc.proteinG + (nutrition?.proteinG ?: 0.0) * portion,
-                fatG = acc.fatG + (nutrition?.fatG ?: 0.0) * portion,
-                carbohydrateG =
-                    acc.carbohydrateG + (nutrition?.carbohydrateG ?: 0.0) * portion,
-                fiberG = acc.fiberG + (nutrition?.fiberG ?: 0.0) * portion,
-                sodiumMg = acc.sodiumMg + (nutrition?.sodiumMg ?: 0.0) * portion
+                energyKcal = acc.energyKcal + (nutrition?.energyKcal ?: 0.0) * amount.servingMultiplier,
+                proteinG = acc.proteinG + (nutrition?.proteinG ?: 0.0) * amount.servingMultiplier,
+                carbohydrateG = acc.carbohydrateG + (nutrition?.carbohydrateG ?: 0.0) * amount.servingMultiplier
             )
         }
     }
@@ -119,34 +88,27 @@ fun TodayScreen(
     val prettyDate = remember(state.date) {
         runCatching {
             LocalDate.parse(state.date).format(
-                DateTimeFormatter.ofPattern(
-                    "M月d日 EEEE",
-                    Locale.SIMPLIFIED_CHINESE
-                )
+                DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.SIMPLIFIED_CHINESE)
             )
         }.getOrDefault(state.date)
     }
 
     Scaffold(
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = {
                     Column {
+                        Text("青衡", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = "今天",
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = prettyDate,
-                            style = MaterialTheme.typography.labelLarge,
+                            prettyDate,
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
                 actions = {
                     IconButton(onClick = onRefresh, enabled = !state.loading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
+                        Icon(Icons.Rounded.Refresh, contentDescription = "更新今天的数据")
                     }
                 }
             )
@@ -154,33 +116,24 @@ fun TodayScreen(
     ) { innerPadding ->
         if (state.loading && state.menu == null) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 LoadingIndicator()
-                Spacer(Modifier.height(14.dp))
-                Text("正在读取今天的数据")
+                Spacer(Modifier.height(12.dp))
+                Text("正在准备今天的记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             return@Scaffold
         }
 
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(
-                start = 18.dp,
-                end = 18.dp,
-                top = 8.dp,
-                bottom = 36.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 126.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item {
-                DailyOverviewCard(
+                TodayOverview(
                     summary = state.summary,
                     energyReferenceInput = state.energyReferenceInput,
                     savingReference = state.savingEnergyReference,
@@ -189,102 +142,48 @@ fun TodayScreen(
                 )
             }
 
-            state.message?.let { message ->
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        ),
-                        modifier = Modifier.animateContentSize(
-                            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
-                        )
-                    ) {
-                        Text(
-                            text = message,
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-            }
+            state.message?.let { message -> item { StatusMessage(message) } }
 
             item {
-                SectionTitle(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.Restaurant,
-                            contentDescription = null
-                        )
-                    },
-                    title = "今天午餐",
-                    subtitle = "可以按份量快速选，也可以直接改成实际吃下的克数"
+                SectionHeading(
+                    title = "学校午餐",
+                    subtitle = "按实际吃下的量记录",
+                    icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
                 )
             }
 
             val dishes = state.menu?.dishes.orEmpty()
             if (dishes.isEmpty()) {
                 item {
-                    Card {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                "管理员还没有录入今天的午餐",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                "菜单保存后，这里会自动出现菜品。",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    EmptyState(
+                        title = "今天还没有午餐菜单",
+                        body = "学校录入菜单后会自动出现在这里。"
+                    )
                 }
             } else {
                 items(dishes, key = { it.id }) { dish ->
-                    DishCard(
+                    DishRow(
                         dish = dish,
                         amount = state.amounts[dish.id] ?: DishAmount(),
                         onPortionChange = { onPortionChange(dish.id, it) },
                         onGramsChange = { onGramsChange(dish.id, it) }
                     )
                 }
-
-                item {
-                    LunchPreviewCard(lunchPreview)
-                }
-
-                item {
-                    Button(
-                        onClick = onSaveMeal,
-                        enabled = !state.savingMeal,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(58.dp)
-                    ) {
-                        Text(
-                            if (state.savingMeal) "保存中…"
-                            else "记录今天的午餐"
-                        )
-                    }
-                }
+                item { LunchSummary(lunchPreview, state.savingMeal, onSaveMeal) }
             }
 
+            item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+
             item {
-                SectionTitle(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.PhotoCamera,
-                            contentDescription = null
-                        )
-                    },
-                    title = "在家吃的",
-                    subtitle = "图片直接交给 AGY 识别，不在云端保存原图"
+                SectionHeading(
+                    title = "其他餐食",
+                    subtitle = "拍照识别，再由你确认",
+                    icon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) }
                 )
             }
 
             item {
-                HomeMealCard(
+                HomeMealPanel(
                     slot = state.homeMealSlot,
                     draft = state.homeMealDraft,
                     notes = state.homeMealNotes,
@@ -299,32 +198,24 @@ fun TodayScreen(
                 )
             }
 
+            item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+
             item {
-                SectionTitle(
-                    icon = {
-                        Icon(
-                            Icons.Rounded.DirectionsRun,
-                            contentDescription = null
-                        )
-                    },
-                    title = "补记运动",
-                    subtitle = "手机数据不足时，可以自己补充当天运动时间和强度"
+                SectionHeading(
+                    title = "运动",
+                    subtitle = "校内和校外分开统计",
+                    icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
                 )
             }
 
             item {
-                PhoneActivityCard(
+                ActivityPanel(
                     summary = state.summary,
                     syncing = state.syncingPhoneActivity,
-                    onSync = onSyncPhoneActivity
-                )
-            }
-
-            item {
-                ManualActivityCard(
                     minutes = state.manualActivityMinutes,
                     intensity = state.manualActivityIntensity,
                     saving = state.savingActivity,
+                    onSync = onSyncPhoneActivity,
                     onMinutesChange = onActivityMinutesChange,
                     onIntensityChange = onActivityIntensityChange,
                     onSave = onSaveActivity
@@ -335,7 +226,7 @@ fun TodayScreen(
 }
 
 @Composable
-private fun DailyOverviewCard(
+private fun TodayOverview(
     summary: DailySummaryDto?,
     energyReferenceInput: String,
     savingReference: Boolean,
@@ -345,159 +236,81 @@ private fun DailyOverviewCard(
     val nutrition = summary?.nutrition
     val activity = summary?.activity
     val energy = summary?.energy
+    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
+    val progress = ((activity?.totalMinutes ?: 0).toFloat() / target).coerceIn(0f, 1f)
+    var editReference by rememberSaveable { mutableStateOf(false) }
 
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        ),
-        modifier = Modifier.animateContentSize(
-            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
-        )
+    Surface(
+        shape = RoundedCornerShape(30.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
     ) {
-        Column(
-            modifier = Modifier.padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            Column {
+        Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("今天", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "今日总览",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-                Text(
-                    "${activity?.totalMinutes ?: 0} / ${activity?.targetMinutes ?: 120} 分钟运动",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                    "吃了什么、动了多少，一眼看清。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
                 )
             }
 
-            LinearProgressIndicator(
-                progress = {
-                    val total = activity?.totalMinutes ?: 0
-                    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
-                    (total.toFloat() / target).coerceIn(0f, 1f)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Metric(
-                    value = "${nutrition?.energyKcal?.roundToInt() ?: 0}",
-                    label = "已记录 kcal"
-                )
-                Metric(
-                    value = "${activity?.peMinutes ?: 0}",
-                    label = "体育课 min"
-                )
-                Metric(
-                    value = "${activity?.outsideMinutes ?: 0}",
-                    label = "校外 min"
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OverviewMetric(Modifier.weight(1f), (nutrition?.energyKcal?.roundToInt() ?: 0).toString() + " 千卡", "摄入热量")
+                OverviewMetric(Modifier.weight(1f), (activity?.totalMinutes ?: 0).toString() + " 分钟", "运动")
+                OverviewMetric(
+                    Modifier.weight(1f),
+                    String.format(Locale.US, "%.0f", nutrition?.proteinG ?: 0.0) + " 克",
+                    "蛋白质"
                 )
             }
 
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(
-                    alpha = 0.16f
-                )
-            )
-
-            Text(
-                "营养构成",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            MacroRow(
-                label = "蛋白质",
-                grams = nutrition?.proteinG ?: 0.0,
-                percent = nutrition?.macroCompositionPercent?.protein ?: 0.0
-            )
-            MacroRow(
-                label = "脂肪",
-                grams = nutrition?.fatG ?: 0.0,
-                percent = nutrition?.macroCompositionPercent?.fat ?: 0.0
-            )
-            MacroRow(
-                label = "碳水",
-                grams = nutrition?.carbohydrateG ?: 0.0,
-                percent = nutrition?.macroCompositionPercent?.carbohydrate ?: 0.0
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                SmallMetric(
-                    modifier = Modifier.weight(1f),
-                    value = String.format(
-                        Locale.US,
-                        "%.1f g",
-                        nutrition?.fiberG ?: 0.0
-                    ),
-                    label = "膳食纤维"
-                )
-                SmallMetric(
-                    modifier = Modifier.weight(1f),
-                    value = "${(nutrition?.sodiumMg ?: 0.0).roundToInt()} mg",
-                    label = "钠"
-                )
-            }
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(
-                    alpha = 0.16f
-                )
-            )
-
-            val gap = energy?.referenceGapKcal
-            if (gap != null) {
-                val wording = if (gap >= 0) {
-                    "距你的参考能量还差 ${abs(gap).roundToInt()} kcal"
-                } else {
-                    "已比你的参考能量高 ${abs(gap).roundToInt()} kcal"
-                }
-                Text(
-                    wording,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    "这里只表示已记录摄入与个人参考值的差，不把它当作减重目标。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Text(
-                    "设置一个个人参考能量后，可以显示当天的能量参考差。",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = energyReferenceInput,
-                    onValueChange = onEnergyReferenceChange,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    label = { Text("参考能量 / kcal") },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        "运动 " + (activity?.totalMinutes ?: 0).toString() + " / " + target.toString() + " 分钟",
+                        style = MaterialTheme.typography.labelLarge
                     )
+                    Text(
+                        if (activity?.targetReached == true) "已达目标" else "今日进度",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+
+            TextButton(
+                onClick = { editReference = !editReference },
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+            ) {
+                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (energy?.dailyEnergyReferenceKcal != null) {
+                        "每日参考 " + energy.dailyEnergyReferenceKcal.toString() + " 千卡"
+                    } else {
+                        "设置每日参考"
+                    }
                 )
-                FilledTonalButton(
-                    onClick = onSaveEnergyReference,
-                    enabled = !savingReference
+            }
+
+            AnimatedVisibility(editReference) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (savingReference) "保存中" else "保存")
+                    OutlinedTextField(
+                        value = energyReferenceInput,
+                        onValueChange = onEnergyReferenceChange,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        label = { Text("每日参考（千卡）") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    Button(onClick = onSaveEnergyReference, enabled = !savingReference) {
+                        Text(if (savingReference) "保存中" else "保存")
+                    }
                 }
             }
         }
@@ -505,162 +318,101 @@ private fun DailyOverviewCard(
 }
 
 @Composable
-private fun MacroRow(
-    label: String,
-    grams: Double,
-    percent: Double
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                String.format(Locale.US, "%.1f g · %.0f%%", grams, percent),
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-        LinearProgressIndicator(
-            progress = { (percent / 100.0).toFloat().coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun SmallMetric(
-    modifier: Modifier,
-    value: String,
-    label: String
-) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                value,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun LunchPreviewCard(totals: NutritionTotals) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                "本次午餐预览",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Metric("${totals.energyKcal.roundToInt()}", "kcal")
-                Metric(
-                    String.format(Locale.US, "%.1f", totals.proteinG),
-                    "蛋白质 g"
-                )
-                Metric(
-                    String.format(Locale.US, "%.1f", totals.carbohydrateG),
-                    "碳水 g"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun Metric(
-    value: String,
-    label: String
-) {
-    Column {
-        Text(
-            value,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
+private fun OverviewMetric(modifier: Modifier, value: String, label: String) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(
             label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
         )
     }
 }
 
 @Composable
-private fun DishCard(
+private fun StatusMessage(message: String) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+    ) {
+        Text(message, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+    }
+}
+
+@Composable
+private fun SectionHeading(title: String, subtitle: String, icon: @Composable () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Row(modifier = Modifier.padding(10.dp)) { icon() }
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(title: String, body: String) {
+    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun DishRow(
     dish: DishDto,
     amount: DishAmount,
     onPortionChange: (Double) -> Unit,
     onGramsChange: (Double?) -> Unit
 ) {
-    Card(
-        modifier = Modifier.animateContentSize(
-            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
-        )
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec())
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.Top
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        dish.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    dish.standardServingGrams?.let { grams ->
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    val details = buildList {
+                        dish.standardServingGrams?.let { add("一份约 " + it.roundToInt().toString() + " 克") }
+                        dish.nutritionPerServing?.energyKcal?.let { add(it.roundToInt().toString() + " 千卡") }
+                    }
+                    if (details.isNotEmpty()) {
                         Text(
-                            "标准份 ${grams.roundToInt()} g",
+                            details.joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-
-                dish.nutritionPerServing?.energyKcal?.let { energy ->
-                    Text(
-                        "${energy.roundToInt()} kcal / 份",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                OutlinedTextField(
+                    value = amount.consumedGrams?.takeIf { it > 0.0 }?.roundToInt()?.toString() ?: "",
+                    onValueChange = { onGramsChange(it.toDoubleOrNull()) },
+                    modifier = Modifier.widthIn(min = 96.dp, max = 118.dp),
+                    singleLine = true,
+                    label = { Text("克数") },
+                    suffix = { Text("克") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
             }
 
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 portionOptions.forEach { (portion, label) ->
                     FilterChip(
@@ -670,38 +422,40 @@ private fun DishCard(
                     )
                 }
             }
-
-            OutlinedTextField(
-                value = amount.consumedGrams
-                    ?.takeIf { it > 0.0 }
-                    ?.roundToInt()
-                    ?.toString()
-                    ?: "",
-                onValueChange = { raw ->
-                    onGramsChange(raw.toDoubleOrNull())
-                },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("实际吃下 / g") },
-                supportingText = {
-                    Text(
-                        if (dish.standardServingGrams != null) {
-                            "会自动换算为 ${String.format(Locale.US, "%.2f", amount.servingMultiplier)} 份"
-                        } else {
-                            "该菜没有标准份，请优先使用份量选择"
-                        }
-                    )
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number
-                )
-            )
         }
     }
 }
 
 @Composable
-private fun HomeMealCard(
+private fun LunchSummary(totals: NutritionTotals, saving: Boolean, onSave: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("午餐合计", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    totals.energyKcal.roundToInt().toString() + " 千卡 · 蛋白质 " +
+                        String.format(Locale.US, "%.1f", totals.proteinG) + " 克",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            Button(onClick = onSave, enabled = !saving) {
+                Text(if (saving) "保存中" else "保存午餐")
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun HomeMealPanel(
     slot: String,
     draft: List<HomeMealDraftItem>,
     notes: List<String>,
@@ -714,179 +468,108 @@ private fun HomeMealCard(
     onRemoveItem: (Int) -> Unit,
     onSave: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.animateContentSize(
-            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    "breakfast" to "早餐",
-                    "lunch" to "午餐",
-                    "dinner" to "晚餐"
-                ).forEach { (value, label) ->
-                    FilterChip(
-                        selected = slot == value,
-                        onClick = { onSlotChange(value) },
-                        label = { Text(label) }
-                    )
-                }
-            }
-
-            FilledTonalButton(
-                onClick = onPickImage,
-                enabled = !analyzing && !saving,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Rounded.PhotoCamera, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    if (analyzing) "AGY 正在识别…"
-                    else "选择一张家庭餐照片"
+            listOf(
+                "breakfast" to "早餐",
+                "lunch" to "午餐",
+                "dinner" to "晚餐"
+            ).forEach { (value, label) ->
+                FilterChip(
+                    selected = slot == value,
+                    onClick = { onSlotChange(value) },
+                    label = { Text(label) }
                 )
             }
+        }
 
-            if (analyzing) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    LoadingIndicator()
-                }
+        FilledTonalButton(onClick = onPickImage, enabled = !analyzing && !saving) {
+            Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (analyzing) "正在识别…" else "拍照或选择图片")
+        }
+
+        if (analyzing) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                LoadingIndicator(modifier = Modifier.size(24.dp))
+                Text("正在整理这顿饭", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
 
-            if (notes.isNotEmpty()) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+        notes.firstOrNull()?.let { note ->
+            Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        draft.forEachIndexed { index, item ->
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        notes.take(3).forEach { note ->
-                            Text(
-                                "· $note",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            draft.forEachIndexed { index, item ->
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = item.name,
-                                onValueChange = { onNameChange(index, it) },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                label = { Text("食物") }
-                            )
-                            IconButton(
-                                onClick = { onRemoveItem(index) }
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Close,
-                                    contentDescription = "删除这项"
-                                )
-                            }
-                        }
-
                         OutlinedTextField(
-                            value = item.grams
-                                ?.roundToInt()
-                                ?.toString()
-                                ?: "",
-                            onValueChange = {
-                                onGramsChange(index, it.toDoubleOrNull())
-                            },
-                            modifier = Modifier.fillMaxWidth(),
+                            value = item.name,
+                            onValueChange = { onNameChange(index, it) },
+                            modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("实际吃下 / g") },
-                            supportingText = {
-                                Text(
-                                    "识别置信度 ${(item.confidence * 100).roundToInt()}% · 请按实际情况确认"
-                                )
-                            },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number
-                            )
+                            label = { Text("食物") }
                         )
-
-                        item.nutritionAtSource?.let { nutrition ->
-                            val factor = if (
-                                item.sourceGrams != null &&
-                                item.sourceGrams > 0.0 &&
-                                item.grams != null
-                            ) {
-                                (item.grams / item.sourceGrams)
-                                    .coerceIn(0.0, 10.0)
-                            } else {
-                                1.0
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    "${((nutrition.energyKcal ?: 0.0) * factor).roundToInt()} kcal",
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                Text(
-                                    "P ${String.format(Locale.US, "%.1f", (nutrition.proteinG ?: 0.0) * factor)} g",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                                Text(
-                                    "C ${String.format(Locale.US, "%.1f", (nutrition.carbohydrateG ?: 0.0) * factor)} g",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
+                        OutlinedTextField(
+                            value = item.grams?.roundToInt()?.toString() ?: "",
+                            onValueChange = { onGramsChange(index, it.toDoubleOrNull()) },
+                            modifier = Modifier.widthIn(min = 90.dp, max = 110.dp),
+                            singleLine = true,
+                            label = { Text("克数") },
+                            suffix = { Text("克") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        IconButton(onClick = { onRemoveItem(index) }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "移除")
                         }
+                    }
+
+                    item.nutritionAtSource?.let { nutrition ->
+                        val factor = if (
+                            item.sourceGrams != null &&
+                            item.sourceGrams > 0.0 &&
+                            item.grams != null
+                        ) {
+                            (item.grams / item.sourceGrams).coerceIn(0.0, 10.0)
+                        } else {
+                            1.0
+                        }
+
+                        Text(
+                            ((nutrition.energyKcal ?: 0.0) * factor).roundToInt().toString() +
+                                " 千卡 · 蛋白质 " +
+                                String.format(Locale.US, "%.1f", (nutrition.proteinG ?: 0.0) * factor) +
+                                " 克 · 碳水 " +
+                                String.format(Locale.US, "%.1f", (nutrition.carbohydrateG ?: 0.0) * factor) +
+                                " 克",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
+        }
 
-            if (draft.isNotEmpty()) {
-                Button(
-                    onClick = onSave,
-                    enabled = !saving && !analyzing,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (saving) "正在加入今天…"
-                        else "确认并加入今天"
-                    )
-                }
+        if (draft.isNotEmpty()) {
+            Button(onClick = onSave, enabled = !saving && !analyzing) {
+                Text(if (saving) "保存中" else "确认并保存")
             }
-
             Text(
-                "原图只在本次请求中经 Cloudflare Tunnel 转给 AGY；保存时只写入你确认后的食物、克数和营养估算。",
+                "识别结果可能有误，保存前请核对食物和分量。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -895,175 +578,144 @@ private fun HomeMealCard(
 }
 
 @Composable
-private fun PhoneActivityCard(
+private fun ActivityPanel(
     summary: DailySummaryDto?,
     syncing: Boolean,
-    onSync: () -> Unit
-) {
-    val activity = summary?.activity
-
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        ),
-        modifier = Modifier.animateContentSize(
-            animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        "手机自动记录",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        "只统计管理员配置的在校时段之外",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-                Text(
-                    "${activity?.healthConnectOutsideMinutes ?: 0} min",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                SmallMetric(
-                    modifier = Modifier.weight(1f),
-                    value = "${activity?.peMinutes ?: 0} min",
-                    label = "校内体育"
-                )
-                SmallMetric(
-                    modifier = Modifier.weight(1f),
-                    value = activity?.activeEnergyKcal
-                        ?.let { "${it.roundToInt()} kcal" }
-                        ?: "—",
-                    label = "校外活动能量"
-                )
-            }
-
-            FilledTonalButton(
-                onClick = onSync,
-                enabled = !syncing,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    if (syncing) "正在同步 Health Connect…"
-                    else "同步手机校外运动"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ManualActivityCard(
     minutes: Int,
     intensity: String,
     saving: Boolean,
+    onSync: () -> Unit,
     onMinutesChange: (Int) -> Unit,
     onIntensityChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
-    Card {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+    val activity = summary?.activity
+    var showManual by rememberSaveable { mutableStateOf(false) }
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        "自主运动",
-                        style = MaterialTheme.typography.titleMedium,
+                        (activity?.totalMinutes ?: 0).toString() + " 分钟",
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "时长",
+                        "今天已记录的运动",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    "$minutes 分钟",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold
+                FilledTonalButton(onClick = onSync, enabled = !syncing) {
+                    Text(if (syncing) "更新中" else "从手机更新")
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = (activity?.peMinutes ?: 0).toString() + " 分钟",
+                    label = "校内体育"
+                )
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = (activity?.outsideMinutes ?: 0).toString() + " 分钟",
+                    label = "校外运动"
+                )
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
+                    label = "活动消耗"
                 )
             }
 
-            Slider(
-                value = minutes.toFloat(),
-                onValueChange = {
-                    onMinutesChange((it / 5f).roundToInt() * 5)
-                },
-                valueRange = 5f..180f,
-                steps = 34
-            )
-
-            Text(
-                "运动强度",
-                style = MaterialTheme.typography.labelLarge
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            TextButton(
+                onClick = { showManual = !showManual },
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
             ) {
-                IntensityChip(
-                    label = "轻度",
-                    value = "light",
-                    selected = intensity == "light",
-                    onSelected = onIntensityChange
-                )
-                IntensityChip(
-                    label = "中等",
-                    value = "moderate",
-                    selected = intensity == "moderate",
-                    onSelected = onIntensityChange
-                )
-                IntensityChip(
-                    label = "较高",
-                    value = "vigorous",
-                    selected = intensity == "vigorous",
-                    onSelected = onIntensityChange
-                )
+                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (showManual) "收起补记" else "手动补记")
             }
 
-            Text(
-                "手机已有校外运动记录时，后台用两者中的较大时长，避免把同一段运动明显重复计算。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            AnimatedVisibility(showManual) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("运动时长", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            minutes.toString() + " 分钟",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
 
-            Button(
-                onClick = onSave,
-                enabled = !saving,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Rounded.SsidChart, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (saving) "保存中…" else "加入今天的运动")
+                    Slider(
+                        value = minutes.toFloat(),
+                        onValueChange = { onMinutesChange((it / 5f).roundToInt() * 5) },
+                        valueRange = 5f..180f,
+                        steps = 34
+                    )
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IntensityChip(
+                            label = "轻松",
+                            value = "light",
+                            selected = intensity == "light",
+                            onSelected = onIntensityChange
+                        )
+                        IntensityChip(
+                            label = "中等",
+                            value = "moderate",
+                            selected = intensity == "moderate",
+                            onSelected = onIntensityChange
+                        )
+                        IntensityChip(
+                            label = "较累",
+                            value = "vigorous",
+                            selected = intensity == "vigorous",
+                            onSelected = onIntensityChange
+                        )
+                    }
+
+                    Text(
+                        "如果手机也记录了同一段运动，会优先采用较长的时长，减少重复计算。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(onClick = onSave, enabled = !saving) {
+                        Text(if (saving) "保存中" else "保存补记")
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ActivityMetric(
+    modifier: Modifier,
+    value: String,
+    label: String
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1079,31 +731,4 @@ private fun IntensityChip(
         onClick = { onSelected(value) },
         label = { Text(label) }
     )
-}
-
-@Composable
-private fun SectionTitle(
-    icon: @Composable () -> Unit,
-    title: String,
-    subtitle: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        icon()
-        Column {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
 }

@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             viewModel.phoneActivitySyncFailed(
-                                "没有获得所需的 Health Connect 读取权限"
+                                "没有获得读取运动数据的权限"
                             )
                         }
                     }
@@ -139,7 +139,7 @@ class MainActivity : ComponentActivity() {
                     onSyncPhoneActivity = {
                         if (!healthConnectSource.isAvailable()) {
                             viewModel.phoneActivitySyncFailed(
-                                "这台设备暂时不可用 Health Connect"
+                                "这台手机暂时无法读取运动数据"
                             )
                         } else {
                             lifecycleScope.launch {
@@ -243,7 +243,7 @@ class MainActivity : ComponentActivity() {
             aggregate
         }.onSuccess { aggregate ->
             viewModel.phoneActivitySyncFinished(
-                "已同步校外运动：${aggregate.exerciseMinutes} 分钟 · " +
+                "已更新校外运动：${aggregate.exerciseMinutes} 分钟 · " +
                     "${aggregate.steps} 步"
             )
         }.onFailure { error ->
