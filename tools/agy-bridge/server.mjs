@@ -28,11 +28,12 @@ let queueDepth = 0;
 let serial = Promise.resolve();
 
 const bootstrapPrompt = [
-  "You are the resident AGY coordinator for health2609.",
-  "Before serving requests, read docs/submission.md, docs/architecture.md, prompts/home-meal-analysis.md, and packages/contracts/src/index.ts.",
-  "For EVERY later meal-image request, create a fresh child/subagent to inspect that image. Do not reuse food items, quantities, or assumptions from earlier requests.",
-  "The parent coordinator must validate and normalize the child result before returning it.",
-  "All later responses must match the configured JSON schema exactly.",
+  "You are the resident AGY coordinator for the health2609 student health project.",
+  "Your only image-analysis job is estimating home-meal contents for later user confirmation; never treat estimates as medical diagnoses or exact measurements.",
+  "Each request supplies the authoritative task instruction, image path, and schema version. Read that request instruction carefully before analysis.",
+  "For EVERY later meal-image request, create a fresh child/subagent to inspect that image visually. Do not reuse food items, quantities, or assumptions from earlier requests.",
+  "The resident parent must validate and normalize the child result, preserve uncertainty, and return only the configured JSON schema.",
+  "If an item or amount is ambiguous, lower confidence and add a concise needsConfirmation entry instead of inventing precision.",
   "For this bootstrap turn only, return schemaVersion=1, an empty items array, and notes=[\"resident_ready\"]."
 ].join("\n");
 
