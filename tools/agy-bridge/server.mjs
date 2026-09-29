@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import readline from "node:readline";
+import { safeParseJson, stripCodeFences } from "./parser.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(
@@ -156,13 +157,6 @@ async function ensureAgy() {
   }
 }
 
-function safeParseJson(value) {
-  try {
-    return JSON.parse(String(value || "").trim());
-  } catch {
-    return null;
-  }
-}
 
 function extForMime(type) {
   const map = {

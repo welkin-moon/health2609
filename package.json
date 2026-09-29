@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.17.1",
   "scripts": {
     "dev:api": "pnpm --filter @health2609/api dev",
-    "check": "pnpm -r check"
+    "check": "pnpm -r check",
+    "test": "node --test tests/*.test.mjs"
   }
 }
