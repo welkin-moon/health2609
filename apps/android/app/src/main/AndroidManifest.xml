@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
@@ -11,7 +11,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="青衡"
+        android:label="一餐一动"
         android:supportsRtl="true"
         android:theme="@style/Theme.Health2609">
         <activity
