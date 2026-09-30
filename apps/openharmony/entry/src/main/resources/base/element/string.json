@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "一餐一动 OpenHarmony 智慧校园终端应用"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "一餐一动学生端"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "一餐一动"
+    },
+    {
+      "name": "permission_internet_reason",
+      "value": "用于同步校园食谱、营养汇总及云端AI餐食识别"
+    },
+    {
+      "name": "permission_background_reason",
+      "value": "用于在后台同步离线缓存的运动与饮食数据"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "health2609-openharmony",
+  "version": "1.0.0",
+  "description": "OpenHarmony & KaihongOS client for health2609 (一餐一动)",
+  "main": "index.js",
+  "author": "OpenHarmony & Kaihong Platform Team",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@ohos/hvigor": "3.1.2",
+    "@ohos/hvigor-ohos-plugin": "3.1.2"
+  }
+}
