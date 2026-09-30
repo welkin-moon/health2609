@@ -36,7 +36,7 @@ class TodayRepository(
         val menu = async { api.todayMenu(date = date, mealSlot = "lunch") }
         val summary = async { api.todaySummary(date = date) }
         val schoolActivity = async { api.todaySchoolActivity(date = date) }
-        val schools = async { api.studentSchools().schools }
+        val schools = async { runCatching { api.studentSchools().schools }.getOrDefault(emptyList()) }
         TodayData(
             menu = menu.await(),
             summary = summary.await(),
