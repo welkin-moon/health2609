@@ -10,13 +10,20 @@
 - 家庭餐：学生可拍照或手动记录。图片识别由经提示词约束的常驻 AGY CLI 处理；AGY 预读任务要求，收到新任务后触发子 agent 输出结构化候选结果，仓库内不再单独维护模型服务。
 - 管理端：Cloudflare Pages + Vite/React，使用自定义域名作为比赛入口，不依赖 `pages.dev`。
 - 后端：Cloudflare Workers + D1，使用自定义域名作为 API 入口，不依赖 `workers.dev`；家庭餐图片不落对象存储，Worker 仅校验后经 Cloudflare Tunnel/AGY 入口触发分析任务。目标是免费层即可跑比赛 Demo。
-- Android：Kotlin + Jetpack Compose + Material 3 Expressive (M3E)，固定竖屏，主导航使用底部浮动 dock；前后端和领域层解耦。
+- 多端客户端矩阵：统一采用 **Material 3 Expressive (M3E)** 设计系统，全平台保持统一的色盘、32dp/24dp圆角卡片、34dp浮动胶囊底栏与动效。
+  - Android：Kotlin + Jetpack Compose + M3E
+  - iOS：Swift + SwiftUI + M3E（支持 Apple HealthKit 运动同步与本地在校时段剔除）
+  - 鸿蒙（HarmonyOS NEXT）：ArkTS + ArkUI + M3E（Stage 模型，API 12+）
+  - 开鸿（OpenHarmony）：ArkUI + 自适应断点响应式 + M3E（面向开鸿智慧校园终端与平板设备）
 
 ## 仓库结构
 
 ```text
 apps/
-  android/       Android 主作品
+  android/       Android 客户端 (Compose + M3E)
+  ios/           iOS 客户端 (SwiftUI + M3E)
+  harmony/       鸿蒙 NEXT 客户端 (ArkTS + M3E)
+  openharmony/   开鸿 / OpenHarmony 客户端 (ArkUI + M3E 自适应)
   admin-web/     学校管理员 Pages 前端
 services/
   api/           Cloudflare Worker API
@@ -24,6 +31,7 @@ packages/
   contracts/     跨端 API schema / 类型
 docs/            架构、产品与比赛技术文档
 prompts/         AGY 结构化处理提示词
+tests/           零外部依赖原生单元测试套件
 ```
 
 ## 开发原则
