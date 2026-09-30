@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsRun
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
@@ -37,6 +38,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import uk.lunarlab.health2609.core.network.DailySummaryDto
 import uk.lunarlab.health2609.core.network.DishDto
+import uk.lunarlab.health2609.core.storage.AppearanceMode
 
 private val portionOptions = listOf(
     0.0 to "没吃",
@@ -61,6 +63,10 @@ private data class NutritionTotals(
 fun TodayScreen(
     destination: String,
     state: TodayUiState,
+    appearanceMode: AppearanceMode,
+    dynamicColor: Boolean,
+    onAppearanceModeChange: (AppearanceMode) -> Unit,
+    onDynamicColorChange: (Boolean) -> Unit,
     onPortionChange: (String, Double) -> Unit,
     onGramsChange: (String, Double?) -> Unit,
     onRefresh: () -> Unit,
@@ -109,6 +115,8 @@ fun TodayScreen(
         }.getOrDefault(state.date)
     }
 
+    var showAppearanceSheet by rememberSaveable { mutableStateOf(false) }
+
     val screenTitle = when (destination) {
         "meals" -> "饮食"
         "activity" -> "运动"
@@ -129,6 +137,9 @@ fun TodayScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showAppearanceSheet = true }) {
+                        Icon(Icons.Rounded.Palette, contentDescription = "外观")
+                    }
                     IconButton(onClick = onRefresh, enabled = !state.loading) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "更新今天的数据")
                     }
@@ -144,7 +155,17 @@ fun TodayScreen(
             ) {
                 LoadingIndicator()
                 Spacer(Modifier.height(12.dp))
-                Text("正在准备今天的记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "正在同步今天的数据",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "餐食、运动和学校安排会一起更新",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             return@Scaffold
         }
@@ -253,6 +274,95 @@ fun TodayScreen(
             }
         }
     }
+
+    if (showAppearanceSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAppearanceSheet = false }
+        ) {
+            AppearanceSheet(
+                appearanceMode = appearanceMode,
+                dynamicColor = dynamicColor,
+                onAppearanceModeChange = onAppearanceModeChange,
+                onDynamicColorChange = onDynamicColorChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppearanceSheet(
+    appearanceMode: AppearanceMode,
+    dynamicColor: Boolean,
+    onAppearanceModeChange: (AppearanceMode) -> Unit,
+    onDynamicColorChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "外观",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "跟随系统，也可以固定浅色或深色。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                AppearanceMode.SYSTEM to "跟随系统",
+                AppearanceMode.LIGHT to "浅色",
+                AppearanceMode.DARK to "深色"
+            ).forEach { (mode, label) ->
+                FilterChip(
+                    selected = appearanceMode == mode,
+                    onClick = { onAppearanceModeChange(mode) },
+                    label = { Text(label) }
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text("使用壁纸配色", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Android 12 及以上可从系统壁纸取色。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = dynamicColor,
+                    onCheckedChange = onDynamicColorChange
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -267,92 +377,178 @@ private fun TodayOverview(
     val activity = summary?.activity
     val energy = summary?.energy
     val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
-    val progress = ((activity?.totalMinutes ?: 0).toFloat() / target).coerceIn(0f, 1f)
+    val totalMinutes = activity?.totalMinutes ?: 0
+    val progress = (totalMinutes.toFloat() / target).coerceIn(0f, 1f)
+    val macro = nutrition?.macroCompositionPercent
     var editReference by rememberSaveable { mutableStateOf(false) }
 
-    Surface(
-        shape = RoundedCornerShape(30.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-    ) {
-        Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("今日概况", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "先记真实发生的，数字自然会完整起来。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
-                )
-            }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OverviewMetric(Modifier.weight(1f), (nutrition?.energyKcal?.roundToInt() ?: 0).toString() + " 千卡", "摄入热量")
-                OverviewMetric(Modifier.weight(1f), (activity?.totalMinutes ?: 0).toString() + " 分钟", "运动")
-            }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OverviewMetric(
-                    Modifier.weight(1f),
-                    String.format(Locale.US, "%.0f", nutrition?.proteinG ?: 0.0) + " 克",
-                    "蛋白质"
-                )
-                OverviewMetric(
-                    Modifier.weight(1f),
-                    String.format(Locale.US, "%.0f", nutrition?.fatG ?: 0.0) + " 克",
-                    "脂肪"
-                )
-                OverviewMetric(
-                    Modifier.weight(1f),
-                    String.format(Locale.US, "%.0f", nutrition?.carbohydrateG ?: 0.0) + " 克",
-                    "碳水"
-                )
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(
-                        "运动 " + (activity?.totalMinutes ?: 0).toString() + " / " + target.toString() + " 分钟",
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    Text(
-                        if (activity?.targetReached == true) "已达目标" else "今日进度",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-            }
-
-            TextButton(
-                onClick = { editReference = !editReference },
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Surface(
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            Column(
+                modifier = Modifier.padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    if (energy?.dailyEnergyReferenceKcal != null) {
-                        "每日参考 " + energy.dailyEnergyReferenceKcal.toString() + " 千卡"
-                    } else {
-                        "设置每日参考"
-                    }
-                )
-            }
-
-            AnimatedVisibility(editReference) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    OutlinedTextField(
-                        value = energyReferenceInput,
-                        onValueChange = onEnergyReferenceChange,
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        label = { Text("每日参考（千卡）") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("今天动了", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            totalMinutes.toString() + " 分钟",
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Text(
+                        if (activity?.targetReached == true) "已达标" else "目标 " + target + " 分钟",
+                        style = MaterialTheme.typography.titleSmall
                     )
-                    Button(onClick = onSaveEnergyReference, enabled = !savingReference) {
-                        Text(if (savingReference) "保存中" else "保存")
+                }
+
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(10.dp),
+                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    OverviewMetric(
+                        Modifier.weight(1f),
+                        (activity?.peMinutes ?: 0).toString() + " 分钟",
+                        "学校体育"
+                    )
+                    OverviewMetric(
+                        Modifier.weight(1f),
+                        (activity?.outsideMinutes ?: 0).toString() + " 分钟",
+                        "校外运动"
+                    )
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(30.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("今天吃了", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            (nutrition?.energyKcal?.roundToInt() ?: 0).toString() + " 千卡",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    energy?.referenceGapKcal?.let { gap ->
+                        val label = if (gap >= 0) {
+                            "距参考 " + gap.roundToInt() + " 千卡"
+                        } else {
+                            "超出参考 " + abs(gap).roundToInt() + " 千卡"
+                        }
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("供能构成", style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        NutritionMetric(
+                            Modifier.weight(1f),
+                            (macro?.protein?.roundToInt() ?: 0).toString() + "%",
+                            "蛋白质"
+                        )
+                        NutritionMetric(
+                            Modifier.weight(1f),
+                            (macro?.fat?.roundToInt() ?: 0).toString() + "%",
+                            "脂肪"
+                        )
+                        NutritionMetric(
+                            Modifier.weight(1f),
+                            (macro?.carbohydrate?.roundToInt() ?: 0).toString() + "%",
+                            "碳水"
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    NutritionMetric(
+                        Modifier.weight(1f),
+                        String.format(Locale.US, "%.1f 克", nutrition?.fiberG ?: 0.0),
+                        "膳食纤维"
+                    )
+                    NutritionMetric(
+                        Modifier.weight(1f),
+                        (nutrition?.sodiumMg?.roundToInt() ?: 0).toString() + " mg",
+                        "钠"
+                    )
+                    NutritionMetric(
+                        Modifier.weight(1f),
+                        String.format(Locale.US, "%.1f 克", nutrition?.sugarG ?: 0.0),
+                        "糖"
+                    )
+                }
+
+                TextButton(
+                    onClick = { editReference = !editReference },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        energy?.dailyEnergyReferenceKcal?.let {
+                            "每日参考 " + it + " 千卡"
+                        } ?: "设置每日参考"
+                    )
+                }
+
+                AnimatedVisibility(editReference) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = energyReferenceInput,
+                            onValueChange = onEnergyReferenceChange,
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            label = { Text("每日参考（千卡）") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        Button(onClick = onSaveEnergyReference, enabled = !savingReference) {
+                            Text(if (savingReference) "保存中" else "保存")
+                        }
                     }
                 }
             }
@@ -366,8 +562,20 @@ private fun OverviewMetric(modifier: Modifier, value: String, label: String) {
         Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(
             label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+        )
+    }
+}
+
+@Composable
+private fun NutritionMetric(modifier: Modifier, value: String, label: String) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
