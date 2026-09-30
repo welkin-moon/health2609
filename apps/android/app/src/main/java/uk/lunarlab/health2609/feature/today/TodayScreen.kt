@@ -39,6 +39,7 @@ import kotlin.math.roundToInt
 import uk.lunarlab.health2609.core.network.DailySummaryDto
 import uk.lunarlab.health2609.core.network.DishDto
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
+import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.storage.AppearanceMode
 
 private val portionOptions = listOf(
@@ -64,10 +65,12 @@ private data class NutritionTotals(
 fun TodayScreen(
     destination: String,
     state: TodayUiState,
+    selectedSchoolId: String,
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
+    onSchoolChange: (String) -> Unit,
     onPortionChange: (String, Double) -> Unit,
     onGramsChange: (String, Double?) -> Unit,
     onRefresh: () -> Unit,
@@ -84,6 +87,7 @@ fun TodayScreen(
     onSaveActivity: (String) -> Unit,
     onUseSchoolActivity: () -> Unit,
     onUseWearableSchoolActivity: () -> Unit,
+    onRequestHealthPermissions: () -> Unit,
     onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit
@@ -258,6 +262,7 @@ fun TodayScreen(
                             intensity = state.manualActivityIntensity,
                             saving = state.savingActivity,
                             onSync = onSyncPhoneActivity,
+                            onRequestHealthPermissions = onRequestHealthPermissions,
                             onUseSchoolActivity = onUseSchoolActivity,
                             onUseWearableSchoolActivity = onUseWearableSchoolActivity,
                             onMinutesChange = onActivityMinutesChange,
@@ -287,8 +292,11 @@ fun TodayScreen(
             onDismissRequest = { showAppearanceSheet = false }
         ) {
             AppearanceSheet(
+                schools = state.schools,
+                selectedSchoolId = selectedSchoolId,
                 appearanceMode = appearanceMode,
                 dynamicColor = dynamicColor,
+                onSchoolChange = onSchoolChange,
                 onAppearanceModeChange = onAppearanceModeChange,
                 onDynamicColorChange = onDynamicColorChange
             )
@@ -298,8 +306,11 @@ fun TodayScreen(
 
 @Composable
 private fun AppearanceSheet(
+    schools: List<StudentSchoolDto>,
+    selectedSchoolId: String,
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
+    onSchoolChange: (String) -> Unit,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit
 ) {
@@ -311,7 +322,7 @@ private fun AppearanceSheet(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                "外观",
+                "学校与外观",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -321,6 +332,34 @@ private fun AppearanceSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("我的学校", style = MaterialTheme.typography.titleMedium)
+            if (schools.isEmpty()) {
+                Text(
+                    "当前账号没有可选择的学校。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    schools.forEach { school ->
+                        FilterChip(
+                            selected = selectedSchoolId == school.id,
+                            onClick = { onSchoolChange(school.id) },
+                            label = { Text(school.name) }
+                        )
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
         Row(
             modifier = Modifier
@@ -869,6 +908,7 @@ private fun ActivityPanel(
     intensity: String,
     saving: Boolean,
     onSync: () -> Unit,
+    onRequestHealthPermissions: () -> Unit,
     onUseSchoolActivity: () -> Unit,
     onUseWearableSchoolActivity: () -> Unit,
     onMinutesChange: (Int) -> Unit,
@@ -901,8 +941,19 @@ private fun ActivityPanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                FilledTonalButton(onClick = onSync, enabled = !syncing) {
-                    Text(if (syncing) "正在更新" else "更新手机里的运动")
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilledTonalButton(onClick = onSync, enabled = !syncing) {
+                        Text(if (syncing) "正在更新" else "更新手机里的运动")
+                    }
+                    TextButton(
+                        onClick = onRequestHealthPermissions,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("申请运动健康权限")
+                    }
                 }
             }
 
