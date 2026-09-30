@@ -13,6 +13,7 @@ import uk.lunarlab.health2609.core.network.ConfirmedHomeMealItemRequest
 import uk.lunarlab.health2609.core.network.DailySummaryDto
 import uk.lunarlab.health2609.core.network.NutritionDto
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
+import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
 data class DishAmount(
@@ -42,6 +43,7 @@ data class TodayUiState(
     val menu: TodayMenuDto? = null,
     val summary: DailySummaryDto? = null,
     val schoolActivity: SchoolActivityDto? = null,
+    val schools: List<StudentSchoolDto> = emptyList(),
     val amounts: Map<String, DishAmount> = emptyMap(),
     val manualActivityType: String = "自主运动",
     val manualActivityMinutes: Int = 30,
@@ -75,6 +77,7 @@ class TodayViewModel(
                             menu = data.menu,
                             summary = data.summary,
                             schoolActivity = data.schoolActivity,
+                            schools = data.schools,
                             energyReferenceInput =
                                 data.summary.energy.dailyEnergyReferenceKcal
                                     ?.toString()
