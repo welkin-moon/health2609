@@ -11,8 +11,8 @@ android {
         applicationId = "uk.lunarlab.health2609"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.2.3"
+        versionCode = 6
+        versionName = "0.2.4"
 
         val apiBaseUrl = providers.gradleProperty("HEALTH2609_API_BASE_URL")
             .orNull
