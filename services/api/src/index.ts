@@ -827,14 +827,14 @@ app.post("/v1/home-meals/analyze", async (c) => {
         ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
         : undefined,
       body: outbound,
-      signal: AbortSignal.timeout(25_000)
+      signal: AbortSignal.timeout(110_000)
     });
   } catch (err: any) {
     if (err.name === "TimeoutError" || err.name === "AbortError") {
       return c.json(
         {
           error: "agy_timeout",
-          message: "Upstream analysis timed out after 25s"
+          message: "Upstream analysis timed out after 110s"
         },
         504
       );
