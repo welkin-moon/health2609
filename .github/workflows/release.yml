@@ -1,4 +1,4 @@
-name: Qingheng test release
+name: 一餐一动 test release
 
 on:
   workflow_dispatch:
@@ -63,13 +63,13 @@ jobs:
         run: |
           API_BASE_URL="${INPUT_API_BASE_URL:-https://h2609.lunarlab.uk/}"
           gradle -p apps/android assembleDebug -PHEALTH2609_API_BASE_URL="$API_BASE_URL"
-          cp apps/android/app/build/outputs/apk/debug/app-debug.apk "qingheng-${{ steps.meta.outputs.tag }}-debug.apk"
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk "yicanyidong-${{ steps.meta.outputs.tag }}-debug.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: qingheng-${{ steps.meta.outputs.tag }}
+          name: yicanyidong-${{ steps.meta.outputs.tag }}
           path: |
-            qingheng-${{ steps.meta.outputs.tag }}-debug.apk
+            yicanyidong-${{ steps.meta.outputs.tag }}-debug.apk
             ${{ steps.meta.outputs.screens }}/*.png
           if-no-files-found: error
           retention-days: 7
@@ -81,9 +81,9 @@ jobs:
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
           SCREEN_DIR="${{ steps.meta.outputs.screens }}"
-          APK="qingheng-${TAG}-debug.apk"
+          APK="yicanyidong-${TAG}-debug.apk"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$SCREEN_DIR"/*.png --clobber
           else
-            gh release create "$TAG" "$APK" "$SCREEN_DIR"/*.png --prerelease --title "青衡 $TAG" --notes "本测试版 Release 固定包含本版实机演示图片与 debug 签名 APK。"
+            gh release create "$TAG" "$APK" "$SCREEN_DIR"/*.png --prerelease --title "一餐一动 $TAG" --notes "一餐一动测试版：包含本版实机演示图片与 debug 签名 APK。"
           fi
