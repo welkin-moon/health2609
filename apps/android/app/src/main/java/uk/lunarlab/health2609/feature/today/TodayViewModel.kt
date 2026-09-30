@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import uk.lunarlab.health2609.core.network.ConfirmedHomeMealItemRequest
 import uk.lunarlab.health2609.core.network.DailySummaryDto
 import uk.lunarlab.health2609.core.network.NutritionDto
+import uk.lunarlab.health2609.core.network.SchoolActivityDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
 data class DishAmount(
@@ -35,10 +36,12 @@ data class TodayUiState(
     val savingActivity: Boolean = false,
     val savingEnergyReference: Boolean = false,
     val syncingPhoneActivity: Boolean = false,
+    val syncingSchoolActivity: Boolean = false,
     val analyzingHomeMeal: Boolean = false,
     val savingHomeMeal: Boolean = false,
     val menu: TodayMenuDto? = null,
     val summary: DailySummaryDto? = null,
+    val schoolActivity: SchoolActivityDto? = null,
     val amounts: Map<String, DishAmount> = emptyMap(),
     val manualActivityType: String = "自主运动",
     val manualActivityMinutes: Int = 30,
@@ -71,6 +74,7 @@ class TodayViewModel(
                             loading = false,
                             menu = data.menu,
                             summary = data.summary,
+                            schoolActivity = data.schoolActivity,
                             energyReferenceInput =
                                 data.summary.energy.dailyEnergyReferenceKcal
                                     ?.toString()
@@ -350,6 +354,43 @@ class TodayViewModel(
                 syncingPhoneActivity = false,
                 message = message
             )
+        }
+    }
+
+    fun schoolActivitySyncStarted() {
+        _uiState.update {
+            it.copy(syncingSchoolActivity = true, message = null)
+        }
+    }
+
+    fun schoolActivitySyncFinished(message: String) {
+        val date = _uiState.value.date
+        viewModelScope.launch {
+            runCatching {
+                repository.loadSummary(date) to repository.loadSchoolActivity(date)
+            }.onSuccess { (summary, schoolActivity) ->
+                _uiState.update {
+                    it.copy(
+                        summary = summary,
+                        schoolActivity = schoolActivity,
+                        syncingSchoolActivity = false,
+                        message = message
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        syncingSchoolActivity = false,
+                        message = error.message ?: "学校体育数据已更新，但刷新失败"
+                    )
+                }
+            }
+        }
+    }
+
+    fun schoolActivitySyncFailed(message: String) {
+        _uiState.update {
+            it.copy(syncingSchoolActivity = false, message = message)
         }
     }
 
