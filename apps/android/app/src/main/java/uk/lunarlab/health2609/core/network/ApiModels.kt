@@ -48,6 +48,33 @@ data class SchoolDayWindowsDto(
     val windows: List<SchoolDayWindowDto>
 )
 
+data class SchoolPeWindowDto(
+    val id: String,
+    val startTime: String,
+    val endTime: String,
+    val schoolRecordedMinutes: Int? = null
+)
+
+data class SchoolActivityDto(
+    val date: String,
+    val weekday: Int,
+    val schoolDayWindows: List<SchoolDayWindowDto> = emptyList(),
+    val peWindows: List<SchoolPeWindowDto> = emptyList(),
+    val schoolRecordedMinutes: Int = 0,
+    val selectedSource: String = "school",
+    val wearableMinutes: Int? = null,
+    val wearableSteps: Long? = null,
+    val wearableActiveEnergyKcal: Double? = null
+)
+
+data class SchoolActivityOverrideRequest(
+    val date: String,
+    val source: String,
+    val exerciseMinutes: Int? = null,
+    val steps: Long? = null,
+    val activeEnergyKcal: Double? = null
+)
+
 data class OutsideSchoolActivityRequest(
     val date: String,
     val exerciseMinutes: Int,
@@ -94,6 +121,9 @@ data class IntensityMinutesDto(
 
 data class ActivitySummaryDto(
     val peMinutes: Int = 0,
+    val schoolRecordedPeMinutes: Int = 0,
+    val schoolPeSource: String = "school",
+    val healthConnectSchoolMinutes: Int? = null,
     val healthConnectOutsideMinutes: Int = 0,
     val manualOutsideMinutes: Int = 0,
     val outsideMinutes: Int = 0,
