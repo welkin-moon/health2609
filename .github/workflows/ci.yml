@@ -69,6 +69,9 @@ jobs:
             -H 'x-demo-role: admin' \
             -H 'x-demo-school: demo-school' \
             https://h2609.lunarlab.uk/v1/admin/classes | grep -q 'demo-class'
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 \
+            -H 'x-demo-participant: demo-student' \
+            https://h2609.lunarlab.uk/v1/student/schools | grep -q 'demo-school'
 
   android:
     runs-on: ubuntu-latest
