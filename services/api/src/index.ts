@@ -94,6 +94,25 @@ async function membershipFor(
 
 app.get("/health", (c) => c.json({ ok: true }));
 
+app.get("/v1/student/schools", async (c) => {
+  const participantId = c.get("participantId");
+  const rows = await c.env.DB.prepare(
+    `SELECT s.id, s.name, s.timezone
+       FROM student_memberships sm
+       JOIN schools s ON s.id = sm.school_id
+      WHERE sm.participant_id = ?
+      ORDER BY s.name`
+  ).bind(participantId).all();
+
+  return c.json({
+    schools: rows.results.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      timezone: String(row.timezone)
+    }))
+  });
+});
+
 app.get("/v1/school/day-windows", async (c) => {
   const date = c.req.query("date");
   if (!date) return c.json({ error: "date_required" }, 400);
