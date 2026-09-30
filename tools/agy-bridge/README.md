@@ -4,7 +4,7 @@ This bridge is the local origin for `h2609-agy.lunarlab.uk`.
 
 - Listen address: `127.0.0.1:18788`
 - Public route: `https://h2609-agy.lunarlab.uk/health2609/agy`
-- AGY model process: one resident `agy` stream-json session
+- AGY model process: one resident `agy` stream-json session pinned to `gemini-3.8-flash-low` with `--effort low` (override with `HEALTH2609_AGY_MODEL` / `HEALTH2609_AGY_EFFORT`)
 - Per image: the resident coordinator is instructed to create a fresh child/subagent and then validate the child result
 - Output: JSON constrained by `home-meal.schema.json`
 
