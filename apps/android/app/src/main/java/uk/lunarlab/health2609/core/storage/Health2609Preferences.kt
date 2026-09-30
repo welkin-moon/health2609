@@ -33,6 +33,10 @@ class Health2609Preferences(context: Context) {
         }
     }
 
+    val selectedSchoolId: Flow<String> = dataStore.data.map { preferences ->
+        preferences[SELECTED_SCHOOL_ID] ?: "demo-school"
+    }
+
     val appearance: Flow<AppearancePreferences> = dataStore.data.map { preferences ->
         val mode = when (preferences[APPEARANCE_MODE]) {
             "light" -> AppearanceMode.LIGHT
@@ -49,6 +53,14 @@ class Health2609Preferences(context: Context) {
         if (destination !in ALLOWED_DESTINATIONS) return
         dataStore.edit { preferences ->
             preferences[START_DESTINATION] = destination
+        }
+    }
+
+    suspend fun setSelectedSchoolId(schoolId: String) {
+        val value = schoolId.trim()
+        if (value.isEmpty()) return
+        dataStore.edit { preferences ->
+            preferences[SELECTED_SCHOOL_ID] = value
         }
     }
 
@@ -70,6 +82,7 @@ class Health2609Preferences(context: Context) {
 
     private companion object {
         val START_DESTINATION = stringPreferencesKey("start_destination")
+        val SELECTED_SCHOOL_ID = stringPreferencesKey("selected_school_id")
         val APPEARANCE_MODE = stringPreferencesKey("appearance_mode")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val ALLOWED_DESTINATIONS = setOf("today", "meals", "activity")
