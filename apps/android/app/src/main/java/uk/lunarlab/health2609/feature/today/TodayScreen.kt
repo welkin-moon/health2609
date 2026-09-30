@@ -38,6 +38,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import uk.lunarlab.health2609.core.network.DailySummaryDto
 import uk.lunarlab.health2609.core.network.DishDto
+import uk.lunarlab.health2609.core.network.SchoolActivityDto
 import uk.lunarlab.health2609.core.storage.AppearanceMode
 
 private val portionOptions = listOf(
@@ -81,6 +82,8 @@ fun TodayScreen(
     onActivityMinutesChange: (Int) -> Unit,
     onActivityIntensityChange: (String) -> Unit,
     onSaveActivity: (String) -> Unit,
+    onUseSchoolActivity: () -> Unit,
+    onUseWearableSchoolActivity: () -> Unit,
     onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit
@@ -247,12 +250,16 @@ fun TodayScreen(
                     item {
                         ActivityPanel(
                             summary = state.summary,
+                            schoolActivity = state.schoolActivity,
                             syncing = state.syncingPhoneActivity,
+                            syncingSchoolActivity = state.syncingSchoolActivity,
                             initialType = state.manualActivityType,
                             minutes = state.manualActivityMinutes,
                             intensity = state.manualActivityIntensity,
                             saving = state.savingActivity,
                             onSync = onSyncPhoneActivity,
+                            onUseSchoolActivity = onUseSchoolActivity,
+                            onUseWearableSchoolActivity = onUseWearableSchoolActivity,
                             onMinutesChange = onActivityMinutesChange,
                             onIntensityChange = onActivityIntensityChange,
                             onSave = onSaveActivity
@@ -854,12 +861,16 @@ private fun HomeMealPanel(
 @Composable
 private fun ActivityPanel(
     summary: DailySummaryDto?,
+    schoolActivity: SchoolActivityDto?,
     syncing: Boolean,
+    syncingSchoolActivity: Boolean,
     initialType: String = "自主运动",
     minutes: Int,
     intensity: String,
     saving: Boolean,
     onSync: () -> Unit,
+    onUseSchoolActivity: () -> Unit,
+    onUseWearableSchoolActivity: () -> Unit,
     onMinutesChange: (Int) -> Unit,
     onIntensityChange: (String) -> Unit,
     onSave: (String) -> Unit
@@ -911,6 +922,94 @@ private fun ActivityPanel(
                     value = activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
                     label = "活动消耗"
                 )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "学校体育",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        val schoolWindowText = schoolActivity?.schoolDayWindows
+                            ?.joinToString("、") { it.startTime + "–" + it.endTime }
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "学校暂未设置在校时段"
+                        Text(
+                            "在校时段 " + schoolWindowText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
+                        )
+                    }
+
+                    if (schoolActivity?.peWindows.isNullOrEmpty()) {
+                        Text(
+                            "今天没有体育课安排。",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        schoolActivity?.peWindows.orEmpty().forEach { window ->
+                            val schoolMinutes = window.schoolRecordedMinutes
+                                ?.let { " · 学校记录 " + it + " 分钟" }
+                                ?: ""
+                            Text(
+                                window.startTime + "–" + window.endTime + schoolMinutes,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = schoolActivity?.selectedSource != "health_connect",
+                            onClick = onUseSchoolActivity,
+                            enabled = !syncingSchoolActivity,
+                            label = { Text("学校记录") }
+                        )
+                        FilterChip(
+                            selected = schoolActivity?.selectedSource == "health_connect",
+                            onClick = onUseWearableSchoolActivity,
+                            enabled = !syncingSchoolActivity &&
+                                !schoolActivity?.peWindows.isNullOrEmpty(),
+                            label = {
+                                Text(
+                                    if (syncingSchoolActivity) "正在读取手环"
+                                    else "手环记录"
+                                )
+                            }
+                        )
+                    }
+
+                    val sourceDetail = if (
+                        schoolActivity?.selectedSource == "health_connect"
+                    ) {
+                        schoolActivity.wearableMinutes?.let {
+                            "当前采用手环在体育课时段记录的 " + it + " 分钟。"
+                        } ?: "已选择手环记录。"
+                    } else {
+                        "当前采用学校记录的 " +
+                            (schoolActivity?.schoolRecordedMinutes ?: 0) +
+                            " 分钟。"
+                    }
+                    Text(
+                        sourceDetail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
+                    )
+                }
             }
 
             TextButton(
