@@ -42,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -379,19 +378,3 @@ private fun FloatingStudentRail(
     }
 }
 
-private fun Modifier.offsetPx(x: Float, y: Float): Modifier =
-    this.then(
-        Modifier
-            .padding(0.dp)
-            .run {
-                androidx.compose.ui.layout.layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints)
-                    layout(placeable.width, placeable.height) {
-                        placeable.placeRelative(
-                            x.roundToInt(),
-                            y.roundToInt()
-                        )
-                    }
-                }
-            }
-    )
