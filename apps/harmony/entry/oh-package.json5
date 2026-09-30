@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "health2609 HarmonyOS NEXT Entry Module",
+  "main": "",
+  "author": "health2609",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

@@ -1,0 +1,12 @@
+{
+  "name": "uk.lunarlab.health2609.harmony",
+  "version": "1.0.0",
+  "description": "health2609 HarmonyOS NEXT Client",
+  "main": "",
+  "author": "health2609",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.18"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "health2609 学生端主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "一餐一动学生端"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "一餐一动"
+    },
+    {
+      "name": "permission_internet_reason",
+      "value": "用于与学校健康系统同步菜单和营养数据"
+    },
+    {
+      "name": "permission_location_reason",
+      "value": "用于判断校内/校外运动时段"
+    },
+    {
+      "name": "permission_motion_reason",
+      "value": "用于统计校外步数与活动时长"
+    }
+  ]
+}
