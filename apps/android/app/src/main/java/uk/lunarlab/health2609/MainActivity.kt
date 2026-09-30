@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uk.lunarlab.health2609.core.health.HealthConnectSource
 import uk.lunarlab.health2609.core.network.ApiFactory
+import uk.lunarlab.health2609.core.network.DemoIdentity
 import uk.lunarlab.health2609.feature.today.TodayRepository
 import uk.lunarlab.health2609.feature.today.TodayScreen
 import uk.lunarlab.health2609.feature.today.TodayViewModel
@@ -57,6 +58,9 @@ class MainActivity : ComponentActivity() {
             val appearance by preferences.appearance.collectAsStateWithLifecycle(
                 initialValue = AppearancePreferences()
             )
+            val selectedSchoolId by preferences.selectedSchoolId
+                .collectAsStateWithLifecycle(initialValue = "demo-school")
+            DemoIdentity.schoolId = selectedSchoolId
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (appearance.mode) {
                 AppearanceMode.SYSTEM -> systemDark
@@ -161,6 +165,7 @@ class MainActivity : ComponentActivity() {
                     TodayScreen(
                     destination = destination,
                     state = state,
+                    selectedSchoolId = selectedSchoolId,
                     appearanceMode = appearance.mode,
                     dynamicColor = appearance.dynamicColor,
                     wideLayout = wideLayout,
@@ -172,6 +177,13 @@ class MainActivity : ComponentActivity() {
                     onDynamicColorChange = { enabled ->
                         lifecycleScope.launch {
                             preferences.setDynamicColor(enabled)
+                        }
+                    },
+                    onSchoolChange = { schoolId ->
+                        DemoIdentity.schoolId = schoolId
+                        lifecycleScope.launch {
+                            preferences.setSelectedSchoolId(schoolId)
+                            viewModel.refresh()
                         }
                     },
                     onPortionChange = viewModel::setPortion,
@@ -253,6 +265,15 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
+                        }
+                    },
+                    onRequestHealthPermissions = {
+                        if (!healthConnectSource.isAvailable()) {
+                            viewModel.showMessage("这台手机暂时无法使用运动健康")
+                        } else {
+                            healthPermissionLauncher.launch(
+                                HealthConnectSource.REQUIRED_PERMISSIONS
+                            )
                         }
                     },
                     onSyncPhoneActivity = {
@@ -394,12 +415,8 @@ class MainActivity : ComponentActivity() {
                 date = LocalDate.parse(date),
                 peWindows = schoolActivity.peWindows
             )
-            check(
-                aggregate.exerciseMinutes > 0 ||
-                    aggregate.steps > 0 ||
-                    aggregate.activeEnergyKcal > 0.0
-            ) {
-                "体育课时段没有读到手环数据，仍保留学校记录"
+            check(aggregate.exerciseMinutes > 0) {
+                "体育课时段没有读到运动时长，仍保留学校记录；请确认手环已把运动记录同步到运动健康"
             }
 
             repository.saveSchoolActivitySource(
