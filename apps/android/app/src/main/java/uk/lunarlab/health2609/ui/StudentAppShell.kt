@@ -191,7 +191,7 @@ private fun FloatingStudentDock(
                 modifier = Modifier
                     .width(slotWidth)
                     .fillMaxHeight()
-                    .offsetPx(x = indicatorOffset, y = 0f),
+                    .offset { IntOffset(indicatorOffset.roundToInt(), 0) },
                 shape = RoundedCornerShape(29.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -335,7 +335,7 @@ private fun FloatingStudentRail(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(slotHeight)
-                    .offsetPx(x = 0f, y = indicatorOffset),
+                    .offset { IntOffset(0, indicatorOffset.roundToInt()) },
                 shape = RoundedCornerShape(30.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer
             ) {}
