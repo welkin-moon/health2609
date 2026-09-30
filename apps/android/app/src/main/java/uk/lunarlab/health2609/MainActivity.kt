@@ -157,12 +157,13 @@ class MainActivity : ComponentActivity() {
                             preferences.setStartDestination(destination)
                         }
                     }
-                ) { destination ->
+                ) { destination, wideLayout ->
                     TodayScreen(
                     destination = destination,
                     state = state,
                     appearanceMode = appearance.mode,
                     dynamicColor = appearance.dynamicColor,
+                    wideLayout = wideLayout,
                     onAppearanceModeChange = { mode ->
                         lifecycleScope.launch {
                             preferences.setAppearanceMode(mode)
