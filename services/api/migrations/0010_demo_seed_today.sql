@@ -110,13 +110,13 @@ INSERT OR IGNORE INTO meal_consumption (
   consumed_grams,
   consumed_at
 ) VALUES
-  ('demo-mc-20260929-1', 'demo-membership',   'demo-dish-20260929-kungpao', 1.0, 150, '2026-09-29T12:05:00Z'),
-  ('demo-mc-20260929-2', 'demo-membership',   'demo-dish-20260929-greens',  1.0, 120, '2026-09-29T12:05:00Z'),
-  ('demo-mc-20260929-3', 'demo-membership',   'demo-dish-20260929-rice',    1.0, 180, '2026-09-29T12:05:00Z'),
-  ('demo-mc-20260929-4', 'demo-membership-2', 'demo-dish-20260929-kungpao', 1.0, 150, '2026-09-29T12:10:00Z'),
-  ('demo-mc-20260929-5', 'demo-membership-2', 'demo-dish-20260929-greens',  1.0, 120, '2026-09-29T12:10:00Z'),
-  ('demo-mc-20260929-6', 'demo-membership-3', 'demo-dish-20260929-kungpao', 0.8, 120, '2026-09-29T12:15:00Z'),
-  ('demo-mc-20260929-7', 'demo-membership-3', 'demo-dish-20260929-soup',    1.0, 200, '2026-09-29T12:15:00Z');
+  ('demo-mc-20260929-1', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student' LIMIT 1),   'demo-dish-20260929-kungpao', 1.0, 150, '2026-09-29T12:05:00Z'),
+  ('demo-mc-20260929-2', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student' LIMIT 1),   'demo-dish-20260929-greens',  1.0, 120, '2026-09-29T12:05:00Z'),
+  ('demo-mc-20260929-3', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student' LIMIT 1),   'demo-dish-20260929-rice',    1.0, 180, '2026-09-29T12:05:00Z'),
+  ('demo-mc-20260929-4', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student-2' LIMIT 1), 'demo-dish-20260929-kungpao', 1.0, 150, '2026-09-29T12:10:00Z'),
+  ('demo-mc-20260929-5', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student-2' LIMIT 1), 'demo-dish-20260929-greens',  1.0, 120, '2026-09-29T12:10:00Z'),
+  ('demo-mc-20260929-6', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student-3' LIMIT 1), 'demo-dish-20260929-kungpao', 0.8, 120, '2026-09-29T12:15:00Z'),
+  ('demo-mc-20260929-7', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student-3' LIMIT 1), 'demo-dish-20260929-soup',    1.0, 200, '2026-09-29T12:15:00Z');
 
 -- 7. Outside-school activity records for 2026-09-29
 INSERT OR IGNORE INTO outside_school_activity_daily (
@@ -127,9 +127,9 @@ INSERT OR IGNORE INTO outside_school_activity_daily (
   steps,
   active_energy_kcal
 ) VALUES
-  ('demo-act-20260929-1', 'demo-membership',   '2026-09-29', 50, 7500, 320),
-  ('demo-act-20260929-2', 'demo-membership-2', '2026-09-29', 40, 6200, 260),
-  ('demo-act-20260929-3', 'demo-membership-3', '2026-09-29', 45, 6800, 290);
+  ('demo-act-20260929-1', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student' LIMIT 1),   '2026-09-29', 50, 7500, 320),
+  ('demo-act-20260929-2', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student-2' LIMIT 1), '2026-09-29', 40, 6200, 260),
+  ('demo-act-20260929-3', (SELECT id FROM student_memberships WHERE school_id='demo-school' AND participant_id='demo-student-3' LIMIT 1), '2026-09-29', 45, 6800, 290);
 
 -- 8. Dynamic rolling today: seed menus and dishes for date('now') if date != '2026-09-29'
 INSERT OR IGNORE INTO menus (
