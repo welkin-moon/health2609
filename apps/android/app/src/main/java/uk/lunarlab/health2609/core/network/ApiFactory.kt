@@ -17,9 +17,9 @@ object ApiFactory {
     fun create(): HealthApi {
         val client = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(150, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(120, TimeUnit.SECONDS)
+            .callTimeout(150, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val request = chain.request()
                     .newBuilder()
