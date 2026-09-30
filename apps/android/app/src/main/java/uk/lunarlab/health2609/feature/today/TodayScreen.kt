@@ -15,7 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsRun
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
@@ -31,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -66,6 +68,7 @@ fun TodayScreen(
     state: TodayUiState,
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
+    wideLayout: Boolean,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
     onPortionChange: (String, Double) -> Unit,
@@ -118,7 +121,7 @@ fun TodayScreen(
         }.getOrDefault(state.date)
     }
 
-    var showAppearanceSheet by rememberSaveable { mutableStateOf(false) }
+    var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
 
     val screenTitle = when (destination) {
         "meals" -> "饮食"
@@ -140,8 +143,8 @@ fun TodayScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showAppearanceSheet = true }) {
-                        Icon(Icons.Rounded.Palette, contentDescription = "外观")
+                    IconButton(onClick = { showSettingsDialog = true }) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "设置")
                     }
                     IconButton(onClick = onRefresh, enabled = !state.loading) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "更新今天的数据")
@@ -174,8 +177,16 @@ fun TodayScreen(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 126.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = if (wideLayout) 28.dp else 0.dp),
+            contentPadding = PaddingValues(
+                start = 18.dp,
+                end = 18.dp,
+                top = 8.dp,
+                bottom = if (wideLayout) 32.dp else 126.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             state.message?.let { message -> item { StatusMessage(message) } }
@@ -282,91 +293,120 @@ fun TodayScreen(
         }
     }
 
-    if (showAppearanceSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showAppearanceSheet = false }
+    if (showSettingsDialog) {
+        Dialog(
+            onDismissRequest = { showSettingsDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            AppearanceSheet(
+            SettingsDialog(
                 appearanceMode = appearanceMode,
                 dynamicColor = dynamicColor,
                 onAppearanceModeChange = onAppearanceModeChange,
-                onDynamicColorChange = onDynamicColorChange
+                onDynamicColorChange = onDynamicColorChange,
+                onDismiss = { showSettingsDialog = false }
             )
         }
     }
 }
 
 @Composable
-private fun AppearanceSheet(
+private fun SettingsDialog(
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
-    onDynamicColorChange: (Boolean) -> Unit
+    onDynamicColorChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Column(
+    Surface(
         modifier = Modifier
+            .padding(20.dp)
             .fillMaxWidth()
-            .padding(start = 24.dp, end = 24.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .widthIn(max = 560.dp),
+        shape = RoundedCornerShape(32.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 8.dp,
+        shadowElevation = 12.dp
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "外观",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                "跟随系统，也可以固定浅色或深色。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf(
-                AppearanceMode.SYSTEM to "跟随系统",
-                AppearanceMode.LIGHT to "浅色",
-                AppearanceMode.DARK to "深色"
-            ).forEach { (mode, label) ->
-                FilterChip(
-                    selected = appearanceMode == mode,
-                    onClick = { onAppearanceModeChange(mode) },
-                    label = { Text(label) }
-                )
-            }
-        }
-
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Text("使用壁纸配色", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Android 12 及以上可从系统壁纸取色。",
-                        style = MaterialTheme.typography.bodySmall,
+                        "设置",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "显示与应用外观",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Switch(
-                    checked = dynamicColor,
-                    onCheckedChange = onDynamicColorChange
-                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭设置")
+                }
+            }
+
+            Text(
+                "主题",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    AppearanceMode.SYSTEM to "跟随系统",
+                    AppearanceMode.LIGHT to "浅色",
+                    AppearanceMode.DARK to "深色"
+                ).forEach { (mode, label) ->
+                    FilterChip(
+                        selected = appearanceMode == mode,
+                        onClick = { onAppearanceModeChange(mode) },
+                        label = { Text(label) }
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text("使用壁纸配色", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Android 12 及以上使用系统动态颜色。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = dynamicColor,
+                        onCheckedChange = onDynamicColorChange
+                    )
+                }
             }
         }
     }
