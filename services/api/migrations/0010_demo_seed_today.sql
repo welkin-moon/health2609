@@ -51,7 +51,7 @@ INSERT OR IGNORE INTO dishes (
 ) VALUES
   (
     'demo-dish-20260929-kungpao',
-    'demo-menu-20260929-lunch',
+    (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = '2026-09-29' AND meal_slot = 'lunch' LIMIT 1),
     '宫保鸡丁',
     150,
     '{"energyKcal":280,"proteinG":24,"fatG":14,"carbohydrateG":12,"fiberG":2,"sodiumMg":450,"sugarG":5,"saturatedFatG":3}',
@@ -60,7 +60,7 @@ INSERT OR IGNORE INTO dishes (
   ),
   (
     'demo-dish-20260929-greens',
-    'demo-menu-20260929-lunch',
+    (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = '2026-09-29' AND meal_slot = 'lunch' LIMIT 1),
     '清炒时蔬',
     120,
     '{"energyKcal":75,"proteinG":3,"fatG":4,"carbohydrateG":8,"fiberG":4,"sodiumMg":180,"sugarG":2,"saturatedFatG":0.5}',
@@ -69,7 +69,7 @@ INSERT OR IGNORE INTO dishes (
   ),
   (
     'demo-dish-20260929-soup',
-    'demo-menu-20260929-lunch',
+    (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = '2026-09-29' AND meal_slot = 'lunch' LIMIT 1),
     '紫菜蛋花汤',
     200,
     '{"energyKcal":60,"proteinG":5,"fatG":3,"carbohydrateG":4,"fiberG":1,"sodiumMg":320,"sugarG":1,"saturatedFatG":0.5}',
@@ -78,7 +78,7 @@ INSERT OR IGNORE INTO dishes (
   ),
   (
     'demo-dish-20260929-rice',
-    'demo-menu-20260929-lunch',
+    (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = '2026-09-29' AND meal_slot = 'lunch' LIMIT 1),
     '五谷米饭',
     180,
     '{"energyKcal":230,"proteinG":5,"fatG":1,"carbohydrateG":48,"fiberG":3,"sodiumMg":5,"sugarG":0,"saturatedFatG":0.2}',
@@ -152,7 +152,7 @@ INSERT OR IGNORE INTO dishes (
 )
 SELECT
   'demo-dish-today-kungpao',
-  'demo-menu-today-lunch',
+  (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = date('now') AND meal_slot = 'lunch' LIMIT 1),
   '宫保鸡丁',
   150,
   '{"energyKcal":280,"proteinG":24,"fatG":14,"carbohydrateG":12,"fiberG":2,"sodiumMg":450,"sugarG":5,"saturatedFatG":3}',
@@ -171,7 +171,7 @@ INSERT OR IGNORE INTO dishes (
 )
 SELECT
   'demo-dish-today-greens',
-  'demo-menu-today-lunch',
+  (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = date('now') AND meal_slot = 'lunch' LIMIT 1),
   '清炒时蔬',
   120,
   '{"energyKcal":75,"proteinG":3,"fatG":4,"carbohydrateG":8,"fiberG":4,"sodiumMg":180,"sugarG":2,"saturatedFatG":0.5}',
@@ -190,7 +190,7 @@ INSERT OR IGNORE INTO dishes (
 )
 SELECT
   'demo-dish-today-rice',
-  'demo-menu-today-lunch',
+  (SELECT id FROM menus WHERE school_id = 'demo-school' AND date = date('now') AND meal_slot = 'lunch' LIMIT 1),
   '五谷米饭',
   180,
   '{"energyKcal":230,"proteinG":5,"fatG":1,"carbohydrateG":48,"fiberG":3,"sodiumMg":5,"sugarG":0,"saturatedFatG":0.2}',
