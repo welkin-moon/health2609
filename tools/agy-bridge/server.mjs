@@ -19,7 +19,7 @@ const agyBin = process.env.AGY_BIN || "agy";
 const bearerToken = process.env.HEALTH2609_AGY_TOKEN || "";
 const maxQueued = Number(process.env.HEALTH2609_AGY_MAX_QUEUE || "4");
 const maxBodyBytes = 9 * 1024 * 1024;
-const taskTimeoutMs = Number(process.env.HEALTH2609_AGY_TASK_TIMEOUT_MS || "85000");
+const taskTimeoutMs = Number(process.env.HEALTH2609_AGY_TASK_TIMEOUT_MS || "120000");
 
 let agyProcess = null;
 let agyReady = false;
@@ -62,6 +62,8 @@ function stopAgy(reason) {
 
 function spawnAgy() {
   const args = [
+    "--model", process.env.HEALTH2609_AGY_MODEL || "gemini-3.8-flash-low",
+    "--effort", process.env.HEALTH2609_AGY_EFFORT || "low",
     "--print=",
     "--input-format", "stream-json",
     "--output-format", "stream-json",

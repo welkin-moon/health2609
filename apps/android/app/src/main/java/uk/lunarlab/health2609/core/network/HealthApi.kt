@@ -10,6 +10,9 @@ import retrofit2.http.PUT
 import retrofit2.http.Query
 
 interface HealthApi {
+    @GET("v1/student/schools")
+    suspend fun studentSchools(): StudentSchoolsDto
+
     @GET("v1/today/menu")
     suspend fun todayMenu(
         @Query("date") date: String,

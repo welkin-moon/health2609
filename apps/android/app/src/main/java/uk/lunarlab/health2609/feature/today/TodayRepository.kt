@@ -17,6 +17,7 @@ import uk.lunarlab.health2609.core.network.MealConsumptionRequest
 import uk.lunarlab.health2609.core.network.MealItemRequest
 import uk.lunarlab.health2609.core.network.OutsideSchoolActivityRequest
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
+import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.network.SchoolActivityOverrideRequest
 import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
@@ -24,7 +25,8 @@ import uk.lunarlab.health2609.core.network.TodayMenuDto
 data class TodayData(
     val menu: TodayMenuDto,
     val summary: DailySummaryDto,
-    val schoolActivity: SchoolActivityDto
+    val schoolActivity: SchoolActivityDto,
+    val schools: List<StudentSchoolDto>
 )
 
 class TodayRepository(
@@ -34,10 +36,12 @@ class TodayRepository(
         val menu = async { api.todayMenu(date = date, mealSlot = "lunch") }
         val summary = async { api.todaySummary(date = date) }
         val schoolActivity = async { api.todaySchoolActivity(date = date) }
+        val schools = async { api.studentSchools().schools }
         TodayData(
             menu = menu.await(),
             summary = summary.await(),
-            schoolActivity = schoolActivity.await()
+            schoolActivity = schoolActivity.await(),
+            schools = schools.await()
         )
     }
 
