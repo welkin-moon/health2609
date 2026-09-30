@@ -11,8 +11,8 @@ android {
         applicationId = "uk.lunarlab.health2609"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.2.6"
+        versionCode = 9
+        versionName = "0.2.7"
 
         def apiBaseUrl = providers.gradleProperty("HEALTH2609_API_BASE_URL").orNull
             ?: "https://h2609.lunarlab.uk/"
@@ -78,4 +78,7 @@ dependencies {
 
     debugImplementation "androidx.compose.ui:ui-tooling"
     debugImplementation "androidx.compose.ui:ui-test-manifest"
+
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1"
 }

@@ -231,18 +231,22 @@ function json(res, status, body) {
 }
 
 const server = createServer(async (req, res) => {
+  const requestId = req.headers["x-request-id"] || crypto.randomUUID();
+  res.setHeader("X-Request-Id", requestId);
+
   if (req.method === "GET" && req.url === "/healthz") {
-    json(res, agyReady ? 200 : 503, { ok: agyReady, agyReady, queueDepth, port });
+    json(res, agyReady ? 200 : 503, { ok: agyReady, agyReady, queueDepth, port, requestId });
     return;
   }
 
   if (req.method !== "POST" || req.url !== "/health2609/agy") {
-    json(res, 404, { error: "not_found" });
+    json(res, 404, { error: "not_found", requestId });
     return;
   }
 
   if (!bearerToken || req.headers.authorization !== `Bearer ${bearerToken}`) {
-    json(res, 401, { error: "unauthorized" });
+    log(`[${requestId}] unauthorized request attempt`);
+    json(res, 401, { error: "unauthorized", requestId });
     return;
   }
 
@@ -260,19 +264,19 @@ const server = createServer(async (req, res) => {
     const schemaVersion = String(form.get("schemaVersion") || "");
 
     if (!image || typeof image.arrayBuffer !== "function") {
-      json(res, 400, { error: "image_required" });
+      json(res, 400, { error: "image_required", requestId });
       return;
     }
     if (!String(image.type || "").startsWith("image/")) {
-      json(res, 415, { error: "invalid_image_type" });
+      json(res, 415, { error: "invalid_image_type", requestId });
       return;
     }
     if (image.size <= 0 || image.size > 8 * 1024 * 1024) {
-      json(res, 413, { error: "image_size_invalid" });
+      json(res, 413, { error: "image_size_invalid", requestId });
       return;
     }
     if (!suppliedPrompt || suppliedPrompt.length > 30000 || schemaVersion !== "1") {
-      json(res, 400, { error: "task_contract_invalid" });
+      json(res, 400, { error: "task_contract_invalid", requestId });
       return;
     }
 
@@ -281,13 +285,30 @@ const server = createServer(async (req, res) => {
     imagePath = path.join(tempDir, `${crypto.randomUUID()}${extForMime(image.type)}`);
     await fs.writeFile(imagePath, Buffer.from(await image.arrayBuffer()));
 
+    log(`[${requestId}] enqueuing image analysis (${image.size} bytes)`);
     const output = await enqueue(() => analyzeImage(imagePath, suppliedPrompt, schemaVersion));
-    json(res, 200, output);
+    log(`[${requestId}] analysis completed successfully; ${output.items?.length ?? 0} items identified`);
+    json(res, 200, { ...output, requestId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown_error";
-    if (message === "queue_full") json(res, 429, { error: message });
-    else if (message === "request_too_large") json(res, 413, { error: message });
-    else json(res, 502, { error: "agy_bridge_failed", detail: message });
+    log(`[${requestId}] analysis failed: ${message}`);
+    if (message === "queue_full") {
+      json(res, 429, { error: "queue_full", requestId, detail: message });
+    } else if (message === "request_too_large") {
+      json(res, 413, { error: "request_too_large", requestId, detail: message });
+    } else if (message === "agy_timeout") {
+      json(res, 504, { error: "agy_timeout", requestId, detail: message });
+    } else if (message.startsWith("agy_exit:") || message.startsWith("agy_status:")) {
+      json(res, 502, { error: "agy_model_failed", requestId, detail: message });
+    } else if (message === "agy_bootstrap_invalid") {
+      json(res, 502, { error: "agy_bootstrap_failed", requestId, detail: message });
+    } else if (message === "agy_output_invalid") {
+      json(res, 502, { error: "agy_output_invalid", requestId, detail: message });
+    } else if (message === "agy_not_running" || message === "agy_turn_already_active") {
+      json(res, 502, { error: "agy_bridge_busy", requestId, detail: message });
+    } else {
+      json(res, 502, { error: "agy_bridge_failed", requestId, detail: message });
+    }
   } finally {
     if (imagePath) await fs.rm(imagePath, { force: true }).catch(() => {});
   }

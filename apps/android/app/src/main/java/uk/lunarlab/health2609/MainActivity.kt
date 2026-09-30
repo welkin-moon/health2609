@@ -2,7 +2,9 @@ package uk.lunarlab.health2609
 
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
+import uk.lunarlab.health2609.core.health.HealthPermissionState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -116,37 +118,50 @@ class MainActivity : ComponentActivity() {
                     rememberLauncherForActivityResult(
                         PermissionController
                             .createRequestPermissionResultContract()
-                    ) { granted ->
-                        if (
-                            granted.containsAll(
-                                HealthConnectSource.REQUIRED_PERMISSIONS
-                            )
-                        ) {
-                            lifecycleScope.launch {
-                                if (pendingSchoolWearableSync) {
-                                    pendingSchoolWearableSync = false
-                                    syncSchoolActivity(
-                                        date = state.date,
-                                        viewModel = viewModel
-                                    )
-                                } else {
-                                    syncPhoneActivity(
-                                        date = state.date,
-                                        viewModel = viewModel
-                                    )
+                    ) { _ ->
+                        lifecycleScope.launch {
+                            val permState = healthConnectSource.checkPermissionState()
+                            Log.i("HealthConnectQA", "Permission callback checked: ${healthConnectSource.getDiagnostics()}")
+                            when (permState) {
+                                is HealthPermissionState.AvailableAndGranted -> {
+                                    if (pendingSchoolWearableSync) {
+                                        pendingSchoolWearableSync = false
+                                        syncSchoolActivity(
+                                            date = state.date,
+                                            viewModel = viewModel
+                                        )
+                                    } else {
+                                        syncPhoneActivity(
+                                            date = state.date,
+                                            viewModel = viewModel
+                                        )
+                                    }
                                 }
-                            }
-                        } else {
-                            val wasSchoolSync = pendingSchoolWearableSync
-                            pendingSchoolWearableSync = false
-                            if (wasSchoolSync) {
-                                viewModel.schoolActivitySyncFailed(
-                                    "需要运动健康读取权限才能使用手环记录"
-                                )
-                            } else {
-                                viewModel.phoneActivitySyncFailed(
-                                    "没有获得读取运动数据的权限"
-                                )
+                                is HealthPermissionState.MissingPermissions -> {
+                                    val wasSchoolSync = pendingSchoolWearableSync
+                                    pendingSchoolWearableSync = false
+                                    val missingText = permState.missingLabels.joinToString("、")
+                                    val msg = if (permState.granted.isEmpty()) {
+                                        "未获得运动健康授权；若系统未自动弹出授权窗口，可前往系统设置开启"
+                                    } else {
+                                        "仍缺少【$missingText】读取权限，请在系统设置中允许所有运动权限"
+                                    }
+                                    if (wasSchoolSync) {
+                                        viewModel.schoolActivitySyncFailed(msg)
+                                    } else {
+                                        viewModel.phoneActivitySyncFailed(msg)
+                                    }
+                                }
+                                is HealthPermissionState.SdkUnavailable -> {
+                                    pendingSchoolWearableSync = false
+                                    val msg = "这台设备当前不支持或未安装运动健康服务"
+                                    viewModel.phoneActivitySyncFailed(msg)
+                                }
+                                is HealthPermissionState.SdkUpdateRequired -> {
+                                    pendingSchoolWearableSync = false
+                                    val msg = "系统运动健康服务需要更新后才能使用"
+                                    viewModel.phoneActivitySyncFailed(msg)
+                                }
                             }
                         }
                     }
@@ -260,20 +275,51 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     pendingSchoolWearableSync = true
                                     viewModel.schoolActivitySyncStarted()
-                                    healthPermissionLauncher.launch(
-                                        HealthConnectSource.REQUIRED_PERMISSIONS
-                                    )
+                                    val launched = runCatching {
+                                        healthPermissionLauncher.launch(
+                                            HealthConnectSource.REQUIRED_PERMISSIONS
+                                        )
+                                    }.isSuccess
+                                    if (!launched) {
+                                        runCatching {
+                                            startActivity(healthConnectSource.createSettingsIntent())
+                                            viewModel.showMessage("正在打开系统设置，请开启运动健康权限后返回")
+                                        }.onFailure {
+                                            viewModel.schoolActivitySyncFailed("无法启动运动健康授权界面")
+                                        }
+                                    }
                                 }
                             }
                         }
                     },
                     onRequestHealthPermissions = {
-                        if (!healthConnectSource.isAvailable()) {
-                            viewModel.showMessage("这台手机暂时无法使用运动健康")
-                        } else {
-                            healthPermissionLauncher.launch(
-                                HealthConnectSource.REQUIRED_PERMISSIONS
-                            )
+                        lifecycleScope.launch {
+                            when (val permState = healthConnectSource.checkPermissionState()) {
+                                is HealthPermissionState.AvailableAndGranted -> {
+                                    viewModel.showMessage("运动健康权限已全部授予")
+                                }
+                                is HealthPermissionState.SdkUnavailable -> {
+                                    viewModel.showMessage("这台设备当前不支持运动健康服务")
+                                }
+                                is HealthPermissionState.SdkUpdateRequired -> {
+                                    viewModel.showMessage("系统运动健康服务需要更新")
+                                }
+                                is HealthPermissionState.MissingPermissions -> {
+                                    val launched = runCatching {
+                                        healthPermissionLauncher.launch(
+                                            HealthConnectSource.REQUIRED_PERMISSIONS
+                                        )
+                                    }.isSuccess
+                                    if (!launched) {
+                                        runCatching {
+                                            startActivity(healthConnectSource.createSettingsIntent())
+                                            viewModel.showMessage("正在打开系统设置，请开启运动权限后返回")
+                                        }.onFailure {
+                                            viewModel.showMessage("无法打开系统设置")
+                                        }
+                                    }
+                                }
+                            }
                         }
                     },
                     onSyncPhoneActivity = {
@@ -293,10 +339,19 @@ class MainActivity : ComponentActivity() {
                                     )
                                 } else {
                                     viewModel.phoneActivitySyncStarted()
-                                    healthPermissionLauncher.launch(
-                                        HealthConnectSource
-                                            .REQUIRED_PERMISSIONS
-                                    )
+                                    val launched = runCatching {
+                                        healthPermissionLauncher.launch(
+                                            HealthConnectSource.REQUIRED_PERMISSIONS
+                                        )
+                                    }.isSuccess
+                                    if (!launched) {
+                                        runCatching {
+                                            startActivity(healthConnectSource.createSettingsIntent())
+                                            viewModel.showMessage("正在打开系统设置，请开启运动权限后返回")
+                                        }.onFailure {
+                                            viewModel.phoneActivitySyncFailed("无法启动系统设置")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -463,10 +518,12 @@ class MainActivity : ComponentActivity() {
 
             aggregate
         }.onSuccess { aggregate ->
-            viewModel.phoneActivitySyncFinished(
-                "已更新校外运动：${aggregate.exerciseMinutes} 分钟 · " +
-                    "${aggregate.steps} 步"
-            )
+            val message = if (aggregate.steps == 0L && aggregate.exerciseMinutes == 0) {
+                "已连接运动健康：今日暂无校外运动或步数记录"
+            } else {
+                "已更新校外运动：${aggregate.exerciseMinutes} 分钟 · ${aggregate.steps} 步"
+            }
+            viewModel.phoneActivitySyncFinished(message)
         }.onFailure { error ->
             viewModel.phoneActivitySyncFailed(
                 error.message ?: "手机运动数据同步失败"

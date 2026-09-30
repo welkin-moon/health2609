@@ -16,11 +16,26 @@ import java.time.ZoneId
 import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.SchoolPeWindowDto
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+
 data class HealthConnectDayAggregate(
     val exerciseMinutes: Int,
     val steps: Long,
     val activeEnergyKcal: Double
 )
+
+sealed interface HealthPermissionState {
+    data object AvailableAndGranted : HealthPermissionState
+    data class MissingPermissions(
+        val granted: Set<String>,
+        val missing: Set<String>,
+        val missingLabels: List<String>
+    ) : HealthPermissionState
+    data object SdkUnavailable : HealthPermissionState
+    data object SdkUpdateRequired : HealthPermissionState
+}
 
 private data class InstantRange(
     val start: Instant,
@@ -42,10 +57,65 @@ class HealthConnectSource(
     fun isAvailable(): Boolean =
         sdkStatus() == HealthConnectClient.SDK_AVAILABLE
 
+    suspend fun checkPermissionState(): HealthPermissionState {
+        when (sdkStatus()) {
+            HealthConnectClient.SDK_UNAVAILABLE -> return HealthPermissionState.SdkUnavailable
+            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> return HealthPermissionState.SdkUpdateRequired
+        }
+        val granted = runCatching {
+            client.permissionController.getGrantedPermissions()
+        }.getOrDefault(emptySet())
+
+        val missing = REQUIRED_PERMISSIONS.filter { required ->
+            !granted.contains(required)
+        }.toSet()
+
+        if (missing.isEmpty()) {
+            return HealthPermissionState.AvailableAndGranted
+        }
+        return HealthPermissionState.MissingPermissions(
+            granted = granted,
+            missing = missing,
+            missingLabels = missing.map { permissionLabel(it) }
+        )
+    }
+
     suspend fun hasRequiredPermissions(): Boolean {
-        if (!isAvailable()) return false
-        val granted = client.permissionController.getGrantedPermissions()
-        return granted.containsAll(REQUIRED_PERMISSIONS)
+        return checkPermissionState() is HealthPermissionState.AvailableAndGranted
+    }
+
+    fun createSettingsIntent(): Intent {
+        val manageIntent = Intent("android.health.connect.action.MANAGE_HEALTH_PERMISSIONS").apply {
+            putExtra(Intent.EXTRA_PACKAGE_NAME, appContext.packageName)
+        }
+        if (manageIntent.resolveActivity(appContext.packageManager) != null) {
+            return manageIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        val clientSettingsIntent = Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
+        if (clientSettingsIntent.resolveActivity(appContext.packageManager) != null) {
+            return clientSettingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", appContext.packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    suspend fun getDiagnostics(): String {
+        val status = sdkStatus()
+        val statusText = when (status) {
+            HealthConnectClient.SDK_AVAILABLE -> "SDK_AVAILABLE (1)"
+            HealthConnectClient.SDK_UNAVAILABLE -> "SDK_UNAVAILABLE (2)"
+            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED (3)"
+            else -> "UNKNOWN ($status)"
+        }
+        val granted = if (status == HealthConnectClient.SDK_AVAILABLE) {
+            runCatching { client.permissionController.getGrantedPermissions() }.getOrDefault(emptySet())
+        } else emptySet()
+        val missing = REQUIRED_PERMISSIONS - granted
+        return "HealthConnect[status=$statusText, granted=${granted.size}/${REQUIRED_PERMISSIONS.size}, missing=$missing]"
     }
 
     suspend fun readOutsideSchoolDay(
@@ -230,5 +300,14 @@ class HealthConnectSource(
                 ActiveCaloriesBurnedRecord::class
             )
         )
+
+        fun permissionLabel(permission: String): String {
+            return when {
+                permission.contains("STEPS", ignoreCase = true) -> "步数"
+                permission.contains("EXERCISE", ignoreCase = true) -> "运动记录"
+                permission.contains("ACTIVE_CALORIES", ignoreCase = true) -> "活动能量"
+                else -> permission.substringAfterLast('.')
+            }
+        }
     }
 }

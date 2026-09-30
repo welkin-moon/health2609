@@ -211,10 +211,25 @@ class TodayViewModel(
                     )
                 }
             }.onFailure { error ->
+                val rawMsg = error.message ?: ""
+                val friendlyMessage = when {
+                    rawMsg.contains("504") || rawMsg.contains("agy_timeout") || rawMsg.contains("timed out") ->
+                        "餐食识别耗时较长，请稍候重试或直接手动输入"
+                    rawMsg.contains("429") || rawMsg.contains("queue_full") ->
+                        "当前识别排队较多，请稍候重试"
+                    rawMsg.contains("413") || rawMsg.contains("image_too_large") ->
+                        "图片大小超出限制（最大 8MB），请压缩后重试"
+                    rawMsg.contains("415") || rawMsg.contains("invalid_image_type") ->
+                        "不支持该图片格式，请使用常见照片格式"
+                    rawMsg.contains("502") || rawMsg.contains("agy_") ->
+                        "智能识别服务暂时不可用，已保留当前草稿，可手动记录"
+                    else ->
+                        if (rawMsg.isNotBlank()) "餐食识别失败：$rawMsg" else "餐食识别失败，请稍后重试"
+                }
                 _uiState.update {
                     it.copy(
                         analyzingHomeMeal = false,
-                        message = error.message ?: "餐食识别失败"
+                        message = friendlyMessage
                     )
                 }
             }

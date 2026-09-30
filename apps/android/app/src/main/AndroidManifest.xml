@@ -1,12 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Modern Android 14+ platform permissions -->
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
 
+    <!-- Legacy Health Connect APK compatibility permissions for Android 13 and below -->
+    <uses-permission android:name="androidx.health.permission.READ_EXERCISE" />
+    <uses-permission android:name="androidx.health.permission.READ_STEPS" />
+    <uses-permission android:name="androidx.health.permission.READ_ACTIVE_CALORIES_BURNED" />
+
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="android.health.connect.action.MANAGE_HEALTH_PERMISSIONS" />
+        </intent>
+        <intent>
+            <action android:name="androidx.health.connect.client.ACTION_HEALTH_CONNECT_SETTINGS" />
+        </intent>
     </queries>
 
     <application

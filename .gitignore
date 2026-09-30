@@ -11,4 +11,5 @@ dist/
 !.env.example
 *.apk
 *.aab
+artifacts/
 .DS_Store

@@ -833,6 +833,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
     return c.json({ error: "invalid_image_type" }, 415);
   }
 
+  const requestId = c.req.header("x-request-id") || c.req.header("cf-ray") || crypto.randomUUID();
+  c.header("X-Request-Id", requestId);
+
   const outbound = new FormData();
   outbound.set("image", image, image.name || "meal.jpg");
   outbound.set("prompt", HOME_MEAL_AGY_PROMPT);
@@ -840,11 +843,16 @@ app.post("/v1/home-meals/analyze", async (c) => {
 
   let response: Response;
   try {
+    const headers: Record<string, string> = {
+      "X-Request-Id": requestId
+    };
+    if (c.env.AGY_TASK_TOKEN) {
+      headers["Authorization"] = `Bearer ${c.env.AGY_TASK_TOKEN}`;
+    }
+
     response = await fetch(c.env.AGY_TASK_URL, {
       method: "POST",
-      headers: c.env.AGY_TASK_TOKEN
-        ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
-        : undefined,
+      headers,
       body: outbound,
       signal: AbortSignal.timeout(135_000)
     });
@@ -853,6 +861,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
       return c.json(
         {
           error: "agy_timeout",
+          requestId,
           message: "Upstream analysis timed out after 135s"
         },
         504
@@ -861,6 +870,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
     return c.json(
       {
         error: "agy_unreachable",
+        requestId,
         message: err.message || "Failed to reach upstream analysis service"
       },
       502
@@ -868,13 +878,28 @@ app.post("/v1/home-meals/analyze", async (c) => {
   }
 
   if (!response.ok) {
+    let bridgeError: any = null;
+    try {
+      bridgeError = await response.json();
+    } catch {}
+
+    const rawError = bridgeError?.error;
+    const errorCode =
+      (response.status === 401 || rawError === "unauthorized")
+        ? "agy_auth_failed"
+        : (rawError || (response.status === 429 ? "queue_full" : "agy_failed"));
+    const detail = bridgeError?.detail || bridgeError?.message;
+    const status = response.status === 429 ? 429 : response.status === 401 ? 502 : response.status;
+
     return c.json(
       {
-        error: "agy_failed",
+        error: errorCode,
+        requestId,
         status: response.status,
-        message: `Upstream service returned status ${response.status}`
+        detail,
+        message: `Upstream service error: ${errorCode}`
       },
-      502
+      status >= 400 && status <= 599 ? (status as any) : 502
     );
   }
 
@@ -885,6 +910,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
     return c.json(
       {
         error: "agy_invalid_json",
+        requestId,
         message: "Failed to parse upstream response as JSON"
       },
       502
@@ -896,13 +922,17 @@ app.post("/v1/home-meals/analyze", async (c) => {
     return c.json(
       {
         error: "agy_schema_invalid",
+        requestId,
         issues: parsed.error.issues.slice(0, 8)
       },
       502
     );
   }
 
-  return c.json(parsed.data);
+  return c.json({
+    ...parsed.data,
+    requestId
+  });
 });
 
 app.get("/v1/admin/school/day-windows", async (c) => {
