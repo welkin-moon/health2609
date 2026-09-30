@@ -94,6 +94,25 @@ async function membershipFor(
 
 app.get("/health", (c) => c.json({ ok: true }));
 
+app.get("/v1/student/schools", async (c) => {
+  const participantId = c.get("participantId");
+  const rows = await c.env.DB.prepare(
+    `SELECT s.id, s.name, s.timezone
+       FROM student_memberships sm
+       JOIN schools s ON s.id = sm.school_id
+      WHERE sm.participant_id = ?
+      ORDER BY s.name`
+  ).bind(participantId).all();
+
+  return c.json({
+    schools: rows.results.map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      timezone: String(row.timezone)
+    }))
+  });
+});
+
 app.get("/v1/school/day-windows", async (c) => {
   const date = c.req.query("date");
   if (!date) return c.json({ error: "date_required" }, 400);
@@ -827,14 +846,14 @@ app.post("/v1/home-meals/analyze", async (c) => {
         ? { Authorization: `Bearer ${c.env.AGY_TASK_TOKEN}` }
         : undefined,
       body: outbound,
-      signal: AbortSignal.timeout(110_000)
+      signal: AbortSignal.timeout(135_000)
     });
   } catch (err: any) {
     if (err.name === "TimeoutError" || err.name === "AbortError") {
       return c.json(
         {
           error: "agy_timeout",
-          message: "Upstream analysis timed out after 110s"
+          message: "Upstream analysis timed out after 135s"
         },
         504
       );
