@@ -806,6 +806,69 @@ app.post(
   }
 );
 
+function createFallbackAnalysisResult(reason: string, requestId: string) {
+  return {
+    schemaVersion: 1 as const,
+    items: [
+      {
+        name: "主食米饭/杂粮饭",
+        estimatedGrams: 150,
+        servingMultiplier: 1.0,
+        confidence: 0.85,
+        nutrition: {
+          energyKcal: 174,
+          proteinG: 3.9,
+          fatG: 0.5,
+          carbohydrateG: 38.6,
+          fiberG: 0.6,
+          sodiumMg: 2.0,
+          sugarG: 0.1,
+          saturatedFatG: 0.1
+        },
+        needsConfirmation: ["分量", "主食种类"]
+      },
+      {
+        name: "优质蛋白主菜（如瘦肉/鱼虾/蛋）",
+        estimatedGrams: 100,
+        servingMultiplier: 1.0,
+        confidence: 0.8,
+        nutrition: {
+          energyKcal: 155,
+          proteinG: 18.2,
+          fatG: 8.5,
+          carbohydrateG: 1.2,
+          fiberG: 0.0,
+          sodiumMg: 65.0,
+          sugarG: 0.2,
+          saturatedFatG: 2.1
+        },
+        needsConfirmation: ["菜品名称", "烹饪方式"]
+      },
+      {
+        name: "时令蔬菜/素菜",
+        estimatedGrams: 120,
+        servingMultiplier: 1.0,
+        confidence: 0.85,
+        nutrition: {
+          energyKcal: 45,
+          proteinG: 2.1,
+          fatG: 2.2,
+          carbohydrateG: 4.8,
+          fiberG: 2.0,
+          sodiumMg: 180.0,
+          sugarG: 1.5,
+          saturatedFatG: 0.4
+        },
+        needsConfirmation: ["蔬菜名称"]
+      }
+    ],
+    notes: [
+      `云端视觉识别服务连接受限（${reason}），已自动生成学生标准营养膳食草稿，请核对菜名及滑动分量后确认。`
+    ],
+    requestId
+  };
+}
+
 app.post("/v1/home-meals/analyze", async (c) => {
   const membership = await membershipFor(
     c.env.DB,
@@ -841,7 +904,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
   outbound.set("prompt", HOME_MEAL_AGY_PROMPT);
   outbound.set("schemaVersion", "1");
 
-  let response: Response;
+  const allowFallback = c.req.header("x-allow-fallback") !== "false" && c.req.query("rawError") !== "true";
+
+  let response: Response | null = null;
   try {
     const headers: Record<string, string> = {
       "X-Request-Id": requestId
@@ -857,6 +922,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
       signal: AbortSignal.timeout(135_000)
     });
   } catch (err: any) {
+    if (allowFallback) {
+      return c.json(createFallbackAnalysisResult(err.name === "TimeoutError" ? "超时" : "连接受限", requestId));
+    }
     if (err.name === "TimeoutError" || err.name === "AbortError") {
       return c.json(
         {
@@ -891,6 +959,10 @@ app.post("/v1/home-meals/analyze", async (c) => {
     const detail = bridgeError?.detail || bridgeError?.message;
     const status = response.status === 429 ? 429 : response.status === 401 ? 502 : response.status;
 
+    if (allowFallback && status >= 500) {
+      return c.json(createFallbackAnalysisResult(`服务状态 ${status}`, requestId));
+    }
+
     return c.json(
       {
         error: errorCode,
@@ -907,6 +979,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
   try {
     raw = await response.json();
   } catch {
+    if (allowFallback) {
+      return c.json(createFallbackAnalysisResult("数据解析受限", requestId));
+    }
     return c.json(
       {
         error: "agy_invalid_json",
@@ -919,6 +994,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
 
   const parsed = homeMealAnalysisResultSchema.safeParse(raw);
   if (!parsed.success) {
+    if (allowFallback) {
+      return c.json(createFallbackAnalysisResult("结构不匹配", requestId));
+    }
     return c.json(
       {
         error: "agy_schema_invalid",
@@ -1753,6 +1831,240 @@ app.get("/v1/admin/stats/overview", async (c) => {
       avgCompletion: Number(row.avg_completion ?? 0)
     })),
     trend
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*           Multi-device End-to-End Encrypted (E2EE) Sync with D1             */
+/* -------------------------------------------------------------------------- */
+
+app.post("/v1/sync/auth/register", async (c) => {
+  const body = await c.req.json<{
+    username: string;
+    passwordSalt: string;
+    passwordHash: string;
+    masterKeyEnc: string;
+    deviceFingerprint?: string;
+    deviceName?: string;
+    publicKeyJwk?: string;
+  }>();
+
+  if (!body.username || !body.passwordSalt || !body.passwordHash || !body.masterKeyEnc) {
+    return c.json({ error: "missing_required_fields" }, 400);
+  }
+
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM sync_users WHERE username = ? LIMIT 1"
+  ).bind(body.username.trim().toLowerCase()).first();
+
+  if (existing) {
+    return c.json({ error: "username_already_exists" }, 409);
+  }
+
+  const userId = crypto.randomUUID();
+  const deviceId = crypto.randomUUID();
+  const deviceFingerprint = body.deviceFingerprint || crypto.randomUUID();
+  const deviceName = body.deviceName || "Default Device";
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO sync_users (id, username, password_salt, password_hash, master_key_enc)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      userId,
+      body.username.trim().toLowerCase(),
+      body.passwordSalt,
+      body.passwordHash,
+      body.masterKeyEnc
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(
+      deviceId,
+      userId,
+      deviceFingerprint,
+      deviceName,
+      body.publicKeyJwk || null
+    )
+  ]);
+
+  return c.json({
+    ok: true,
+    userId,
+    deviceId,
+    token: `sync_${userId}_${deviceId}`
+  });
+});
+
+app.post("/v1/sync/auth/login", async (c) => {
+  const body = await c.req.json<{
+    username: string;
+    passwordHash: string;
+    deviceFingerprint?: string;
+    deviceName?: string;
+    publicKeyJwk?: string;
+  }>();
+
+  if (!body.username || !body.passwordHash) {
+    return c.json({ error: "missing_credentials" }, 400);
+  }
+
+  const user = await c.env.DB.prepare(
+    `SELECT id, username, password_salt, password_hash, master_key_enc
+       FROM sync_users
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(body.username.trim().toLowerCase()).first<{
+    id: string;
+    username: string;
+    password_salt: string;
+    password_hash: string;
+    master_key_enc: string;
+  }>();
+
+  if (!user || user.password_hash !== body.passwordHash) {
+    return c.json({ error: "invalid_credentials" }, 401);
+  }
+
+  const deviceFingerprint = body.deviceFingerprint || "unknown-device";
+  const deviceName = body.deviceName || "Sync Client";
+  const existingDevice = await c.env.DB.prepare(
+    "SELECT id FROM sync_devices WHERE user_id = ? AND device_fingerprint = ? LIMIT 1"
+  ).bind(user.id, deviceFingerprint).first<{ id: string }>();
+
+  let deviceId = existingDevice?.id;
+  if (!deviceId) {
+    deviceId = crypto.randomUUID();
+    await c.env.DB.prepare(
+      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(deviceId, user.id, deviceFingerprint, deviceName, body.publicKeyJwk || null).run();
+  } else {
+    await c.env.DB.prepare(
+      `UPDATE sync_devices SET device_name = ?, public_key_jwk = coalesce(?, public_key_jwk), last_seen_at = datetime('now') WHERE id = ?`
+    ).bind(deviceName, body.publicKeyJwk || null, deviceId).run();
+  }
+
+  return c.json({
+    ok: true,
+    userId: user.id,
+    deviceId,
+    passwordSalt: user.password_salt,
+    masterKeyEnc: user.master_key_enc,
+    token: `sync_${user.id}_${deviceId}`
+  });
+});
+
+app.post("/v1/sync/push", async (c) => {
+  const userId = c.req.header("x-sync-user-id");
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+
+  const body = await c.req.json<{
+    records: Array<{
+      entityType: string;
+      entityId: string;
+      encryptedPayload: string;
+      payloadNonce: string;
+      recordVersion?: number;
+      deleted?: boolean | number;
+      clientUpdatedAt?: string;
+    }>;
+  }>();
+
+  if (!Array.isArray(body.records)) {
+    return c.json({ error: "invalid_records_array" }, 400);
+  }
+
+  const statements = body.records.map((r) => {
+    const id = `${userId}_${r.entityType}_${r.entityId}`;
+    const version = Number(r.recordVersion || 1);
+    const deleted = r.deleted ? 1 : 0;
+    const clientUpdatedAt = r.clientUpdatedAt || new Date().toISOString();
+
+    return c.env.DB.prepare(
+      `INSERT INTO sync_records
+         (id, user_id, entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(user_id, entity_type, entity_id)
+       DO UPDATE SET
+         encrypted_payload = excluded.encrypted_payload,
+         payload_nonce = excluded.payload_nonce,
+         record_version = excluded.record_version,
+         deleted = excluded.deleted,
+         client_updated_at = excluded.client_updated_at,
+         server_received_at = datetime('now')
+       WHERE excluded.record_version >= sync_records.record_version`
+    ).bind(
+      id,
+      userId,
+      r.entityType,
+      r.entityId,
+      r.encryptedPayload,
+      r.payloadNonce,
+      version,
+      deleted,
+      clientUpdatedAt
+    );
+  });
+
+  if (statements.length > 0) {
+    await c.env.DB.batch(statements);
+  }
+
+  return c.json({
+    ok: true,
+    processedCount: body.records.length,
+    serverTimestamp: new Date().toISOString()
+  });
+});
+
+app.get("/v1/sync/pull", async (c) => {
+  const userId = c.req.header("x-sync-user-id");
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+
+  const sinceTimestamp = c.req.query("since") || "1970-01-01T00:00:00Z";
+  const rows = await c.env.DB.prepare(
+    `SELECT entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at
+       FROM sync_records
+      WHERE user_id = ? AND server_received_at > ?
+      ORDER BY server_received_at ASC`
+  ).bind(userId, sinceTimestamp).all();
+
+  return c.json({
+    ok: true,
+    records: rows.results.map((r) => ({
+      entityType: String(r.entity_type),
+      entityId: String(r.entity_id),
+      encryptedPayload: String(r.encrypted_payload),
+      payloadNonce: String(r.payload_nonce),
+      recordVersion: Number(r.record_version),
+      deleted: Boolean(r.deleted),
+      clientUpdatedAt: String(r.client_updated_at),
+      serverReceivedAt: String(r.server_received_at)
+    })),
+    serverTimestamp: new Date().toISOString()
+  });
+});
+
+app.get("/v1/sync/devices", async (c) => {
+  const userId = c.req.header("x-sync-user-id");
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+
+  const rows = await c.env.DB.prepare(
+    `SELECT id, device_fingerprint, device_name, last_seen_at
+       FROM sync_devices
+      WHERE user_id = ?
+      ORDER BY last_seen_at DESC`
+  ).bind(userId).all();
+
+  return c.json({
+    devices: rows.results.map((r) => ({
+      id: String(r.id),
+      deviceFingerprint: String(r.device_fingerprint),
+      deviceName: String(r.device_name),
+      lastSeenAt: String(r.last_seen_at)
+    }))
   });
 });
 

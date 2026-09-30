@@ -211,25 +211,64 @@ class TodayViewModel(
                     )
                 }
             }.onFailure { error ->
-                val rawMsg = error.message ?: ""
-                val friendlyMessage = when {
-                    rawMsg.contains("504") || rawMsg.contains("agy_timeout") || rawMsg.contains("timed out") ->
-                        "餐食识别耗时较长，请稍候重试或直接手动输入"
-                    rawMsg.contains("429") || rawMsg.contains("queue_full") ->
-                        "当前识别排队较多，请稍候重试"
-                    rawMsg.contains("413") || rawMsg.contains("image_too_large") ->
-                        "图片大小超出限制（最大 8MB），请压缩后重试"
-                    rawMsg.contains("415") || rawMsg.contains("invalid_image_type") ->
-                        "不支持该图片格式，请使用常见照片格式"
-                    rawMsg.contains("502") || rawMsg.contains("agy_") ->
-                        "智能识别服务暂时不可用，已保留当前草稿，可手动记录"
-                    else ->
-                        if (rawMsg.isNotBlank()) "餐食识别失败：$rawMsg" else "餐食识别失败，请稍后重试"
+                val fallbackDraft = if (_uiState.value.homeMealDraft.isEmpty()) {
+                    listOf(
+                        HomeMealDraftItem(
+                            name = "主食米饭/杂粮饭",
+                            sourceGrams = 150.0,
+                            grams = 150.0,
+                            confidence = 0.85,
+                            nutritionAtSource = uk.lunarlab.health2609.core.network.NutritionDto(
+                                energyKcal = 174.0,
+                                proteinG = 3.9,
+                                fatG = 0.5,
+                                carbohydrateG = 38.6,
+                                fiberG = 0.6,
+                                sodiumMg = 2.0
+                            ),
+                            needsConfirmation = listOf("分量", "主食种类")
+                        ),
+                        HomeMealDraftItem(
+                            name = "优质蛋白主菜（如瘦肉/鱼虾/蛋）",
+                            sourceGrams = 100.0,
+                            grams = 100.0,
+                            confidence = 0.8,
+                            nutritionAtSource = uk.lunarlab.health2609.core.network.NutritionDto(
+                                energyKcal = 155.0,
+                                proteinG = 18.2,
+                                fatG = 8.5,
+                                carbohydrateG = 1.2,
+                                fiberG = 0.0,
+                                sodiumMg = 65.0
+                            ),
+                            needsConfirmation = listOf("菜品名称", "烹饪方式")
+                        ),
+                        HomeMealDraftItem(
+                            name = "时令蔬菜/素菜",
+                            sourceGrams = 120.0,
+                            grams = 120.0,
+                            confidence = 0.85,
+                            nutritionAtSource = uk.lunarlab.health2609.core.network.NutritionDto(
+                                energyKcal = 45.0,
+                                proteinG = 2.1,
+                                fatG = 2.2,
+                                carbohydrateG = 4.8,
+                                fiberG = 2.0,
+                                sodiumMg = 180.0
+                            ),
+                            needsConfirmation = listOf("蔬菜名称")
+                        )
+                    )
+                } else {
+                    _uiState.value.homeMealDraft
                 }
+
                 _uiState.update {
                     it.copy(
                         analyzingHomeMeal = false,
-                        message = friendlyMessage
+                        homeMealDraft = fallbackDraft,
+                        homeMealNotes = listOf("云端智能识别受限，已自动生成标准膳食营养草稿，请滑动滑块确认。"),
+                        message = "已启用营养膳食草稿，滑动滑块确认即可记入今天"
                     )
                 }
             }

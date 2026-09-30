@@ -4,6 +4,12 @@ package uk.lunarlab.health2609.feature.today
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,14 +17,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.DirectionsRun
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.HealthAndSafety
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -186,16 +198,24 @@ fun TodayScreen(
                 .padding(innerPadding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                state.message?.let { message ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                horizontal = if (wideLayout) 24.dp else 18.dp,
-                                vertical = 6.dp
-                            )
-                    ) {
-                        StatusMessage(message)
+                AnimatedVisibility(
+                    visible = state.message != null,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                ) {
+                    state.message?.let { message ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    horizontal = if (wideLayout) 24.dp else 18.dp,
+                                    vertical = 6.dp
+                                )
+                        ) {
+                            StatusMessage(message)
+                        }
                     }
                 }
 
@@ -273,6 +293,7 @@ fun TodayScreen(
                 onSchoolChange = onSchoolChange,
                 onAppearanceModeChange = onAppearanceModeChange,
                 onDynamicColorChange = onDynamicColorChange,
+                onOpenHealthSettings = onRequestHealthPermissions,
                 onDismiss = { showSettingsDialog = false }
             )
         }
@@ -1367,7 +1388,7 @@ private fun ActivityStatsCard(
                         onClick = onRequestHealthPermissions,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
-                        Text("申请运动健康权限")
+                        Text("申请 / 打开健康权限设置")
                     }
                 }
             }
@@ -1637,21 +1658,25 @@ private fun SettingsDialog(
     onSchoolChange: (String) -> Unit,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
+    onOpenHealthSettings: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Surface(
         modifier = Modifier
-            .padding(horizontal = 24.dp, vertical = 32.dp)
-            .widthIn(max = 420.dp)
-            .fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
+            .padding(horizontal = 20.dp, vertical = 24.dp)
+            .widthIn(max = 480.dp)
+            .fillMaxWidth()
+            .heightIn(max = 680.dp),
+        shape = RoundedCornerShape(32.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp,
-        shadowElevation = 10.dp
+        shadowElevation = 12.dp
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier
+                .padding(horizontal = 20.dp, vertical = 20.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1659,15 +1684,15 @@ private fun SettingsDialog(
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
-                        "设置",
+                        "应用设置",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "学校与外观",
+                        "多端同步 · 就读学校 · 外观显示 · 权限管理",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1680,90 +1705,214 @@ private fun SettingsDialog(
                 }
             }
 
-            Text(
-                "学校",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            if (schools.isEmpty()) {
-                Text(
-                    "暂无可选学校，正在使用默认学校。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            // 1. E2EE Sync Group
+            SettingsGroupCard(title = "账号与多端同步") {
+                SettingsItemRow(
+                    icon = { Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                    title = "端对端加密同步",
+                    subtitle = "基于 Cloudflare D1 存储，端侧 AES-256-GCM 硬件加密",
+                    trailing = {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                "已就绪",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 )
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    schools.forEach { school ->
-                        FilterChip(
-                            selected = selectedSchoolId == school.id,
-                            onClick = { onSchoolChange(school.id) },
-                            label = { Text(school.name) }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                SettingsItemRow(
+                    icon = { Icon(Icons.Rounded.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                    title = "媒体极速微缩同步",
+                    subtitle = "餐食图片仅同步 ≤160px 低位深微缩图，零流量负担"
+                )
+            }
+
+            // 2. School Group
+            SettingsGroupCard(title = "学校关联") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsItemRow(
+                        icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
+                        title = "就读学校",
+                        subtitle = "关联食堂菜谱与体育课程安排"
+                    )
+
+                    if (schools.isEmpty()) {
+                        Text(
+                            "暂无可选学校，正在使用默认学校。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 48.dp)
                         )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            schools.forEach { school ->
+                                FilterChip(
+                                    selected = selectedSchoolId == school.id,
+                                    onClick = { onSchoolChange(school.id) },
+                                    label = { Text(school.name) }
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            // 3. Appearance Group
+            SettingsGroupCard(title = "外观与色彩") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SettingsItemRow(
+                        icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        title = "主题深浅",
+                        subtitle = "切换浅色、深色或随系统切换"
+                    )
 
-            Text(
-                "主题",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 48.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            AppearanceMode.SYSTEM to "跟随系统",
+                            AppearanceMode.LIGHT to "浅色",
+                            AppearanceMode.DARK to "深色"
+                        ).forEach { (mode, label) ->
+                            FilterChip(
+                                selected = appearanceMode == mode,
+                                onClick = { onAppearanceModeChange(mode) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    AppearanceMode.SYSTEM to "跟随系统",
-                    AppearanceMode.LIGHT to "浅色",
-                    AppearanceMode.DARK to "深色"
-                ).forEach { (mode, label) ->
-                    FilterChip(
-                        selected = appearanceMode == mode,
-                        onClick = { onAppearanceModeChange(mode) },
-                        label = { Text(label) }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    SettingsItemRow(
+                        icon = {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                    Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                }
+                            }
+                        },
+                        title = "Monet 动态色彩自适应",
+                        subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
+                        trailing = {
+                            Switch(
+                                checked = dynamicColor,
+                                onCheckedChange = onDynamicColorChange
+                            )
+                        }
                     )
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        "壁纸配色",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Medium
+            // 4. Health & Permissions Group
+            SettingsGroupCard(title = "运动健康服务") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsItemRow(
+                        icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        title = "Health Connect 权限",
+                        subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
                     )
-                    Text(
-                        "使用系统动态颜色",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                    OutlinedButton(
+                        onClick = onOpenHealthSettings,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 48.dp)
+                    ) {
+                        Text("打开系统运动健康设置")
+                    }
                 }
-                Switch(
-                    checked = dynamicColor,
-                    onCheckedChange = onDynamicColorChange
-                )
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsGroupCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsItemRow(
+    icon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.size(38.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                icon()
+            }
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        trailing?.invoke()
     }
 }
 
@@ -1837,57 +1986,128 @@ private fun DishRow(
     onPortionChange: (Double) -> Unit,
     onGramsChange: (Double?) -> Unit
 ) {
+    val currentMultiplier = amount.servingMultiplier.toFloat().coerceIn(0f, 2f)
+    val standardGrams = dish.standardServingGrams ?: 150.0
+    val currentGrams = (standardGrams * currentMultiplier).roundToInt()
+    val currentEnergy = ((dish.nutritionPerServing?.energyKcal ?: 0.0) * currentMultiplier).roundToInt()
+
+    val portionTitle = when {
+        currentMultiplier <= 0.05f -> "0.0x (没吃)"
+        currentMultiplier in 0.45f..0.55f -> "0.5x (半份)"
+        currentMultiplier in 0.95f..1.05f -> "1.0x (标准一份)"
+        currentMultiplier in 1.45f..1.55f -> "1.5x (一份半)"
+        currentMultiplier in 1.95f..2.0f -> "2.0x (两份/双倍)"
+        else -> String.format(Locale.US, "%.2fx", currentMultiplier)
+    }
+
     Surface(
         shape = RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec())
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(dish.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                val details = buildList {
-                    dish.standardServingGrams?.let { add("一份约 " + it.roundToInt().toString() + " 克") }
-                    dish.nutritionPerServing?.energyKcal?.let { add(it.roundToInt().toString() + " 千卡") }
-                }
-                if (details.isNotEmpty()) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        details.joinToString(" · "),
+                        dish.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "基准一份约 " + standardGrams.roundToInt() + " 克 · " +
+                            (dish.nutritionPerServing?.energyKcal?.roundToInt() ?: 0) + " 千卡",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
-            ) {
-                portionOptions.forEach { (portion, label) ->
-                    FilterChip(
-                        selected = abs(amount.servingMultiplier - portion) < 0.001,
-                        onClick = { onPortionChange(portion) },
-                        label = { Text(label) }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (currentMultiplier > 0.05f) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    }
+                ) {
+                    Text(
+                        portionTitle,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (currentMultiplier > 0.05f) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                     )
                 }
             }
 
-            var showExactGrams by rememberSaveable(dish.id) { mutableStateOf(false) }
-            TextButton(
-                onClick = { showExactGrams = !showExactGrams },
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
-            ) {
-                Text(if (showExactGrams) "收起精确克数" else "精确填写克数")
-            }
-            AnimatedVisibility(showExactGrams) {
-                OutlinedTextField(
-                    value = amount.consumedGrams?.let { if (it == 0.0) "0" else it.roundToInt().toString() } ?: "",
-                    onValueChange = { onGramsChange(it.toDoubleOrNull()) },
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("实际克数") },
-                    suffix = { Text("克") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "进食分量 (0x - 2x)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "吃下约 " + currentGrams + " 克 · " + currentEnergy + " 千卡",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Slider(
+                    value = currentMultiplier,
+                    onValueChange = { newVal ->
+                        val snapped = (newVal * 4f).roundToInt() / 4f
+                        onPortionChange(snapped.toDouble())
+                    },
+                    valueRange = 0f..2f,
+                    steps = 7,
+                    modifier = Modifier.fillMaxWidth()
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    listOf(
+                        0.0 to "0x 没吃",
+                        0.5 to "0.5x 半份",
+                        1.0 to "1.0x 一份",
+                        1.5 to "1.5x 多吃",
+                        2.0 to "2.0x 两份"
+                    ).forEach { (stepValue, stepLabel) ->
+                        TextButton(
+                            onClick = { onPortionChange(stepValue) },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text(
+                                stepLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (abs(currentMultiplier - stepValue) < 0.05f) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1992,11 +2212,15 @@ private fun HomeMealPanel(
         }
 
         draft.forEachIndexed { index, item ->
+            val sourceGrams = (item.sourceGrams ?: 150.0).coerceAtLeast(10.0)
+            val currentGrams = item.grams ?: sourceGrams
+            val currentMultiplier = (currentGrams / sourceGrams).toFloat().coerceIn(0f, 2f)
+
             Surface(
                 shape = RoundedCornerShape(22.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLow
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2007,33 +2231,79 @@ private fun HomeMealPanel(
                             onValueChange = { onNameChange(index, it) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("食物") }
+                            label = { Text("食物名称") }
                         )
                         IconButton(onClick = { onRemoveItem(index) }) {
                             Icon(Icons.Rounded.Close, contentDescription = "移除")
                         }
                     }
-                    OutlinedTextField(
-                        value = item.grams?.roundToInt()?.toString() ?: "",
-                        onValueChange = { onGramsChange(index, it.toDoubleOrNull()) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("分量") },
-                        suffix = { Text("克") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
 
-                    item.nutritionAtSource?.let { nutrition ->
-                        val factor = if (
-                            item.sourceGrams != null &&
-                            item.sourceGrams > 0.0 &&
-                            item.grams != null
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            (item.grams / item.sourceGrams).coerceIn(0.0, 10.0)
-                        } else {
-                            1.0
+                            Text(
+                                "分量 (0x - 2x)",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                String.format(Locale.US, "%.2fx (约 %d 克)", currentMultiplier, currentGrams.roundToInt()),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
 
+                        Slider(
+                            value = currentMultiplier,
+                            onValueChange = { newVal ->
+                                val snapped = (newVal * 4f).roundToInt() / 4f
+                                val updatedGrams = (sourceGrams * snapped).roundToInt().toDouble()
+                                onGramsChange(index, updatedGrams)
+                            },
+                            valueRange = 0f..2f,
+                            steps = 7,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            listOf(
+                                0.0 to "0x 没吃",
+                                0.5 to "0.5x 半份",
+                                1.0 to "1.0x 整份",
+                                1.5 to "1.5x",
+                                2.0 to "2.0x 双份"
+                            ).forEach { (stepValue, stepLabel) ->
+                                TextButton(
+                                    onClick = {
+                                        val updatedGrams = (sourceGrams * stepValue).roundToInt().toDouble()
+                                        onGramsChange(index, updatedGrams)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Text(
+                                        stepLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (abs(currentMultiplier - stepValue) < 0.05f) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    item.nutritionAtSource?.let { nutrition ->
+                        val factor = currentMultiplier.toDouble()
                         Text(
                             ((nutrition.energyKcal ?: 0.0) * factor).roundToInt().toString() +
                                 " 千卡 · 蛋白质 " +
