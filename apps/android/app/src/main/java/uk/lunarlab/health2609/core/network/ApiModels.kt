@@ -36,6 +36,16 @@ data class MealConsumptionRequest(
     val items: List<MealItemRequest>
 )
 
+data class StudentSchoolDto(
+    val id: String,
+    val name: String,
+    val timezone: String
+)
+
+data class StudentSchoolsDto(
+    val schools: List<StudentSchoolDto> = emptyList()
+)
+
 data class SchoolDayWindowDto(
     val id: String,
     val startTime: String,
