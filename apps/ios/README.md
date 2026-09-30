@@ -4,7 +4,7 @@ A modern native iOS application built with **Swift & SwiftUI** for iOS 17+ and i
 
 ---
 
-## 🌟 Core Highlights
+## 核心特性
 
 1. **Unified Material 3 Expressive (M3E) Design Language**
    - **Color System**: Dynamic tonal palettes (`primary`, `primaryContainer`, `secondaryContainer`, `surfaceContainerLow`, `surfaceContainerHigh`, `surfaceContainerHighest`, etc.) supporting both Light and Dark appearances.
@@ -41,7 +41,7 @@ A modern native iOS application built with **Swift & SwiftUI** for iOS 17+ and i
 
 ---
 
-## 📂 Architecture & Directory Structure
+## Architecture & Directory Structure
 
 ```
 apps/ios/
@@ -69,7 +69,7 @@ apps/ios/
 
 ---
 
-## 🛠 Prerequisites & Build Instructions
+## Prerequisites & Build Instructions
 
 ### Requirements
 - **macOS Sonoma (14.0+)** or later
@@ -99,7 +99,7 @@ When bundling as a full `.ipa` or embedding into an Xcode application project, i
 
 ---
 
-## 🌐 API & Backend Contract
+## API & Backend Contract
 
 The iOS client communicates with the Cloudflare Worker API at `https://h2609.lunarlab.uk` with standard demo identity headers:
 - `x-demo-school: demo-school`

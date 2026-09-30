@@ -109,6 +109,10 @@ public enum M3E {
         public static let badge = RoundedRectangle(cornerRadius: 18, style: .continuous)
         /// RoundedRectangle cornerRadius: 16 for interactive chips and inputs
         public static let chip = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        /// RoundedRectangle cornerRadius: 36 for floating side navigation rail capsule
+        public static let railCapsule = RoundedRectangle(cornerRadius: 36, style: .continuous)
+        /// RoundedRectangle cornerRadius: 24 for side rail selection pill
+        public static let railPill = RoundedRectangle(cornerRadius: 24, style: .continuous)
     }
 
     // MARK: - Motion Scheme (Expressive Spring Curves)
@@ -121,6 +125,20 @@ public enum M3E {
         public static let bouncy = Animation.spring(response: 0.46, dampingFraction: 0.62, blendDuration: 0)
         /// Smooth effect transition spring
         public static let effects = Animation.spring(response: 0.28, dampingFraction: 0.82, blendDuration: 0)
+    }
+
+    // MARK: - Responsive Layout Breakpoints & Metrics
+    public enum Layout {
+        /// Threshold for iPad / landscape two-column collaborative workbench
+        public static let regularBreakpoint: CGFloat = 720
+        /// Floating side navigation rail width
+        public static let railWidth: CGFloat = 80
+        /// Content safe leading inset when side rail is active
+        public static let railContentInset: CGFloat = 96
+        /// Spacing between dual columns in iPad split layout
+        public static let dualColumnGutter: CGFloat = 20
+        /// Content maximum width constraint on ultra-wide / landscape displays
+        public static let maxContentWidth: CGFloat = 1280
     }
 }
 

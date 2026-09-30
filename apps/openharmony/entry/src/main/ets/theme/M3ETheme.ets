@@ -1,6 +1,7 @@
-/**
- * Material 3 Expressive (M3E) Design System for OpenHarmony & KaihongOS
- * health2609 ("一餐一动") Native Client
+﻿/**
+ * Material 3 Expressive (M3E) Design System Token Architecture
+ * Unified design specification for HarmonyOS NEXT & OpenHarmony / KaihongOS
+ * health2609 ("一餐一动") Campus Health Platform
  */
 
 export class M3EColors {
@@ -24,6 +25,7 @@ export class M3EColors {
 
   // Surface Palette & Elevation Containers
   static readonly surface: string = '#FAFDFB';
+  static readonly background: string = '#FAFDFB';
   static readonly onSurface: string = '#191C1C';
   static readonly onSurfaceVariant: string = '#3F4948';
   static readonly surfaceContainerLowest: string = '#FFFFFF';
@@ -43,37 +45,66 @@ export class M3EColors {
   static readonly onErrorContainer: string = '#410002';
 
   static readonly success: string = '#006D44';
+  static readonly onSuccess: string = '#FFFFFF';
   static readonly successContainer: string = '#98F7BF';
   static readonly onSuccessContainer: string = '#002111';
+  static readonly successGreen: string = '#006D44';
+  static readonly successGreenContainer: string = '#98F7BF';
 
-  // High-contrast accessibility tokens for Kaihong educational terminals & outdoor sunlight
+  // High-contrast accessibility tokens for Smart Campus Terminals & Student Tablets
   static readonly highContrastText: string = '#000000';
+  static readonly highContrastTextSecondary: string = '#212121';
   static readonly highContrastBorder: string = '#004D40';
   static readonly highContrastSurface: string = '#FFFFFF';
   static readonly highContrastContainer: string = '#E0F2F1';
+  static readonly accessibleFocusRing: string = '#004D40';
 }
 
 export class M3EShapes {
-  /** borderRadius(32) for cards */
+  /** M3E Large Card shape: 32vp */
   static readonly cardRadius: number = 32;
 
-  /** borderRadius(24) for inner sections */
+  /** M3E Inner Section / Sub-card shape: 24vp */
+  static readonly sectionRadius: number = 24;
   static readonly innerSectionRadius: number = 24;
 
-  /** borderRadius(34) for floating capsule dock */
+  /** M3E Floating Capsule Dock shape: 34vp */
+  static readonly dockRadius: number = 34;
   static readonly floatingDockRadius: number = 34;
 
-  /** borderRadius(28) for inner selected pill */
+  /** M3E Inner Selected Pill shape: 28vp */
+  static readonly pillRadius: number = 28;
   static readonly selectedPillRadius: number = 28;
 
-  /** borderRadius(18) for chips */
+  /** M3E Filter / Action Chip shape: 18vp */
   static readonly chipRadius: number = 18;
 
-  /** borderRadius(16) for buttons and inputs */
+  /** Button & Input Radius: 16vp */
   static readonly buttonRadius: number = 16;
 
-  /** borderRadius(12) for badges and metrics */
+  /** Badge & Metric Small Radius: 12vp */
   static readonly badgeRadius: number = 12;
+  static readonly smallRadius: number = 12;
+
+  /** Pill full round: 999vp */
+  static readonly fullRound: number = 999;
+}
+
+export class M3EAnimation {
+  /** Fast spring transition duration */
+  static readonly springDurationMs: number = 320;
+
+  /** Standard duration */
+  static readonly standardDurationMs: number = 250;
+
+  /** Quick micro-interaction duration */
+  static readonly quickDurationMs: number = 180;
+
+  /** Default curve */
+  static readonly defaultCurve: Curve = Curve.FastOutSlowIn;
+
+  /** Elastic spring transition curve */
+  static readonly springCurve: Curve = Curve.EaseInOut;
 }
 
 export class M3ETypography {

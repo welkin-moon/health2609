@@ -9,6 +9,7 @@ public struct TodayView: View {
     #if canImport(PhotosUI)
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     #endif
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showManualActivity: Bool = false
     @State private var showEditReference: Bool = false
     @State private var expandedDishGrams: Set<String> = []
@@ -30,23 +31,36 @@ public struct TodayView: View {
 
                 if viewModel.loading && viewModel.menu == nil {
                     loadingPlaceholder
+                } else if horizontalSizeClass == .regular {
+                    // Two-column Adaptive Layout (iPad / Regular Width)
+                    HStack(alignment: .top, spacing: 20) {
+                        // Left Column: Lunch & Home Meal AI
+                        VStack(spacing: 20) {
+                            lunchSection
+                            homeMealSection
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        // Right Column: Today Overview & Physical Activity
+                        VStack(spacing: 20) {
+                            overviewSection
+                            activitySection
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    Spacer(minLength: 120)
                 } else {
-                    // 1. Today Overview Section ("今日汇总")
+                    // Single-column Flow (Compact Handheld)
                     overviewSection
-
-                    // 2. Lunch Section ("午餐")
                     lunchSection
-
-                    // 3. Physical Activity Section ("运动")
                     activitySection
-
-                    // 4. Home Meal AI Section ("家庭餐")
                     homeMealSection
 
                     Spacer(minLength: 120)
                 }
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, horizontalSizeClass == .regular ? 24 : 18)
             .padding(.top, 8)
         }
         .background(M3E.Colors.surface)

@@ -1,6 +1,8 @@
 import SwiftUI
 
 public struct PrivacyView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     public init() {}
 
     public var body: some View {
@@ -20,39 +22,21 @@ public struct PrivacyView: View {
                 .padding(.top, 16)
                 .padding(.horizontal, 4)
 
-                // Privacy Section Cards
-                VStack(spacing: 16) {
-                    PrivacyCard(
-                        icon: "figure.run.square.stack",
-                        iconColor: M3E.Colors.primary,
-                        title: "校内体育由学校记录",
-                        bodyText: "只用课程安排和老师确认的实际活动时间，不拿手机数据猜体育课。",
-                        detailText: "课间走动不会被误算成体育课，确保体育成绩公正与严肃性。"
-                    )
-
-                    PrivacyCard(
-                        icon: "iphone.and.arrow.forward",
-                        iconColor: M3E.Colors.secondary,
-                        title: "手机只补校外运动",
-                        bodyText: "先在手机本地沙盒中排除学校设置的在校时段，再汇总当天运动。",
-                        detailText: "上传到云端的仅是当天汇总数值，绝不收集任何实时 GPS 轨迹。"
-                    )
-
-                    PrivacyCard(
-                        icon: "camera.viewfinder",
-                        iconColor: M3E.Colors.tertiary,
-                        title: "餐食照片由你确认",
-                        bodyText: "照片先用来智能识别食物，名称和分量均可自主修改，确认后才会记入当天。",
-                        detailText: "仅保存确认后的标准化营养素结果，服务端不持久化原始个人餐食照片。"
-                    )
-
-                    PrivacyCard(
-                        icon: "heart.text.square.fill",
-                        iconColor: M3E.Colors.primary,
-                        title: "Apple 健康本地沙盒保护",
-                        bodyText: "严格遵循 iOS HealthKit 数据规范，步数与卡路里仅在本地进行差集运算。",
-                        detailText: "完全受设备锁与系统级沙盒保护，符合国家学生体质健康监测规范。"
-                    )
+                // Privacy Section Cards: Adaptive Grid on iPad/Landscape, Single Column on iPhone
+                if horizontalSizeClass == .regular {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 16, alignment: .top),
+                            GridItem(.flexible(), spacing: 16, alignment: .top)
+                        ],
+                        spacing: 16
+                    ) {
+                        cards
+                    }
+                } else {
+                    VStack(spacing: 16) {
+                        cards
+                    }
                 }
 
                 // Security Tag
@@ -71,11 +55,48 @@ public struct PrivacyView: View {
                 .clipShape(M3E.Shapes.chip)
                 .padding(.top, 8)
 
-                Spacer(minLength: 120)
+                Spacer(minLength: horizontalSizeClass == .regular ? 40 : 120)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, horizontalSizeClass == .regular ? 28 : 20)
+            .frame(maxWidth: M3E.Layout.maxContentWidth)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(M3E.Colors.surface)
+    }
+
+    @ViewBuilder
+    private var cards: some View {
+        PrivacyCard(
+            icon: "figure.run.square.stack",
+            iconColor: M3E.Colors.primary,
+            title: "校内体育由学校记录",
+            bodyText: "只用课程安排和老师确认的实际活动时间，不拿手机数据猜体育课。",
+            detailText: "课间走动不会被误算成体育课，确保体育成绩公正与严肃性。"
+        )
+
+        PrivacyCard(
+            icon: "iphone.and.arrow.forward",
+            iconColor: M3E.Colors.secondary,
+            title: "手机只补校外运动",
+            bodyText: "先在手机本地沙盒中排除学校设置的在校时段，再汇总当天运动。",
+            detailText: "上传到云端的仅是当天汇总数值，绝不收集任何实时 GPS 轨迹。"
+        )
+
+        PrivacyCard(
+            icon: "camera.viewfinder",
+            iconColor: M3E.Colors.tertiary,
+            title: "餐食照片由你确认",
+            bodyText: "照片先用来智能识别食物，名称和分量均可自主修改，确认后才会记入当天。",
+            detailText: "仅保存确认后的标准化营养素结果，服务端不持久化原始个人餐食照片。"
+        )
+
+        PrivacyCard(
+            icon: "heart.text.square.fill",
+            iconColor: M3E.Colors.primary,
+            title: "Apple 健康本地沙盒保护",
+            bodyText: "严格遵循 iOS HealthKit 数据规范，步数与卡路里仅在本地进行差集运算。",
+            detailText: "完全受设备锁与系统级沙盒保护，符合国家学生体质健康监测规范。"
+        )
     }
 }
 

@@ -15,17 +15,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DirectionsRun
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -180,23 +180,147 @@ fun TodayScreen(
             return@Scaffold
         }
 
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = if (wideLayout) 28.dp else 0.dp),
-            contentPadding = PaddingValues(
-                start = 18.dp,
-                end = 18.dp,
-                top = 8.dp,
-                bottom = if (wideLayout) 32.dp else 126.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            state.message?.let { message -> item { StatusMessage(message) } }
+            Column(modifier = Modifier.fillMaxSize()) {
+                state.message?.let { message ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = if (wideLayout) 24.dp else 18.dp,
+                                vertical = 6.dp
+                            )
+                    ) {
+                        StatusMessage(message)
+                    }
+                }
 
-            when (destination) {
-                "meals" -> {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    if (wideLayout) {
+                        WideScreenContent(
+                            destination = destination,
+                            state = state,
+                            selectedSchoolId = selectedSchoolId,
+                            lunchPreview = lunchPreview,
+                            onPortionChange = onPortionChange,
+                            onGramsChange = onGramsChange,
+                            onSaveMeal = onSaveMeal,
+                            onTakeHomeMealPhoto = onTakeHomeMealPhoto,
+                            onPickHomeMealImage = onPickHomeMealImage,
+                            onHomeMealSlotChange = onHomeMealSlotChange,
+                            onHomeMealNameChange = onHomeMealNameChange,
+                            onHomeMealGramsChange = onHomeMealGramsChange,
+                            onRemoveHomeMealItem = onRemoveHomeMealItem,
+                            onSaveHomeMeal = onSaveHomeMeal,
+                            onActivityMinutesChange = onActivityMinutesChange,
+                            onActivityIntensityChange = onActivityIntensityChange,
+                            onSaveActivity = onSaveActivity,
+                            onUseSchoolActivity = onUseSchoolActivity,
+                            onUseWearableSchoolActivity = onUseWearableSchoolActivity,
+                            onRequestHealthPermissions = onRequestHealthPermissions,
+                            onSyncPhoneActivity = onSyncPhoneActivity,
+                            onEnergyReferenceChange = onEnergyReferenceChange,
+                            onSaveEnergyReference = onSaveEnergyReference,
+                            onOpenSettings = { showSettingsDialog = true }
+                        )
+                    } else {
+                        CompactScreenContent(
+                            destination = destination,
+                            state = state,
+                            selectedSchoolId = selectedSchoolId,
+                            lunchPreview = lunchPreview,
+                            onPortionChange = onPortionChange,
+                            onGramsChange = onGramsChange,
+                            onSaveMeal = onSaveMeal,
+                            onTakeHomeMealPhoto = onTakeHomeMealPhoto,
+                            onPickHomeMealImage = onPickHomeMealImage,
+                            onHomeMealSlotChange = onHomeMealSlotChange,
+                            onHomeMealNameChange = onHomeMealNameChange,
+                            onHomeMealGramsChange = onHomeMealGramsChange,
+                            onRemoveHomeMealItem = onRemoveHomeMealItem,
+                            onSaveHomeMeal = onSaveHomeMeal,
+                            onActivityMinutesChange = onActivityMinutesChange,
+                            onActivityIntensityChange = onActivityIntensityChange,
+                            onSaveActivity = onSaveActivity,
+                            onUseSchoolActivity = onUseSchoolActivity,
+                            onUseWearableSchoolActivity = onUseWearableSchoolActivity,
+                            onRequestHealthPermissions = onRequestHealthPermissions,
+                            onSyncPhoneActivity = onSyncPhoneActivity,
+                            onEnergyReferenceChange = onEnergyReferenceChange,
+                            onSaveEnergyReference = onSaveEnergyReference,
+                            onOpenSettings = { showSettingsDialog = true }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSettingsDialog) {
+        Dialog(
+            onDismissRequest = { showSettingsDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            SettingsDialog(
+                schools = state.schools,
+                selectedSchoolId = selectedSchoolId,
+                appearanceMode = appearanceMode,
+                dynamicColor = dynamicColor,
+                onSchoolChange = onSchoolChange,
+                onAppearanceModeChange = onAppearanceModeChange,
+                onDynamicColorChange = onDynamicColorChange,
+                onDismiss = { showSettingsDialog = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun WideScreenContent(
+    destination: String,
+    state: TodayUiState,
+    selectedSchoolId: String,
+    lunchPreview: NutritionTotals,
+    onPortionChange: (String, Double) -> Unit,
+    onGramsChange: (String, Double?) -> Unit,
+    onSaveMeal: () -> Unit,
+    onTakeHomeMealPhoto: () -> Unit,
+    onPickHomeMealImage: () -> Unit,
+    onHomeMealSlotChange: (String) -> Unit,
+    onHomeMealNameChange: (Int, String) -> Unit,
+    onHomeMealGramsChange: (Int, Double?) -> Unit,
+    onRemoveHomeMealItem: (Int) -> Unit,
+    onSaveHomeMeal: () -> Unit,
+    onActivityMinutesChange: (Int) -> Unit,
+    onActivityIntensityChange: (String) -> Unit,
+    onSaveActivity: (String) -> Unit,
+    onUseSchoolActivity: () -> Unit,
+    onUseWearableSchoolActivity: () -> Unit,
+    onRequestHealthPermissions: () -> Unit,
+    onSyncPhoneActivity: () -> Unit,
+    onEnergyReferenceChange: (String) -> Unit,
+    onSaveEnergyReference: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        when (destination) {
+            "meals" -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     item {
                         SectionHeading(
                             title = "学校午餐",
@@ -224,9 +348,15 @@ fun TodayScreen(
                         }
                         item { LunchSummary(lunchPreview, state.savingMeal, onSaveMeal) }
                     }
+                }
 
-                    item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
-
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.9f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     item {
                         SectionHeading(
                             title = "其他餐食",
@@ -234,7 +364,6 @@ fun TodayScreen(
                             icon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) }
                         )
                     }
-
                     item {
                         HomeMealPanel(
                             slot = state.homeMealSlot,
@@ -252,41 +381,97 @@ fun TodayScreen(
                         )
                     }
                 }
+            }
 
-                "activity" -> {
+            "activity" -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     item {
                         SectionHeading(
-                            title = "今天的运动",
-                            subtitle = "同步手机记录，也可以手动补记",
+                            title = "运动统计与同步",
+                            subtitle = "手机运动数据与学校体育时段记录",
                             icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
                         )
                     }
-
                     item {
-                        ActivityPanel(
+                        ActivityStatsCard(
                             summary = state.summary,
-                            schoolActivity = state.schoolActivity,
                             syncing = state.syncingPhoneActivity,
-                            syncingSchoolActivity = state.syncingSchoolActivity,
-                            initialType = state.manualActivityType,
-                            minutes = state.manualActivityMinutes,
-                            intensity = state.manualActivityIntensity,
-                            saving = state.savingActivity,
                             onSync = onSyncPhoneActivity,
-                            onRequestHealthPermissions = onRequestHealthPermissions,
+                            onRequestHealthPermissions = onRequestHealthPermissions
+                        )
+                    }
+                    item {
+                        SchoolPeWindowCard(
+                            schoolActivity = state.schoolActivity,
+                            syncingSchoolActivity = state.syncingSchoolActivity,
                             onUseSchoolActivity = onUseSchoolActivity,
-                            onUseWearableSchoolActivity = onUseWearableSchoolActivity,
-                            onMinutesChange = onActivityMinutesChange,
-                            onIntensityChange = onActivityIntensityChange,
-                            onSave = onSaveActivity
+                            onUseWearableSchoolActivity = onUseWearableSchoolActivity
                         )
                     }
                 }
 
-                else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.9f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     item {
-                        TodayOverview(
-                            summary = state.summary,
+                        SectionHeading(
+                            title = "快速补记运动",
+                            subtitle = "预设项目、时长滑块与强度选择",
+                            icon = { Icon(Icons.Rounded.Edit, contentDescription = null) }
+                        )
+                    }
+                    item {
+                        ManualActivityCard(
+                            initialType = state.manualActivityType,
+                            minutes = state.manualActivityMinutes,
+                            intensity = state.manualActivityIntensity,
+                            saving = state.savingActivity,
+                            onMinutesChange = onActivityMinutesChange,
+                            onIntensityChange = onActivityIntensityChange,
+                            onSave = onSaveActivity,
+                            collapsible = false
+                        )
+                    }
+                }
+            }
+
+            else -> {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        SectionHeading(
+                            title = "核心概览",
+                            subtitle = "摄入平衡、运动达标与宏量构成",
+                            icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
+                        )
+                    }
+                    item {
+                        EnergyBalanceCard(summary = state.summary)
+                    }
+                    item {
+                        MoeExerciseProgressCard(summary = state.summary)
+                    }
+                    item {
+                        MacroNutrientCard(summary = state.summary)
+                    }
+                    item {
+                        DailyEnergyReferenceSettingCard(
+                            currentReference = state.summary?.energy?.dailyEnergyReferenceKcal,
                             energyReferenceInput = state.energyReferenceInput,
                             savingReference = state.savingEnergyReference,
                             onEnergyReferenceChange = onEnergyReferenceChange,
@@ -294,25 +479,1151 @@ fun TodayScreen(
                         )
                     }
                 }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.9f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    item {
+                        SectionHeading(
+                            title = "行动与动态",
+                            subtitle = "循证健康指导、全天时段与学校配置",
+                            icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
+                        )
+                    }
+                    item {
+                        NextActionCard(summary = state.summary)
+                    }
+                    item {
+                        ActivityTimelineFeed(
+                            summary = state.summary,
+                            schoolActivity = state.schoolActivity
+                        )
+                    }
+                    item {
+                        SchoolEntryCard(
+                            schools = state.schools,
+                            selectedSchoolId = selectedSchoolId,
+                            onOpenSettings = onOpenSettings
+                        )
+                    }
+                }
             }
         }
     }
+}
 
-    if (showSettingsDialog) {
-        Dialog(
-            onDismissRequest = { showSettingsDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+@Composable
+private fun CompactScreenContent(
+    destination: String,
+    state: TodayUiState,
+    selectedSchoolId: String,
+    lunchPreview: NutritionTotals,
+    onPortionChange: (String, Double) -> Unit,
+    onGramsChange: (String, Double?) -> Unit,
+    onSaveMeal: () -> Unit,
+    onTakeHomeMealPhoto: () -> Unit,
+    onPickHomeMealImage: () -> Unit,
+    onHomeMealSlotChange: (String) -> Unit,
+    onHomeMealNameChange: (Int, String) -> Unit,
+    onHomeMealGramsChange: (Int, Double?) -> Unit,
+    onRemoveHomeMealItem: (Int) -> Unit,
+    onSaveHomeMeal: () -> Unit,
+    onActivityMinutesChange: (Int) -> Unit,
+    onActivityIntensityChange: (String) -> Unit,
+    onSaveActivity: (String) -> Unit,
+    onUseSchoolActivity: () -> Unit,
+    onUseWearableSchoolActivity: () -> Unit,
+    onRequestHealthPermissions: () -> Unit,
+    onSyncPhoneActivity: () -> Unit,
+    onEnergyReferenceChange: (String) -> Unit,
+    onSaveEnergyReference: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 18.dp,
+            end = 18.dp,
+            top = 8.dp,
+            bottom = 126.dp
+        ),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        when (destination) {
+            "meals" -> {
+                item {
+                    SectionHeading(
+                        title = "学校午餐",
+                        subtitle = "按实际吃下的分量快速记录",
+                        icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
+                    )
+                }
+
+                val dishes = state.menu?.dishes.orEmpty()
+                if (dishes.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "今天的午餐还没发布",
+                            body = "学校录入后会自动出现在这里。"
+                        )
+                    }
+                } else {
+                    items(dishes, key = { it.id }) { dish ->
+                        DishRow(
+                            dish = dish,
+                            amount = state.amounts[dish.id] ?: DishAmount(),
+                            onPortionChange = { onPortionChange(dish.id, it) },
+                            onGramsChange = { onGramsChange(dish.id, it) }
+                        )
+                    }
+                    item { LunchSummary(lunchPreview, state.savingMeal, onSaveMeal) }
+                }
+
+                item { HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant) }
+
+                item {
+                    SectionHeading(
+                        title = "其他餐食",
+                        subtitle = "拍照识别，再由你确认名称和分量",
+                        icon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) }
+                    )
+                }
+
+                item {
+                    HomeMealPanel(
+                        slot = state.homeMealSlot,
+                        draft = state.homeMealDraft,
+                        notes = state.homeMealNotes,
+                        analyzing = state.analyzingHomeMeal,
+                        saving = state.savingHomeMeal,
+                        onTakePhoto = onTakeHomeMealPhoto,
+                        onPickImage = onPickHomeMealImage,
+                        onSlotChange = onHomeMealSlotChange,
+                        onNameChange = onHomeMealNameChange,
+                        onGramsChange = onHomeMealGramsChange,
+                        onRemoveItem = onRemoveHomeMealItem,
+                        onSave = onSaveHomeMeal
+                    )
+                }
+            }
+
+            "activity" -> {
+                item {
+                    SectionHeading(
+                        title = "今天的运动",
+                        subtitle = "同步手机记录，也可以手动补记",
+                        icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
+                    )
+                }
+
+                item {
+                    ActivityStatsCard(
+                        summary = state.summary,
+                        syncing = state.syncingPhoneActivity,
+                        onSync = onSyncPhoneActivity,
+                        onRequestHealthPermissions = onRequestHealthPermissions
+                    )
+                }
+
+                item {
+                    SchoolPeWindowCard(
+                        schoolActivity = state.schoolActivity,
+                        syncingSchoolActivity = state.syncingSchoolActivity,
+                        onUseSchoolActivity = onUseSchoolActivity,
+                        onUseWearableSchoolActivity = onUseWearableSchoolActivity
+                    )
+                }
+
+                item {
+                    ManualActivityCard(
+                        initialType = state.manualActivityType,
+                        minutes = state.manualActivityMinutes,
+                        intensity = state.manualActivityIntensity,
+                        saving = state.savingActivity,
+                        onMinutesChange = onActivityMinutesChange,
+                        onIntensityChange = onActivityIntensityChange,
+                        onSave = onSaveActivity,
+                        collapsible = true
+                    )
+                }
+            }
+
+            else -> {
+                item {
+                    NextActionCard(summary = state.summary)
+                }
+                item {
+                    EnergyBalanceCard(summary = state.summary)
+                }
+                item {
+                    MoeExerciseProgressCard(summary = state.summary)
+                }
+                item {
+                    MacroNutrientCard(summary = state.summary)
+                }
+                item {
+                    DailyEnergyReferenceSettingCard(
+                        currentReference = state.summary?.energy?.dailyEnergyReferenceKcal,
+                        energyReferenceInput = state.energyReferenceInput,
+                        savingReference = state.savingEnergyReference,
+                        onEnergyReferenceChange = onEnergyReferenceChange,
+                        onSaveEnergyReference = onSaveEnergyReference
+                    )
+                }
+                item {
+                    ActivityTimelineFeed(
+                        summary = state.summary,
+                        schoolActivity = state.schoolActivity
+                    )
+                }
+                item {
+                    SchoolEntryCard(
+                        schools = state.schools,
+                        selectedSchoolId = selectedSchoolId,
+                        onOpenSettings = onOpenSettings
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnergyBalanceCard(
+    summary: DailySummaryDto?,
+    modifier: Modifier = Modifier
+) {
+    val nutrition = summary?.nutrition
+    val energy = summary?.energy
+    val intake = nutrition?.energyKcal?.roundToInt() ?: 0
+    val reference = energy?.dailyEnergyReferenceKcal
+    val gap = energy?.referenceGapKcal
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            SettingsDialog(
-                schools = state.schools,
-                selectedSchoolId = selectedSchoolId,
-                appearanceMode = appearanceMode,
-                dynamicColor = dynamicColor,
-                onSchoolChange = onSchoolChange,
-                onAppearanceModeChange = onAppearanceModeChange,
-                onDynamicColorChange = onDynamicColorChange,
-                onDismiss = { showSettingsDialog = false }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "能量摄入与目标平衡",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (reference != null && gap != null) {
+                    val gapText = if (gap >= 0) {
+                        "距参考还需 " + gap.roundToInt() + " 千卡"
+                    } else {
+                        "超出参考 " + abs(gap).roundToInt() + " 千卡"
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (gap >= 0) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.errorContainer
+                        }
+                    ) {
+                        Text(
+                            gapText,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = if (gap >= 0) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            },
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "今日总摄入",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        intake.toString() + " 千卡",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "每日参考目标",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (reference != null) reference.toString() + " 千卡" else "未设定",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            if (reference != null && reference > 0) {
+                val ratio = (intake.toFloat() / reference).coerceIn(0f, 1.5f)
+                LinearProgressIndicator(
+                    progress = { ratio.coerceAtMost(1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoeExerciseProgressCard(
+    summary: DailySummaryDto?,
+    modifier: Modifier = Modifier
+) {
+    val activity = summary?.activity
+    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
+    val totalMinutes = activity?.totalMinutes ?: 0
+    val progress = (totalMinutes.toFloat() / target).coerceIn(0f, 1f)
+
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "教育部 120 分钟运动达标",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "中小学生日均校内外综合体育活动",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        if (activity?.targetReached == true) "已达标" else "目标 " + target + " 分钟",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Text(
+                    totalMinutes.toString() + " 分钟",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "完成度 " + (progress * 100).roundToInt().toString() + "%",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp),
+                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
             )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                OverviewMetric(
+                    Modifier.weight(1f),
+                    (activity?.peMinutes ?: 0).toString() + " 分钟",
+                    "校内体育课"
+                )
+                OverviewMetric(
+                    Modifier.weight(1f),
+                    (activity?.outsideMinutes ?: 0).toString() + " 分钟",
+                    "校外自主运动"
+                )
+                OverviewMetric(
+                    Modifier.weight(1f),
+                    activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
+                    "活动消耗"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MacroNutrientCard(
+    summary: DailySummaryDto?,
+    modifier: Modifier = Modifier
+) {
+    val nutrition = summary?.nutrition
+    val macro = nutrition?.macroCompositionPercent
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "三大宏量营养素供能比",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "学龄期推荐参考：蛋白质 10%–15% · 脂肪 20%–30% · 碳水 50%–65%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                NutritionMetric(
+                    Modifier.weight(1f),
+                    (macro?.protein?.roundToInt() ?: 0).toString() + "%",
+                    "蛋白质供能"
+                )
+                NutritionMetric(
+                    Modifier.weight(1f),
+                    (macro?.fat?.roundToInt() ?: 0).toString() + "%",
+                    "脂肪供能"
+                )
+                NutritionMetric(
+                    Modifier.weight(1f),
+                    (macro?.carbohydrate?.roundToInt() ?: 0).toString() + "%",
+                    "碳水供能"
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                NutritionMetric(
+                    Modifier.weight(1f),
+                    String.format(Locale.US, "%.1f 克", nutrition?.fiberG ?: 0.0),
+                    "膳食纤维"
+                )
+                NutritionMetric(
+                    Modifier.weight(1f),
+                    (nutrition?.sodiumMg?.roundToInt() ?: 0).toString() + " mg",
+                    "钠"
+                )
+                NutritionMetric(
+                    Modifier.weight(1f),
+                    String.format(Locale.US, "%.1f 克", nutrition?.sugarG ?: 0.0),
+                    "糖"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyEnergyReferenceSettingCard(
+    currentReference: Int?,
+    energyReferenceInput: String,
+    savingReference: Boolean,
+    onEnergyReferenceChange: (String) -> Unit,
+    onSaveEnergyReference: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "每日能量参考基准",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                val refText = currentReference?.let { it.toString() + " 千卡" } ?: "未设定"
+                Text(
+                    "依据学龄儿童性别、年龄与身体活动强度设定（当前基准：" + refText + "）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            val presets = listOf("1800", "2000", "2200", "2400")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                presets.forEach { preset ->
+                    FilterChip(
+                        selected = energyReferenceInput == preset || currentReference?.toString() == preset,
+                        onClick = { onEnergyReferenceChange(preset) },
+                        label = { Text(preset + " 千卡") }
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = energyReferenceInput,
+                    onValueChange = onEnergyReferenceChange,
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("自定义目标（千卡）") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                Button(
+                    onClick = onSaveEnergyReference,
+                    enabled = !savingReference
+                ) {
+                    Text(if (savingReference) "保存中" else "保存")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextActionCard(
+    summary: DailySummaryDto?,
+    modifier: Modifier = Modifier
+) {
+    val activity = summary?.activity
+    val nutrition = summary?.nutrition
+    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
+    val totalMinutes = activity?.totalMinutes ?: 0
+    val remainingMinutes = (target - totalMinutes).coerceAtLeast(0)
+    val macro = nutrition?.macroCompositionPercent
+    val intake = nutrition?.energyKcal?.roundToInt() ?: 0
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.12f)
+                ) {
+                    Icon(
+                        Icons.Rounded.DirectionsRun,
+                        contentDescription = null,
+                        modifier = Modifier.padding(8.dp).size(22.dp)
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(
+                        "科学循证行动建议",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "基于教育部青少年健康标准与膳食指南",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.76f)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.16f))
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "运动指导",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                val exerciseAdvice = if (activity?.targetReached == true) {
+                    "今日累计运动已达 " + totalMinutes + " 分钟，达到教育部每日 120 分钟标准！运动节律良好，建议晚间进行 5-10 分钟轻度拉伸放松，利于骨骼肌恢复与安稳入睡。"
+                } else {
+                    "今日累计运动 " + totalMinutes + " 分钟，距离教育部 120 分钟日均标准还差 " + remainingMinutes + " 分钟。建议放学后或傍晚安排 30 分钟中高强度运动（如跳绳、慢跑、羽毛球），促进骨量积累与体质增强。"
+                }
+                Text(
+                    exerciseAdvice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.90f)
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "膳食与营养",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                val nutritionAdvice = when {
+                    intake == 0 -> {
+                        "今日尚未记录完整餐食分量。建议在午餐或晚餐后及时记录，系统将自动分析宏量供能比及微量营养素储备。"
+                    }
+                    macro != null && macro.protein > 0 && macro.protein < 12.0 -> {
+                        "当前蛋白质供能比偏低（" + macro.protein.roundToInt() + "%，参考适宜区间 10%–15%）。晚餐建议适当补充富含优质蛋白的食物，如鸡蛋、鱼虾、瘦肉或豆制品。"
+                    }
+                    macro != null && macro.fat > 35.0 -> {
+                        "当前脂肪供能比较高（" + macro.fat.roundToInt() + "%，参考区间 20%–30%）。后续正餐建议以清淡、蒸煮或凉拌为主，并增加深色蔬菜摄入。"
+                    }
+                    (nutrition?.sodiumMg ?: 0.0) > 2000 -> {
+                        "今日钠摄入已达 " + (nutrition?.sodiumMg ?: 0.0).roundToInt() + " mg，接近单日参考上限。建议晚间饮食保持清淡并注意补足水分。"
+                    }
+                    else -> {
+                        "今日营养摄入结构良好，三大宏量营养素处于均衡推荐区间。请注意保持充足水分与规律睡眠。"
+                    }
+                }
+                Text(
+                    nutritionAdvice,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.90f)
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.08f)
+            ) {
+                Text(
+                    "循证依据：WS/T 578-2017 学龄儿童膳食营养素参考摄入量 · 教育部中小学健康促进行动",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityTimelineFeed(
+    summary: DailySummaryDto?,
+    schoolActivity: SchoolActivityDto?,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                "校内外活动时间线",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            val schoolWindows = schoolActivity?.schoolDayWindows.orEmpty()
+            val peWindows = schoolActivity?.peWindows.orEmpty()
+            val outsideMinutes = summary?.activity?.outsideMinutes ?: 0
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                val timeSpan = schoolWindows.joinToString("、") { it.startTime + "–" + it.endTime }.ifBlank { "08:00–17:00" }
+                TimelineItemRow(
+                    time = timeSpan,
+                    title = "在校学习与作息",
+                    subtitle = "学校常规教学作息时段"
+                )
+
+                if (peWindows.isEmpty()) {
+                    TimelineItemRow(
+                        time = "校内课时",
+                        title = "今日无体育课排期",
+                        subtitle = "依据校历与当日课表"
+                    )
+                } else {
+                    peWindows.forEach { pe ->
+                        val recorded = pe.schoolRecordedMinutes?.let { " · 记录 " + it + " 分钟" } ?: ""
+                        TimelineItemRow(
+                            time = pe.startTime + "–" + pe.endTime,
+                            title = "校内体育课",
+                            subtitle = "排课安排" + recorded
+                        )
+                    }
+                }
+
+                TimelineItemRow(
+                    time = "放学 / 课后",
+                    title = "校外自主活动",
+                    subtitle = "已记录 " + outsideMinutes + " 分钟（自主锻炼或手环同步）"
+                )
+
+                val sourceText = if (schoolActivity?.selectedSource == "health_connect") {
+                    "智能手环 (Health Connect)"
+                } else {
+                    "学校排课与日常考勤"
+                }
+                TimelineItemRow(
+                    time = "数据源",
+                    title = "体育课时采纳：" + sourceText,
+                    subtitle = "可在“运动”页面一键切换数据采纳源"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TimelineItemRow(
+    time: String,
+    title: String,
+    subtitle: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Text(
+                time,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SchoolEntryCard(
+    schools: List<StudentSchoolDto>,
+    selectedSchoolId: String,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentSchoolName = schools.firstOrNull { it.id == selectedSchoolId }?.name ?: "默认示范学校"
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "学校与班级信息",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    "当前关联：" + currentSchoolName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Text(
+                "校内午餐菜谱与体育课程由所在学校统一发布。如转校或体验其他学校数据，可随时点击设置切换。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            OutlinedButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("切换学校 / 设置主题")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityStatsCard(
+    summary: DailySummaryDto?,
+    syncing: Boolean,
+    onSync: () -> Unit,
+    onRequestHealthPermissions: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val activity = summary?.activity
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        (activity?.totalMinutes ?: 0).toString() + " 分钟",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "今天已记录的运动",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilledTonalButton(onClick = onSync, enabled = !syncing) {
+                        Text(if (syncing) "正在更新" else "更新手机里的运动")
+                    }
+                    TextButton(
+                        onClick = onRequestHealthPermissions,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Text("申请运动健康权限")
+                    }
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = (activity?.peMinutes ?: 0).toString() + " 分钟",
+                    label = "校内体育"
+                )
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = (activity?.outsideMinutes ?: 0).toString() + " 分钟",
+                    label = "校外运动"
+                )
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
+                    label = "活动消耗"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SchoolPeWindowCard(
+    schoolActivity: SchoolActivityDto?,
+    syncingSchoolActivity: Boolean,
+    onUseSchoolActivity: () -> Unit,
+    onUseWearableSchoolActivity: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "学校体育与作息",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                val schoolWindowText = schoolActivity?.schoolDayWindows
+                    ?.joinToString("、") { it.startTime + "–" + it.endTime }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "学校暂未设置在校时段"
+                Text(
+                    "在校时段 " + schoolWindowText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
+                )
+            }
+
+            if (schoolActivity?.peWindows.isNullOrEmpty()) {
+                Text(
+                    "今天没有体育课安排。",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                schoolActivity?.peWindows.orEmpty().forEach { window ->
+                    val schoolMinutes = window.schoolRecordedMinutes
+                        ?.let { " · 学校记录 " + it + " 分钟" }
+                        ?: ""
+                    Text(
+                        window.startTime + "–" + window.endTime + schoolMinutes,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = schoolActivity?.selectedSource != "health_connect",
+                    onClick = onUseSchoolActivity,
+                    enabled = !syncingSchoolActivity,
+                    label = { Text("学校记录") }
+                )
+                FilterChip(
+                    selected = schoolActivity?.selectedSource == "health_connect",
+                    onClick = onUseWearableSchoolActivity,
+                    enabled = !syncingSchoolActivity &&
+                        !schoolActivity?.peWindows.isNullOrEmpty(),
+                    label = {
+                        Text(
+                            if (syncingSchoolActivity) "正在读取手环"
+                            else "手环记录"
+                        )
+                    }
+                )
+            }
+
+            val sourceDetail = if (
+                schoolActivity?.selectedSource == "health_connect"
+            ) {
+                schoolActivity.wearableMinutes?.let {
+                    "当前采用手环在体育课时段记录的 " + it + " 分钟。"
+                } ?: "已选择手环记录。"
+            } else {
+                "当前采用学校记录的 " +
+                    (schoolActivity?.schoolRecordedMinutes ?: 0) +
+                    " 分钟。"
+            }
+            Text(
+                sourceDetail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ManualActivityCard(
+    initialType: String = "自主运动",
+    minutes: Int,
+    intensity: String,
+    saving: Boolean,
+    onMinutesChange: (Int) -> Unit,
+    onIntensityChange: (String) -> Unit,
+    onSave: (String) -> Unit,
+    collapsible: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    var showManual by rememberSaveable { mutableStateOf(!collapsible) }
+    var activityType by rememberSaveable(initialType) { mutableStateOf(initialType) }
+
+    Surface(
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (collapsible) {
+                TextButton(
+                    onClick = { showManual = !showManual },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (showManual) "收起补记" else "补记一次运动")
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "课外与自主运动补记",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = showManual) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("运动类型", style = MaterialTheme.typography.labelLarge)
+
+                    val presetTypes = listOf("跑步", "跳绳", "羽毛球", "篮球", "自主运动")
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetTypes.forEach { type ->
+                            FilterChip(
+                                selected = activityType == type,
+                                onClick = { activityType = type },
+                                label = { Text(type) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = activityType,
+                        onValueChange = { activityType = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("运动项目") }
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("运动时长", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            minutes.toString() + " 分钟",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Slider(
+                        value = minutes.toFloat(),
+                        onValueChange = { onMinutesChange((it / 5f).roundToInt() * 5) },
+                        valueRange = 5f..180f,
+                        steps = 34
+                    )
+
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IntensityChip(
+                            label = "轻松",
+                            value = "light",
+                            selected = intensity == "light",
+                            onSelected = onIntensityChange
+                        )
+                        IntensityChip(
+                            label = "中等",
+                            value = "moderate",
+                            selected = intensity == "moderate",
+                            onSelected = onIntensityChange
+                        )
+                        IntensityChip(
+                            label = "较累",
+                            value = "vigorous",
+                            selected = intensity == "vigorous",
+                            onSelected = onIntensityChange
+                        )
+                    }
+
+                    Text(
+                        "如果手机已经记到同一段运动，会尽量避免重复累加。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = { onSave(activityType.ifBlank { "自主运动" }) },
+                        enabled = !saving,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (saving) "正在保存" else "保存这次运动")
+                    }
+                }
+            }
         }
     }
 }
@@ -457,197 +1768,6 @@ private fun SettingsDialog(
 }
 
 @Composable
-private fun TodayOverview(
-    summary: DailySummaryDto?,
-    energyReferenceInput: String,
-    savingReference: Boolean,
-    onEnergyReferenceChange: (String) -> Unit,
-    onSaveEnergyReference: () -> Unit
-) {
-    val nutrition = summary?.nutrition
-    val activity = summary?.activity
-    val energy = summary?.energy
-    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
-    val totalMinutes = activity?.totalMinutes ?: 0
-    val progress = (totalMinutes.toFloat() / target).coerceIn(0f, 1f)
-    val macro = nutrition?.macroCompositionPercent
-    var editReference by rememberSaveable { mutableStateOf(false) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Surface(
-            shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Column(
-                modifier = Modifier.padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("今天动了", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            totalMinutes.toString() + " 分钟",
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Text(
-                        if (activity?.targetReached == true) "已达标" else "目标 " + target + " 分钟",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                }
-
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(10.dp),
-                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
-                    OverviewMetric(
-                        Modifier.weight(1f),
-                        (activity?.peMinutes ?: 0).toString() + " 分钟",
-                        "学校体育"
-                    )
-                    OverviewMetric(
-                        Modifier.weight(1f),
-                        (activity?.outsideMinutes ?: 0).toString() + " 分钟",
-                        "校外运动"
-                    )
-                }
-            }
-        }
-
-        Surface(
-            shape = RoundedCornerShape(30.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("今天吃了", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            (nutrition?.energyKcal?.roundToInt() ?: 0).toString() + " 千卡",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    energy?.referenceGapKcal?.let { gap ->
-                        val label = if (gap >= 0) {
-                            "距参考 " + gap.roundToInt() + " 千卡"
-                        } else {
-                            "超出参考 " + abs(gap).roundToInt() + " 千卡"
-                        }
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("供能构成", style = MaterialTheme.typography.titleSmall)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        NutritionMetric(
-                            Modifier.weight(1f),
-                            (macro?.protein?.roundToInt() ?: 0).toString() + "%",
-                            "蛋白质"
-                        )
-                        NutritionMetric(
-                            Modifier.weight(1f),
-                            (macro?.fat?.roundToInt() ?: 0).toString() + "%",
-                            "脂肪"
-                        )
-                        NutritionMetric(
-                            Modifier.weight(1f),
-                            (macro?.carbohydrate?.roundToInt() ?: 0).toString() + "%",
-                            "碳水"
-                        )
-                    }
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    NutritionMetric(
-                        Modifier.weight(1f),
-                        String.format(Locale.US, "%.1f 克", nutrition?.fiberG ?: 0.0),
-                        "膳食纤维"
-                    )
-                    NutritionMetric(
-                        Modifier.weight(1f),
-                        (nutrition?.sodiumMg?.roundToInt() ?: 0).toString() + " mg",
-                        "钠"
-                    )
-                    NutritionMetric(
-                        Modifier.weight(1f),
-                        String.format(Locale.US, "%.1f 克", nutrition?.sugarG ?: 0.0),
-                        "糖"
-                    )
-                }
-
-                TextButton(
-                    onClick = { editReference = !editReference },
-                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
-                ) {
-                    Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        energy?.dailyEnergyReferenceKcal?.let {
-                            "每日参考 " + it + " 千卡"
-                        } ?: "设置每日参考"
-                    )
-                }
-
-                AnimatedVisibility(editReference) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = energyReferenceInput,
-                            onValueChange = onEnergyReferenceChange,
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            label = { Text("每日参考（千卡）") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        Button(onClick = onSaveEnergyReference, enabled = !savingReference) {
-                            Text(if (savingReference) "保存中" else "保存")
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun OverviewMetric(modifier: Modifier, value: String, label: String) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -672,11 +1792,12 @@ private fun NutritionMetric(modifier: Modifier, value: String, label: String) {
 }
 
 @Composable
-private fun StatusMessage(message: String) {
+private fun StatusMessage(message: String, modifier: Modifier = Modifier) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = modifier
     ) {
         Text(message, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
     }
@@ -800,7 +1921,6 @@ private fun LunchSummary(totals: NutritionTotals, saving: Boolean, onSave: () ->
         }
     }
 }
-
 
 @Composable
 private fun HomeMealPanel(
@@ -938,269 +2058,6 @@ private fun HomeMealPanel(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
-    }
-}
-
-@Composable
-private fun ActivityPanel(
-    summary: DailySummaryDto?,
-    schoolActivity: SchoolActivityDto?,
-    syncing: Boolean,
-    syncingSchoolActivity: Boolean,
-    initialType: String = "自主运动",
-    minutes: Int,
-    intensity: String,
-    saving: Boolean,
-    onSync: () -> Unit,
-    onRequestHealthPermissions: () -> Unit,
-    onUseSchoolActivity: () -> Unit,
-    onUseWearableSchoolActivity: () -> Unit,
-    onMinutesChange: (Int) -> Unit,
-    onIntensityChange: (String) -> Unit,
-    onSave: (String) -> Unit
-) {
-    val activity = summary?.activity
-    var showManual by rememberSaveable { mutableStateOf(false) }
-    var activityType by rememberSaveable(initialType) { mutableStateOf(initialType) }
-
-    Surface(
-        shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
-    ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        (activity?.totalMinutes ?: 0).toString() + " 分钟",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        "今天已记录的运动",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilledTonalButton(onClick = onSync, enabled = !syncing) {
-                        Text(if (syncing) "正在更新" else "更新手机里的运动")
-                    }
-                    TextButton(
-                        onClick = onRequestHealthPermissions,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Text("申请运动健康权限")
-                    }
-                }
-            }
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ActivityMetric(
-                    modifier = Modifier.weight(1f),
-                    value = (activity?.peMinutes ?: 0).toString() + " 分钟",
-                    label = "校内体育"
-                )
-                ActivityMetric(
-                    modifier = Modifier.weight(1f),
-                    value = (activity?.outsideMinutes ?: 0).toString() + " 分钟",
-                    label = "校外运动"
-                )
-                ActivityMetric(
-                    modifier = Modifier.weight(1f),
-                    value = activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
-                    label = "活动消耗"
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(
-                            "学校体育",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        val schoolWindowText = schoolActivity?.schoolDayWindows
-                            ?.joinToString("、") { it.startTime + "–" + it.endTime }
-                            ?.takeIf { it.isNotBlank() }
-                            ?: "学校暂未设置在校时段"
-                        Text(
-                            "在校时段 " + schoolWindowText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
-                        )
-                    }
-
-                    if (schoolActivity?.peWindows.isNullOrEmpty()) {
-                        Text(
-                            "今天没有体育课安排。",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    } else {
-                        schoolActivity?.peWindows.orEmpty().forEach { window ->
-                            val schoolMinutes = window.schoolRecordedMinutes
-                                ?.let { " · 学校记录 " + it + " 分钟" }
-                                ?: ""
-                            Text(
-                                window.startTime + "–" + window.endTime + schoolMinutes,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = schoolActivity?.selectedSource != "health_connect",
-                            onClick = onUseSchoolActivity,
-                            enabled = !syncingSchoolActivity,
-                            label = { Text("学校记录") }
-                        )
-                        FilterChip(
-                            selected = schoolActivity?.selectedSource == "health_connect",
-                            onClick = onUseWearableSchoolActivity,
-                            enabled = !syncingSchoolActivity &&
-                                !schoolActivity?.peWindows.isNullOrEmpty(),
-                            label = {
-                                Text(
-                                    if (syncingSchoolActivity) "正在读取手环"
-                                    else "手环记录"
-                                )
-                            }
-                        )
-                    }
-
-                    val sourceDetail = if (
-                        schoolActivity?.selectedSource == "health_connect"
-                    ) {
-                        schoolActivity.wearableMinutes?.let {
-                            "当前采用手环在体育课时段记录的 " + it + " 分钟。"
-                        } ?: "已选择手环记录。"
-                    } else {
-                        "当前采用学校记录的 " +
-                            (schoolActivity?.schoolRecordedMinutes ?: 0) +
-                            " 分钟。"
-                    }
-                    Text(
-                        sourceDetail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
-                    )
-                }
-            }
-
-            TextButton(
-                onClick = { showManual = !showManual },
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
-            ) {
-                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (showManual) "收起补记" else "补记一次运动")
-            }
-
-            AnimatedVisibility(showManual) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("运动类型", style = MaterialTheme.typography.labelLarge)
-
-                    val presetTypes = listOf("跑步", "跳绳", "羽毛球", "篮球", "自主运动")
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        presetTypes.forEach { type ->
-                            FilterChip(
-                                selected = activityType == type,
-                                onClick = { activityType = type },
-                                label = { Text(type) }
-                            )
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = activityType,
-                        onValueChange = { activityType = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("运动项目") }
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("运动时长", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            minutes.toString() + " 分钟",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    Slider(
-                        value = minutes.toFloat(),
-                        onValueChange = { onMinutesChange((it / 5f).roundToInt() * 5) },
-                        valueRange = 5f..180f,
-                        steps = 34
-                    )
-
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IntensityChip(
-                            label = "轻松",
-                            value = "light",
-                            selected = intensity == "light",
-                            onSelected = onIntensityChange
-                        )
-                        IntensityChip(
-                            label = "中等",
-                            value = "moderate",
-                            selected = intensity == "moderate",
-                            onSelected = onIntensityChange
-                        )
-                        IntensityChip(
-                            label = "较累",
-                            value = "vigorous",
-                            selected = intensity == "vigorous",
-                            onSelected = onIntensityChange
-                        )
-                    }
-
-                    Text(
-                        "如果手机已经记到同一段运动，会尽量避免重复累加。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Button(
-                        onClick = { onSave(activityType.ifBlank { "自主运动" }) },
-                        enabled = !saving
-                    ) {
-                        Text(if (saving) "正在保存" else "保存这次运动")
-                    }
-                }
-            }
         }
     }
 }
