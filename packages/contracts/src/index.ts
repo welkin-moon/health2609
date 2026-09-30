@@ -79,6 +79,24 @@ export const outsideActivitySchema = z.object({
   activeEnergyKcal: z.number().min(0).max(20000).optional()
 });
 
+export const schoolActivitySourceSchema = z.enum(["school", "health_connect"]);
+
+export const schoolActivityOverrideSchema = z.object({
+  date: isoDateSchema,
+  source: schoolActivitySourceSchema,
+  exerciseMinutes: z.number().int().min(0).max(1440).optional(),
+  steps: z.number().int().min(0).max(200000).optional(),
+  activeEnergyKcal: z.number().min(0).max(20000).optional()
+}).superRefine((value, ctx) => {
+  if (value.source === "health_connect" && value.exerciseMinutes === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["exerciseMinutes"],
+      message: "exerciseMinutes is required for health_connect source"
+    });
+  }
+});
+
 export const manualActivitySchema = z.object({
   date: isoDateSchema,
   activityType: z.string().trim().min(1).max(80),
@@ -156,6 +174,7 @@ export const peSessionSchema = adminPeSessionSchema;
 export type HomeMealAnalysisResult = z.infer<typeof homeMealAnalysisResultSchema>;
 export type RecordMealInput = z.infer<typeof recordMealSchema>;
 export type OutsideActivityInput = z.infer<typeof outsideActivitySchema>;
+export type SchoolActivityOverrideInput = z.infer<typeof schoolActivityOverrideSchema>;
 export type ManualActivityInput = z.infer<typeof manualActivitySchema>;
 export type AdminUpsertMenuInput = z.infer<typeof adminUpsertMenuSchema>;
 export type ConfirmedHomeMealInput = z.infer<typeof confirmedHomeMealSchema>;

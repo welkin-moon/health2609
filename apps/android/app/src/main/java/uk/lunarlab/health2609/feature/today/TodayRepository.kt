@@ -16,12 +16,15 @@ import uk.lunarlab.health2609.core.network.ManualActivityRequest
 import uk.lunarlab.health2609.core.network.MealConsumptionRequest
 import uk.lunarlab.health2609.core.network.MealItemRequest
 import uk.lunarlab.health2609.core.network.OutsideSchoolActivityRequest
+import uk.lunarlab.health2609.core.network.SchoolActivityDto
+import uk.lunarlab.health2609.core.network.SchoolActivityOverrideRequest
 import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
 data class TodayData(
     val menu: TodayMenuDto,
-    val summary: DailySummaryDto
+    val summary: DailySummaryDto,
+    val schoolActivity: SchoolActivityDto
 )
 
 class TodayRepository(
@@ -30,7 +33,12 @@ class TodayRepository(
     suspend fun load(date: String): TodayData = coroutineScope {
         val menu = async { api.todayMenu(date = date, mealSlot = "lunch") }
         val summary = async { api.todaySummary(date = date) }
-        TodayData(menu = menu.await(), summary = summary.await())
+        val schoolActivity = async { api.todaySchoolActivity(date = date) }
+        TodayData(
+            menu = menu.await(),
+            summary = summary.await(),
+            schoolActivity = schoolActivity.await()
+        )
     }
 
     suspend fun loadSummary(date: String): DailySummaryDto =
@@ -38,6 +46,27 @@ class TodayRepository(
 
     suspend fun loadSchoolDayWindows(date: String): List<SchoolDayWindowDto> =
         api.schoolDayWindows(date).windows
+
+    suspend fun loadSchoolActivity(date: String): SchoolActivityDto =
+        api.todaySchoolActivity(date)
+
+    suspend fun saveSchoolActivitySource(
+        date: String,
+        source: String,
+        exerciseMinutes: Int? = null,
+        steps: Long? = null,
+        activeEnergyKcal: Double? = null
+    ) {
+        api.saveSchoolActivitySource(
+            SchoolActivityOverrideRequest(
+                date = date,
+                source = source,
+                exerciseMinutes = exerciseMinutes,
+                steps = steps,
+                activeEnergyKcal = activeEnergyKcal
+            )
+        )
+    }
 
     suspend fun saveOutsideSchoolActivity(
         date: String,

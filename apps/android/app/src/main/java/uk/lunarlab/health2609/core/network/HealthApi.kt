@@ -26,6 +26,16 @@ interface HealthApi {
         @Query("date") date: String
     ): SchoolDayWindowsDto
 
+    @GET("v1/today/school-activity")
+    suspend fun todaySchoolActivity(
+        @Query("date") date: String
+    ): SchoolActivityDto
+
+    @PUT("v1/activity/school-source")
+    suspend fun saveSchoolActivitySource(
+        @Body request: SchoolActivityOverrideRequest
+    ): ApiWriteResult
+
     @Multipart
     @POST("v1/home-meals/analyze")
     suspend fun analyzeHomeMeal(

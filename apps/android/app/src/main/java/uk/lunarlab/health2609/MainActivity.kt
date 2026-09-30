@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,8 @@ import uk.lunarlab.health2609.feature.today.TodayRepository
 import uk.lunarlab.health2609.feature.today.TodayScreen
 import uk.lunarlab.health2609.feature.today.TodayViewModel
 import uk.lunarlab.health2609.feature.today.TodayViewModelFactory
+import uk.lunarlab.health2609.core.storage.AppearanceMode
+import uk.lunarlab.health2609.core.storage.AppearancePreferences
 import uk.lunarlab.health2609.core.storage.Health2609Preferences
 import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
@@ -51,13 +54,27 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            Health2609Theme {
+            val appearance by preferences.appearance.collectAsStateWithLifecycle(
+                initialValue = AppearancePreferences()
+            )
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (appearance.mode) {
+                AppearanceMode.SYSTEM -> systemDark
+                AppearanceMode.LIGHT -> false
+                AppearanceMode.DARK -> true
+            }
+
+            Health2609Theme(
+                darkTheme = darkTheme,
+                dynamicColor = appearance.dynamicColor
+            ) {
                 val viewModel: TodayViewModel = viewModel(
                     factory = TodayViewModelFactory(repository)
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
                 var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+                var pendingSchoolWearableSync by remember { mutableStateOf(false) }
 
                 val homeMealPicker =
                     rememberLauncherForActivityResult(
@@ -102,15 +119,31 @@ class MainActivity : ComponentActivity() {
                             )
                         ) {
                             lifecycleScope.launch {
-                                syncPhoneActivity(
-                                    date = state.date,
-                                    viewModel = viewModel
-                                )
+                                if (pendingSchoolWearableSync) {
+                                    pendingSchoolWearableSync = false
+                                    syncSchoolActivity(
+                                        date = state.date,
+                                        viewModel = viewModel
+                                    )
+                                } else {
+                                    syncPhoneActivity(
+                                        date = state.date,
+                                        viewModel = viewModel
+                                    )
+                                }
                             }
                         } else {
-                            viewModel.phoneActivitySyncFailed(
-                                "没有获得读取运动数据的权限"
-                            )
+                            val wasSchoolSync = pendingSchoolWearableSync
+                            pendingSchoolWearableSync = false
+                            if (wasSchoolSync) {
+                                viewModel.schoolActivitySyncFailed(
+                                    "需要运动健康读取权限才能使用手环记录"
+                                )
+                            } else {
+                                viewModel.phoneActivitySyncFailed(
+                                    "没有获得读取运动数据的权限"
+                                )
+                            }
                         }
                     }
 
@@ -128,6 +161,18 @@ class MainActivity : ComponentActivity() {
                     TodayScreen(
                     destination = destination,
                     state = state,
+                    appearanceMode = appearance.mode,
+                    dynamicColor = appearance.dynamicColor,
+                    onAppearanceModeChange = { mode ->
+                        lifecycleScope.launch {
+                            preferences.setAppearanceMode(mode)
+                        }
+                    },
+                    onDynamicColorChange = { enabled ->
+                        lifecycleScope.launch {
+                            preferences.setDynamicColor(enabled)
+                        }
+                    },
                     onPortionChange = viewModel::setPortion,
                     onGramsChange = viewModel::setConsumedGrams,
                     onRefresh = viewModel::refresh,
@@ -179,6 +224,36 @@ class MainActivity : ComponentActivity() {
                     onActivityIntensityChange =
                         viewModel::setManualActivityIntensity,
                     onSaveActivity = viewModel::saveManualActivity,
+                    onUseSchoolActivity = {
+                        lifecycleScope.launch {
+                            selectSchoolActivitySource(
+                                date = state.date,
+                                viewModel = viewModel
+                            )
+                        }
+                    },
+                    onUseWearableSchoolActivity = {
+                        if (!healthConnectSource.isAvailable()) {
+                            viewModel.schoolActivitySyncFailed(
+                                "这台手机暂时无法读取手环运动数据"
+                            )
+                        } else {
+                            lifecycleScope.launch {
+                                if (healthConnectSource.hasRequiredPermissions()) {
+                                    syncSchoolActivity(
+                                        date = state.date,
+                                        viewModel = viewModel
+                                    )
+                                } else {
+                                    pendingSchoolWearableSync = true
+                                    viewModel.schoolActivitySyncStarted()
+                                    healthPermissionLauncher.launch(
+                                        HealthConnectSource.REQUIRED_PERMISSIONS
+                                    )
+                                }
+                            }
+                        }
+                    },
                     onSyncPhoneActivity = {
                         if (!healthConnectSource.isAvailable()) {
                             viewModel.phoneActivitySyncFailed(
@@ -282,6 +357,69 @@ class MainActivity : ComponentActivity() {
             mimeType = mimeType,
             fileName = "home-meal.$suffix"
         )
+    }
+
+    private suspend fun selectSchoolActivitySource(
+        date: String,
+        viewModel: TodayViewModel
+    ) {
+        viewModel.schoolActivitySyncStarted()
+        runCatching {
+            repository.saveSchoolActivitySource(
+                date = date,
+                source = "school"
+            )
+        }.onSuccess {
+            viewModel.schoolActivitySyncFinished("已使用学校记录")
+        }.onFailure { error ->
+            viewModel.schoolActivitySyncFailed(
+                error.message ?: "切换学校记录失败"
+            )
+        }
+    }
+
+    private suspend fun syncSchoolActivity(
+        date: String,
+        viewModel: TodayViewModel
+    ) {
+        viewModel.schoolActivitySyncStarted()
+
+        runCatching {
+            val schoolActivity = repository.loadSchoolActivity(date)
+            check(schoolActivity.peWindows.isNotEmpty()) {
+                "今天没有学校体育课安排"
+            }
+            val aggregate = healthConnectSource.readSchoolPeWindows(
+                date = LocalDate.parse(date),
+                peWindows = schoolActivity.peWindows
+            )
+            check(
+                aggregate.exerciseMinutes > 0 ||
+                    aggregate.steps > 0 ||
+                    aggregate.activeEnergyKcal > 0.0
+            ) {
+                "体育课时段没有读到手环数据，仍保留学校记录"
+            }
+
+            repository.saveSchoolActivitySource(
+                date = date,
+                source = "health_connect",
+                exerciseMinutes = aggregate.exerciseMinutes,
+                steps = aggregate.steps,
+                activeEnergyKcal = aggregate.activeEnergyKcal
+            )
+            aggregate
+        }.onSuccess { aggregate ->
+            viewModel.schoolActivitySyncFinished(
+                "已使用手环记录：" +
+                    aggregate.exerciseMinutes +
+                    " 分钟"
+            )
+        }.onFailure { error ->
+            viewModel.schoolActivitySyncFailed(
+                error.message ?: "读取体育课手环数据失败"
+            )
+        }
     }
 
     private suspend fun syncPhoneActivity(

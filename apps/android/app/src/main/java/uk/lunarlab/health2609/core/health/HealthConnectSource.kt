@@ -14,6 +14,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
+import uk.lunarlab.health2609.core.network.SchoolPeWindowDto
 
 data class HealthConnectDayAggregate(
     val exerciseMinutes: Int,
@@ -96,6 +97,54 @@ class HealthConnectSource(
             exerciseMinutes = exerciseDuration.toMinutes()
                 .coerceAtMost(1440)
                 .toInt(),
+            steps = steps.coerceIn(0L, 200_000L),
+            activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
+        )
+    }
+
+    suspend fun readSchoolPeWindows(
+        date: LocalDate,
+        peWindows: List<SchoolPeWindowDto>,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): HealthConnectDayAggregate {
+        check(isAvailable()) { "Health Connect is unavailable" }
+        check(hasRequiredPermissions()) { "Health Connect permissions are missing" }
+
+        val ranges = peWindows.mapNotNull { window ->
+            val startTime = runCatching { LocalTime.parse(window.startTime) }.getOrNull()
+                ?: return@mapNotNull null
+            val endTime = runCatching { LocalTime.parse(window.endTime) }.getOrNull()
+                ?: return@mapNotNull null
+            val start = date.atTime(startTime).atZone(zoneId).toInstant()
+            val end = date.atTime(endTime).atZone(zoneId).toInstant()
+            if (start.isBefore(end)) InstantRange(start, end) else null
+        }
+
+        var exerciseDuration = Duration.ZERO
+        var steps = 0L
+        var activeEnergyKcal = 0.0
+
+        for (range in ranges) {
+            val result = client.aggregate(
+                AggregateRequest(
+                    metrics = setOf(
+                        ExerciseSessionRecord.EXERCISE_DURATION_TOTAL,
+                        StepsRecord.COUNT_TOTAL,
+                        ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL
+                    ),
+                    timeRangeFilter = TimeRangeFilter.between(range.start, range.end)
+                )
+            )
+            exerciseDuration +=
+                result[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL] ?: Duration.ZERO
+            steps += result[StepsRecord.COUNT_TOTAL] ?: 0L
+            activeEnergyKcal +=
+                result[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]
+                    ?.inKilocalories ?: 0.0
+        }
+
+        return HealthConnectDayAggregate(
+            exerciseMinutes = exerciseDuration.toMinutes().coerceAtMost(1440).toInt(),
             steps = steps.coerceIn(0L, 200_000L),
             activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
         )
