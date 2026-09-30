@@ -1,6 +1,6 @@
 param(
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
-  [int]$Port = 18787,
+  [int]$Port = 18788,
   [string]$Token = $env:HEALTH2609_AGY_TOKEN
 )
 
