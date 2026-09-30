@@ -1,0 +1,26 @@
+name: cleanup obsolete branches
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cleanup-obsolete-branches.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete obsolete branches
+        shell: bash
+        run: |
+          git push origin --delete \
+            android-meal-motion-0.2.4 \
+            fix/health-school-demo-0.2.5 \
+            release-helper-20260929 \
+            release-helper-qingheng-20260929
