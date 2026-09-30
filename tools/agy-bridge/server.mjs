@@ -62,6 +62,8 @@ function stopAgy(reason) {
 
 function spawnAgy() {
   const args = [
+    "--model", process.env.HEALTH2609_AGY_MODEL || "gemini-3.8-flash-low",
+    "--effort", process.env.HEALTH2609_AGY_EFFORT || "low",
     "--print=",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
