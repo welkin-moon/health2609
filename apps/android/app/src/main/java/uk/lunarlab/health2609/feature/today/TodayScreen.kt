@@ -330,17 +330,17 @@ private fun SettingsDialog(
 ) {
     Surface(
         modifier = Modifier
-            .padding(20.dp)
-            .fillMaxWidth()
-            .widthIn(max = 560.dp),
-        shape = RoundedCornerShape(32.dp),
+            .padding(horizontal = 24.dp, vertical = 32.dp)
+            .widthIn(max = 420.dp)
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 8.dp,
-        shadowElevation = 12.dp
+        tonalElevation = 6.dp,
+        shadowElevation = 10.dp
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -348,29 +348,37 @@ private fun SettingsDialog(
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     Text(
                         "设置",
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "学校、显示与应用外观",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "学校与外观",
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onDismiss) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(40.dp)
+                ) {
                     Icon(Icons.Rounded.Close, contentDescription = "关闭设置")
                 }
             }
 
-            Text("我的学校", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "学校",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             if (schools.isEmpty()) {
                 Text(
-                    "当前账号没有可选择的学校。",
-                    style = MaterialTheme.typography.bodySmall,
+                    "暂无可选学校，正在使用默认学校。",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
@@ -394,7 +402,7 @@ private fun SettingsDialog(
 
             Text(
                 "主题",
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -417,33 +425,32 @@ private fun SettingsDialog(
                 }
             }
 
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text("使用壁纸配色", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Android 12 及以上使用系统动态颜色。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = dynamicColor,
-                        onCheckedChange = onDynamicColorChange
+                    Text(
+                        "壁纸配色",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        "使用系统动态颜色",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                Switch(
+                    checked = dynamicColor,
+                    onCheckedChange = onDynamicColorChange
+                )
             }
         }
     }
