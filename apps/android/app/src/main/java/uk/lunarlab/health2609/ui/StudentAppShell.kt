@@ -1,15 +1,26 @@
 package uk.lunarlab.health2609.ui
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -20,12 +31,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 private data class StudentDestination(
     val route: String,
@@ -43,24 +66,45 @@ private val destinations = listOf(
 fun StudentAppShell(
     selectedDestination: String,
     onDestinationChange: (String) -> Unit,
-    content: @Composable (String) -> Unit
+    content: @Composable (String, Boolean) -> Unit
 ) {
     val currentDestination = when (selectedDestination) {
         "today", "meals", "activity" -> selectedDestination
         else -> "today"
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        content(currentDestination)
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Width based rather than device based: an unfolded foldable/tablet gets a rail,
+        // while split screen automatically falls back to the compact bottom dock.
+        val useNavigationRail = maxWidth >= 600.dp
 
-        FloatingStudentDock(
-            selectedDestination = currentDestination,
-            onDestinationChange = onDestinationChange,
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 10.dp)
-        )
+                .fillMaxSize()
+                .padding(start = if (useNavigationRail) 104.dp else 0.dp)
+        ) {
+            content(currentDestination, useNavigationRail)
+        }
+
+        if (useNavigationRail) {
+            FloatingStudentRail(
+                selectedDestination = currentDestination,
+                onDestinationChange = onDestinationChange,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .safeDrawingPadding()
+                    .padding(start = 12.dp)
+            )
+        } else {
+            FloatingStudentDock(
+                selectedDestination = currentDestination,
+                onDestinationChange = onDestinationChange,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            )
+        }
     }
 }
 
@@ -70,52 +114,284 @@ private fun FloatingStudentDock(
     onDestinationChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val selectedIndex = destinations.indexOfFirst { it.route == selectedDestination }
+        .coerceAtLeast(0)
+    val density = LocalDensity.current
+    val slotWidth = 92.dp
+    val dockWidth = slotWidth * destinations.size
+    val slotWidthPx = with(density) { slotWidth.toPx() }
+
+    var dragging by remember { mutableStateOf(false) }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    var dragIndex by remember { mutableIntStateOf(selectedIndex) }
+
+    val settledOffset by animateFloatAsState(
+        targetValue = selectedIndex * slotWidthPx,
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = 520f
+        ),
+        label = "dock-indicator"
+    )
+    val indicatorOffset = if (dragging) {
+        (dragX - slotWidthPx / 2f)
+            .coerceIn(0f, slotWidthPx * (destinations.size - 1))
+    } else {
+        settledOffset
+    }
+    val visualIndex = if (dragging) dragIndex else selectedIndex
+
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(34.dp),
+        shape = RoundedCornerShape(38.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 8.dp,
         shadowElevation = 8.dp
     ) {
-        Row(
-            modifier = Modifier.padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            destinations.forEach { destination ->
-                val selected = destination.route == selectedDestination
-                Surface(
-                    onClick = { onDestinationChange(destination.route) },
-                    shape = RoundedCornerShape(28.dp),
-                    color = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                    contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.animateContentSize(
-                        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+        Box(
+            modifier = Modifier
+                .padding(6.dp)
+                .width(dockWidth)
+                .height(58.dp)
+                .pointerInput(onDestinationChange) {
+                    fun updateDrag(position: Offset) {
+                        dragX = position.x.coerceIn(0f, size.width.toFloat())
+                        dragIndex = (
+                            dragX / (size.width.toFloat() / destinations.size)
+                        ).toInt().coerceIn(destinations.indices)
+                    }
+
+                    detectHorizontalDragGestures(
+                        onDragStart = { position ->
+                            dragging = true
+                            updateDrag(position)
+                        },
+                        onHorizontalDrag = { change, amount ->
+                            change.consume()
+                            updateDrag(
+                                Offset(
+                                    x = dragX + amount,
+                                    y = change.position.y
+                                )
+                            )
+                        },
+                        onDragCancel = {
+                            dragging = false
+                            dragIndex = selectedIndex
+                        },
+                        onDragEnd = {
+                            val destination = destinations[dragIndex].route
+                            dragging = false
+                            onDestinationChange(destination)
+                        }
                     )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(
-                            horizontal = if (selected) 18.dp else 14.dp,
-                            vertical = 11.dp
-                        ),
-                        verticalAlignment = Alignment.CenterVertically
+                }
+        ) {
+            Surface(
+                modifier = Modifier
+                    .width(slotWidth)
+                    .fillMaxHeight()
+                    .offsetPx(x = indicatorOffset, y = 0f),
+                shape = RoundedCornerShape(29.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ) {}
+
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                destinations.forEachIndexed { index, destination ->
+                    DockItem(
+                        destination = destination,
+                        selected = index == visualIndex,
+                        modifier = Modifier
+                            .width(slotWidth)
+                            .fillMaxHeight(),
+                        onClick = { onDestinationChange(destination.route) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockItem(
+    destination: StudentDestination,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = modifier.clickable(onClick = onClick).padding(horizontal = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = destination.icon,
+            contentDescription = destination.label,
+            modifier = Modifier.size(21.dp),
+            tint = if (selected) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = destination.label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
+@Composable
+private fun FloatingStudentRail(
+    selectedDestination: String,
+    onDestinationChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val selectedIndex = destinations.indexOfFirst { it.route == selectedDestination }
+        .coerceAtLeast(0)
+    val density = LocalDensity.current
+    val slotHeight = 74.dp
+    val railHeight = slotHeight * destinations.size
+    val slotHeightPx = with(density) { slotHeight.toPx() }
+
+    var dragging by remember { mutableStateOf(false) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    var dragIndex by remember { mutableIntStateOf(selectedIndex) }
+
+    val settledOffset by animateFloatAsState(
+        targetValue = selectedIndex * slotHeightPx,
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = 520f
+        ),
+        label = "rail-indicator"
+    )
+    val indicatorOffset = if (dragging) {
+        (dragY - slotHeightPx / 2f)
+            .coerceIn(0f, slotHeightPx * (destinations.size - 1))
+    } else {
+        settledOffset
+    }
+    val visualIndex = if (dragging) dragIndex else selectedIndex
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(38.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(6.dp)
+                .width(76.dp)
+                .height(railHeight)
+                .pointerInput(onDestinationChange) {
+                    fun updateDrag(position: Offset) {
+                        dragY = position.y.coerceIn(0f, size.height.toFloat())
+                        dragIndex = (
+                            dragY / (size.height.toFloat() / destinations.size)
+                        ).toInt().coerceIn(destinations.indices)
+                    }
+
+                    detectVerticalDragGestures(
+                        onDragStart = { position ->
+                            dragging = true
+                            updateDrag(position)
+                        },
+                        onVerticalDrag = { change, amount ->
+                            change.consume()
+                            updateDrag(
+                                Offset(
+                                    x = change.position.x,
+                                    y = dragY + amount
+                                )
+                            )
+                        },
+                        onDragCancel = {
+                            dragging = false
+                            dragIndex = selectedIndex
+                        },
+                        onDragEnd = {
+                            val destination = destinations[dragIndex].route
+                            dragging = false
+                            onDestinationChange(destination)
+                        }
+                    )
+                }
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(slotHeight)
+                    .offsetPx(x = 0f, y = indicatorOffset),
+                shape = RoundedCornerShape(30.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {}
+
+            Column(modifier = Modifier.fillMaxSize()) {
+                destinations.forEachIndexed { index, destination ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(slotHeight)
+                            .clickable { onDestinationChange(destination.route) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
+                        val selected = index == visualIndex
                         Icon(
                             imageVector = destination.icon,
                             contentDescription = destination.label,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(23.dp),
+                            tint = if (selected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
-                        if (selected) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = destination.label,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            text = destination.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
                     }
                 }
             }
         }
     }
 }
+
+private fun Modifier.offsetPx(x: Float, y: Float): Modifier =
+    this.then(
+        Modifier
+            .padding(0.dp)
+            .run {
+                androidx.compose.ui.layout.layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, placeable.height) {
+                        placeable.placeRelative(
+                            x.roundToInt(),
+                            y.roundToInt()
+                        )
+                    }
+                }
+            }
+    )
