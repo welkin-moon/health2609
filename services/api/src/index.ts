@@ -11,6 +11,7 @@ import {
   homeMealAnalysisResultSchema,
   manualActivitySchema,
   outsideActivitySchema,
+  schoolActivityOverrideSchema,
   recordMealSchema,
   todayMenuSchema
 } from "@health2609/contracts";
@@ -117,6 +118,123 @@ app.get("/v1/school/day-windows", async (c) => {
     }))
   });
 });
+
+app.get("/v1/today/school-activity", async (c) => {
+  const date = c.req.query("date");
+  if (!date) return c.json({ error: "date_required" }, 400);
+
+  const weekday = weekdayFromDate(date);
+  if (weekday == null) return c.json({ error: "invalid_date" }, 400);
+
+  const membership = await membershipFor(
+    c.env.DB,
+    c.get("schoolId"),
+    c.get("participantId")
+  );
+  if (!membership) return c.json({ error: "membership_not_found" }, 404);
+
+  const [schoolWindows, peRows, override] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, start_time, end_time
+         FROM school_day_windows
+        WHERE school_id = ? AND weekday = ?
+        ORDER BY start_time`
+    ).bind(c.get("schoolId"), weekday).all(),
+    membership.class_group_id
+      ? c.env.DB.prepare(
+          `SELECT pt.id, pt.start_time, pt.end_time, ps.actual_activity_minutes
+             FROM pe_timetable pt
+             LEFT JOIN pe_sessions ps
+               ON ps.timetable_id = pt.id AND ps.date = ?
+            WHERE pt.school_id = ?
+              AND pt.class_group_id = ?
+              AND pt.weekday = ?
+            ORDER BY pt.start_time`
+        ).bind(
+          date,
+          c.get("schoolId"),
+          membership.class_group_id,
+          weekday
+        ).all()
+      : Promise.resolve({ results: [] }),
+    c.env.DB.prepare(
+      `SELECT source, exercise_minutes, steps, active_energy_kcal
+         FROM student_school_activity_overrides
+        WHERE student_membership_id = ? AND date = ?`
+    ).bind(membership.id, date).first()
+  ]);
+
+  const peWindows = (peRows as D1Result<Record<string, unknown>>).results.map((row) => ({
+    id: String(row.id),
+    startTime: String(row.start_time),
+    endTime: String(row.end_time),
+    schoolRecordedMinutes:
+      row.actual_activity_minutes == null
+        ? null
+        : Number(row.actual_activity_minutes)
+  }));
+  const schoolRecordedMinutes = peWindows.reduce(
+    (sum, row) => sum + (row.schoolRecordedMinutes ?? 0),
+    0
+  );
+
+  return c.json({
+    date,
+    weekday,
+    schoolDayWindows: schoolWindows.results.map((row) => ({
+      id: String(row.id),
+      startTime: String(row.start_time),
+      endTime: String(row.end_time)
+    })),
+    peWindows,
+    schoolRecordedMinutes,
+    selectedSource: override?.source === "health_connect" ? "health_connect" : "school",
+    wearableMinutes:
+      override?.exercise_minutes == null ? null : Number(override.exercise_minutes),
+    wearableSteps:
+      override?.steps == null ? null : Number(override.steps),
+    wearableActiveEnergyKcal:
+      override?.active_energy_kcal == null
+        ? null
+        : Number(override.active_energy_kcal)
+  });
+});
+
+app.put(
+  "/v1/activity/school-source",
+  zValidator("json", schoolActivityOverrideSchema),
+  async (c) => {
+    const body = c.req.valid("json");
+    const membership = await membershipFor(
+      c.env.DB,
+      c.get("schoolId"),
+      c.get("participantId")
+    );
+    if (!membership) return c.json({ error: "membership_not_found" }, 404);
+
+    await c.env.DB.prepare(
+      `INSERT INTO student_school_activity_overrides
+         (student_membership_id, date, source, exercise_minutes, steps,
+          active_energy_kcal, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(student_membership_id, date)
+       DO UPDATE SET source = excluded.source,
+                     exercise_minutes = excluded.exercise_minutes,
+                     steps = excluded.steps,
+                     active_energy_kcal = excluded.active_energy_kcal,
+                     updated_at = excluded.updated_at`
+    ).bind(
+      membership.id,
+      body.date,
+      body.source,
+      body.source === "health_connect" ? body.exerciseMinutes ?? null : null,
+      body.source === "health_connect" ? body.steps ?? null : null,
+      body.source === "health_connect" ? body.activeEnergyKcal ?? null : null
+    ).run();
+
+    return c.json({ ok: true });
+  }
+);
 
 app.get("/v1/today/menu", async (c) => {
   const date = c.req.query("date");
@@ -432,7 +550,7 @@ app.get("/v1/today/summary", async (c) => {
 
   const schoolId = c.get("schoolId");
 
-  const [nutrition, homeMeals, pe, health, manual, preference, school] = await Promise.all([
+  const [nutrition, homeMeals, pe, health, manual, preference, school, schoolActivityOverride] = await Promise.all([
     c.env.DB.prepare(
       `SELECT
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.energyKcal'), 0) * mc.serving_multiplier), 0) AS energy_kcal,
@@ -487,7 +605,12 @@ app.get("/v1/today/summary", async (c) => {
       `SELECT daily_activity_target_minutes
          FROM schools
         WHERE id = ?`
-    ).bind(schoolId).first()
+    ).bind(schoolId).first(),
+    c.env.DB.prepare(
+      `SELECT source, exercise_minutes, active_energy_kcal
+         FROM student_school_activity_overrides
+        WHERE student_membership_id = ? AND date = ?`
+    ).bind(membership.id, date).first()
   ]);
 
   const homeNutrition = {
@@ -548,7 +671,19 @@ app.get("/v1/today/summary", async (c) => {
   const manualMinutes = Number((manual as any)?.total_minutes ?? 0);
   // Manual sessions are a fallback/correction source. max() avoids obvious double counting.
   const outsideMinutes = Math.max(healthMinutes, manualMinutes);
-  const peMinutes = Number((pe as any)?.pe_minutes ?? 0);
+  const schoolRecordedPeMinutes = Number((pe as any)?.pe_minutes ?? 0);
+  const schoolPeSource =
+    (schoolActivityOverride as any)?.source === "health_connect"
+      ? "health_connect"
+      : "school";
+  const healthConnectSchoolMinutes =
+    (schoolActivityOverride as any)?.exercise_minutes == null
+      ? null
+      : Number((schoolActivityOverride as any).exercise_minutes);
+  const peMinutes =
+    schoolPeSource === "health_connect" && healthConnectSchoolMinutes != null
+      ? healthConnectSchoolMinutes
+      : schoolRecordedPeMinutes;
   const totalMinutes = peMinutes + outsideMinutes;
   const targetMinutes = Number(
     (school as any)?.daily_activity_target_minutes ?? 120
@@ -579,6 +714,9 @@ app.get("/v1/today/summary", async (c) => {
     },
     activity: {
       peMinutes,
+      schoolRecordedPeMinutes,
+      schoolPeSource,
+      healthConnectSchoolMinutes,
       healthConnectOutsideMinutes: healthMinutes,
       manualOutsideMinutes: manualMinutes,
       outsideMinutes,
