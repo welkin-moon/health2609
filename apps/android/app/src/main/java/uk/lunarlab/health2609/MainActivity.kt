@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,8 @@ import uk.lunarlab.health2609.feature.today.TodayRepository
 import uk.lunarlab.health2609.feature.today.TodayScreen
 import uk.lunarlab.health2609.feature.today.TodayViewModel
 import uk.lunarlab.health2609.feature.today.TodayViewModelFactory
+import uk.lunarlab.health2609.core.storage.AppearanceMode
+import uk.lunarlab.health2609.core.storage.AppearancePreferences
 import uk.lunarlab.health2609.core.storage.Health2609Preferences
 import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
@@ -51,7 +54,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            Health2609Theme {
+            val appearance by preferences.appearance.collectAsStateWithLifecycle(
+                initialValue = AppearancePreferences()
+            )
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (appearance.mode) {
+                AppearanceMode.SYSTEM -> systemDark
+                AppearanceMode.LIGHT -> false
+                AppearanceMode.DARK -> true
+            }
+
+            Health2609Theme(
+                darkTheme = darkTheme,
+                dynamicColor = appearance.dynamicColor
+            ) {
                 val viewModel: TodayViewModel = viewModel(
                     factory = TodayViewModelFactory(repository)
                 )
@@ -128,6 +144,18 @@ class MainActivity : ComponentActivity() {
                     TodayScreen(
                     destination = destination,
                     state = state,
+                    appearanceMode = appearance.mode,
+                    dynamicColor = appearance.dynamicColor,
+                    onAppearanceModeChange = { mode ->
+                        lifecycleScope.launch {
+                            preferences.setAppearanceMode(mode)
+                        }
+                    },
+                    onDynamicColorChange = { enabled ->
+                        lifecycleScope.launch {
+                            preferences.setDynamicColor(enabled)
+                        }
+                    },
                     onPortionChange = viewModel::setPortion,
                     onGramsChange = viewModel::setConsumedGrams,
                     onRefresh = viewModel::refresh,
