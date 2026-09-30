@@ -50,11 +50,16 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "screens=demo/screenshots/$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Require this version screenshots
+      - name: Detect this version screenshots
+        id: screenshots
         shell: bash
         run: |
-          test -d "${{ steps.meta.outputs.screens }}"
-          compgen -G "${{ steps.meta.outputs.screens }}/*.png" > /dev/null
+          SCREEN_DIR="${{ steps.meta.outputs.screens }}"
+          if compgen -G "$SCREEN_DIR/*.png" > /dev/null; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build debug APK
         env:
@@ -82,8 +87,12 @@ jobs:
           TAG="${{ steps.meta.outputs.tag }}"
           SCREEN_DIR="${{ steps.meta.outputs.screens }}"
           APK="yicanyidong-${TAG}-debug.apk"
+          ASSETS=("$APK")
+          if compgen -G "$SCREEN_DIR/*.png" > /dev/null; then
+            ASSETS+=("$SCREEN_DIR"/*.png)
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" "$SCREEN_DIR"/*.png --clobber
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
-            gh release create "$TAG" "$APK" "$SCREEN_DIR"/*.png --prerelease --title "一餐一动 $TAG" --notes "一餐一动测试版：包含本版实机演示图片与 debug 签名 APK。"
+            gh release create "$TAG" "${ASSETS[@]}" --prerelease --title "一餐一动 $TAG" --notes "一餐一动测试版：debug 签名 APK；如本版已采集实机演示图片则一并附带。"
           fi
