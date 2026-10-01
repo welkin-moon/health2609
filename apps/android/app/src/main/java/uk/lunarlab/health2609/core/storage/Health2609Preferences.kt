@@ -80,11 +80,27 @@ class Health2609Preferences(context: Context) {
         }
     }
 
+    val customApiBaseUrl: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[CUSTOM_API_BASE_URL]
+    }
+
+    suspend fun setCustomApiBaseUrl(url: String?) {
+        dataStore.edit { preferences ->
+            if (url.isNullOrBlank()) {
+                preferences.remove(CUSTOM_API_BASE_URL)
+            } else {
+                preferences[CUSTOM_API_BASE_URL] = url.trim()
+            }
+        }
+    }
+
     private companion object {
         val START_DESTINATION = stringPreferencesKey("start_destination")
         val SELECTED_SCHOOL_ID = stringPreferencesKey("selected_school_id")
         val APPEARANCE_MODE = stringPreferencesKey("appearance_mode")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val CUSTOM_API_BASE_URL = stringPreferencesKey("custom_api_base_url")
         val ALLOWED_DESTINATIONS = setOf("today", "meals", "activity")
     }
 }
+

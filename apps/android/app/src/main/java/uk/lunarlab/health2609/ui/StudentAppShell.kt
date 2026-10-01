@@ -192,22 +192,14 @@ private fun FloatingStudentDock(
     }
 
     var isDockDragging by remember { mutableStateOf(false) }
-    var dockDragOffsetPx by remember { mutableFloatStateOf(0f) }
 
     val dragState = rememberDraggableState { delta ->
-        dockDragOffsetPx = (dockDragOffsetPx + delta).coerceIn(0f, maxOffsetPx)
-        // Dragging dock drives pager offset in real-time smoothly (跟手)
+        // Dragging dock drives pager offset in real-time synchronously (跟手)
         val pagerDelta = -delta * (screenWidthPx / slotWidthPx)
-        coroutineScope.launch {
-            pagerState.dispatchRawDelta(pagerDelta)
-        }
+        pagerState.dispatchRawDelta(pagerDelta)
     }
 
-    val indicatorOffsetPx = if (isDockDragging) {
-        dockDragOffsetPx
-    } else {
-        (pageProgress * slotWidthPx).coerceIn(0f, maxOffsetPx)
-    }
+    val indicatorOffsetPx = (pageProgress * slotWidthPx).coerceIn(0f, maxOffsetPx)
 
     Surface(
         modifier = modifier,
@@ -224,15 +216,15 @@ private fun FloatingStudentDock(
                 .draggable(
                     state = dragState,
                     orientation = Orientation.Horizontal,
-                    startDragImmediately = false,
+                    startDragImmediately = true,
                     onDragStarted = {
                         isDockDragging = true
-                        dockDragOffsetPx = (pageProgress * slotWidthPx).coerceIn(0f, maxOffsetPx)
                     },
                     onDragStopped = { velocity ->
-                        val projected = (dockDragOffsetPx + velocity * 0.035f).coerceIn(0f, maxOffsetPx)
-                        val targetIndex = (projected / slotWidthPx).roundToInt().coerceIn(destinations.indices)
                         isDockDragging = false
+                        val targetIndex = (pageProgress + (-velocity / screenWidthPx) * 0.25f)
+                            .roundToInt()
+                            .coerceIn(destinations.indices)
                         onSelectPage(targetIndex)
                     }
                 )

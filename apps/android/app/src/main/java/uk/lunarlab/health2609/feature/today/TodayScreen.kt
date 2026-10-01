@@ -35,14 +35,22 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import uk.lunarlab.health2609.core.network.ApiFactory
+import uk.lunarlab.health2609.BuildConfig
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -116,7 +124,11 @@ fun TodayScreen(
     onRequestHealthPermissions: () -> Unit,
     onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
-    onSaveEnergyReference: () -> Unit
+    onSaveEnergyReference: () -> Unit,
+    customApiBaseUrl: String? = null,
+    onCustomApiBaseUrlChange: (String?) -> Unit = {},
+    onClearMessage: () -> Unit = {},
+    onAddManualHomeMealItem: () -> Unit = {}
 ) {
     val lunchPreview = remember(state.menu, state.amounts) {
         val dishes = state.menu?.dishes.orEmpty()
@@ -225,7 +237,7 @@ fun TodayScreen(
                                     vertical = 6.dp
                                 )
                         ) {
-                            StatusMessage(message)
+                            StatusMessage(message, onDismiss = onClearMessage)
                         }
                     }
                 }
@@ -259,7 +271,8 @@ fun TodayScreen(
                             onSyncPhoneActivity = onSyncPhoneActivity,
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference,
-                            onOpenSettings = { showSettingsDialog = true }
+                            onOpenSettings = { showSettingsDialog = true },
+                            onAddManualHomeMealItem = onAddManualHomeMealItem
                         )
                     } else {
                         CompactScreenContent(
@@ -289,7 +302,8 @@ fun TodayScreen(
                             onSyncPhoneActivity = onSyncPhoneActivity,
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference,
-                            onOpenSettings = { showSettingsDialog = true }
+                            onOpenSettings = { showSettingsDialog = true },
+                            onAddManualHomeMealItem = onAddManualHomeMealItem
                         )
                     }
                 }
@@ -307,9 +321,11 @@ fun TodayScreen(
                 selectedSchoolId = selectedSchoolId,
                 appearanceMode = appearanceMode,
                 dynamicColor = dynamicColor,
+                customApiBaseUrl = customApiBaseUrl,
                 onSchoolChange = onSchoolChange,
                 onAppearanceModeChange = onAppearanceModeChange,
                 onDynamicColorChange = onDynamicColorChange,
+                onCustomApiBaseUrlChange = onCustomApiBaseUrlChange,
                 onOpenHealthSettings = onRequestHealthPermissions,
                 onDismiss = { showSettingsDialog = false }
             )
@@ -345,7 +361,8 @@ private fun WideScreenContent(
     onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onAddManualHomeMealItem: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -422,7 +439,8 @@ private fun WideScreenContent(
                             onNameChange = onHomeMealNameChange,
                             onGramsChange = onHomeMealGramsChange,
                             onRemoveItem = onRemoveHomeMealItem,
-                            onSave = onSaveHomeMeal
+                            onSave = onSaveHomeMeal,
+                            onAddManualItem = onAddManualHomeMealItem
                         )
                     }
                 }
@@ -589,7 +607,8 @@ private fun CompactScreenContent(
     onSyncPhoneActivity: () -> Unit,
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onAddManualHomeMealItem: () -> Unit = {}
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -597,7 +616,7 @@ private fun CompactScreenContent(
             start = 18.dp,
             end = 18.dp,
             top = 8.dp,
-            bottom = 126.dp
+            bottom = 150.dp
         ),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
@@ -658,7 +677,8 @@ private fun CompactScreenContent(
                         onNameChange = onHomeMealNameChange,
                         onGramsChange = onHomeMealGramsChange,
                         onRemoveItem = onRemoveHomeMealItem,
-                        onSave = onSaveHomeMeal
+                        onSave = onSaveHomeMeal,
+                        onAddManualItem = onAddManualHomeMealItem
                     )
                 }
             }
@@ -738,6 +758,9 @@ private fun CompactScreenContent(
                         selectedSchoolId = selectedSchoolId,
                         onOpenSettings = onOpenSettings
                     )
+                }
+                item {
+                    Spacer(Modifier.height(16.dp))
                 }
             }
         }
@@ -1062,9 +1085,13 @@ private fun DailyEnergyReferenceSettingCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 presets.forEach { preset ->
+                    val isSelected = currentReference?.toString() == preset || energyReferenceInput == preset
                     FilterChip(
-                        selected = energyReferenceInput == preset || currentReference?.toString() == preset,
-                        onClick = { onEnergyReferenceChange(preset) },
+                        selected = isSelected,
+                        onClick = {
+                            onEnergyReferenceChange(preset)
+                            onSaveEnergyReference()
+                        },
                         label = { Text(preset + " 千卡") }
                     )
                 }
@@ -1085,7 +1112,7 @@ private fun DailyEnergyReferenceSettingCard(
                 )
                 Button(
                     onClick = onSaveEnergyReference,
-                    enabled = !savingReference
+                    enabled = !savingReference && energyReferenceInput.isNotBlank() && energyReferenceInput != currentReference?.toString()
                 ) {
                     Text(if (savingReference) "保存中" else "保存")
                 }
@@ -1617,25 +1644,58 @@ private fun ManualActivityCard(
                         label = { Text("运动项目") }
                     )
 
+                    val activityMultiplier = (minutes / 40.0).coerceIn(0.0, 2.0)
+                    val multiplierDisplay = when {
+                        activityMultiplier <= 0.05 -> "0.0x (未达标/0分钟)"
+                        activityMultiplier in 0.45..0.55 -> "0.5x (半程/20分钟)"
+                        activityMultiplier in 0.95..1.05 -> "1.0x (达标整节课/40分钟)"
+                        activityMultiplier in 1.45..1.55 -> "1.5x (超额运动/60分钟)"
+                        activityMultiplier in 1.95..2.0 -> "2.0x (双倍高强度/80+分钟)"
+                        else -> "${roundOneDecimal(activityMultiplier)}x (${minutes} 分钟)"
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("运动时长", style = MaterialTheme.typography.labelLarge)
+                        Text("运动量 (0x - 2x 课时倍率)", style = MaterialTheme.typography.labelLarge)
                         Text(
-                            minutes.toString() + " 分钟",
+                            multiplierDisplay,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
 
                     Slider(
-                        value = minutes.toFloat(),
-                        onValueChange = { onMinutesChange((it / 5f).roundToInt() * 5) },
-                        valueRange = 5f..180f,
-                        steps = 34
+                        value = activityMultiplier.toFloat(),
+                        onValueChange = { factor ->
+                            val mins = ((factor * 40.0) / 5.0).roundToInt() * 5
+                            onMinutesChange(mins)
+                        },
+                        valueRange = 0f..2f,
+                        steps = 19
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        listOf(
+                            0.0 to "0x",
+                            0.5 to "0.5x (半程)",
+                            1.0 to "1.0x (整节)",
+                            1.5 to "1.5x",
+                            2.0 to "2.0x (双倍)"
+                        ).forEach { (mark, text) ->
+                            Text(
+                                text,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (abs(activityMultiplier - mark) < 0.1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1686,12 +1746,22 @@ private fun SettingsDialog(
     selectedSchoolId: String,
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
+    customApiBaseUrl: String? = null,
     onSchoolChange: (String) -> Unit,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
+    onCustomApiBaseUrlChange: (String?) -> Unit = {},
     onOpenHealthSettings: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    var serverInput by remember(customApiBaseUrl) {
+        mutableStateOf(customApiBaseUrl ?: ApiFactory.currentBaseUrl)
+    }
+    var testingConnection by remember { mutableStateOf(false) }
+    var testFeedback by remember { mutableStateOf<String?>(null) }
+    var testSuccess by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier
             .padding(horizontal = 20.dp, vertical = 24.dp)
@@ -1723,7 +1793,7 @@ private fun SettingsDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "多端同步 · 就读学校 · 外观显示 · 权限管理",
+                        "多端同步 · 服务器连接 · 就读学校 · 外观显示",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1736,12 +1806,113 @@ private fun SettingsDialog(
                 }
             }
 
-            // 1. E2EE Sync Group
-            SettingsGroupCard(title = "账号与多端同步") {
+            // 1. Server Connection Group
+            SettingsGroupCard(title = "服务连接与网络") {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SettingsItemRow(
+                        icon = { Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        title = "API 服务地址",
+                        subtitle = "支持切换官方云端、局域网私有化或本地调试地址"
+                    )
+
+                    OutlinedTextField(
+                        value = serverInput,
+                        onValueChange = {
+                            serverInput = it
+                            testFeedback = null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("服务根地址 (URL)") },
+                        placeholder = { Text("https://h2609.lunarlab.uk/") },
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+
+                    if (testFeedback != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (testSuccess) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    if (testSuccess) Icons.Rounded.CheckCircle else Icons.Rounded.Error,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (testSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Text(
+                                    testFeedback.orEmpty(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (testSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                testingConnection = true
+                                testFeedback = "正在测通..."
+                                coroutineScope.launch {
+                                    val result = ApiFactory.testConnection(serverInput)
+                                    testingConnection = false
+                                    testSuccess = result.success
+                                    testFeedback = result.message
+                                }
+                            },
+                            enabled = !testingConnection,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (testingConnection) "测通中…" else "测试连通性")
+                        }
+
+                        Button(
+                            onClick = {
+                                val clean = serverInput.trim()
+                                val target = if (clean == BuildConfig.API_BASE_URL.trim()) null else clean
+                                ApiFactory.customBaseUrl = target
+                                onCustomApiBaseUrlChange(target)
+                                testFeedback = "已保存并切换至当前地址"
+                                testSuccess = true
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("应用地址")
+                        }
+                    }
+
+                    if (serverInput.trim() != BuildConfig.API_BASE_URL.trim()) {
+                        TextButton(
+                            onClick = {
+                                serverInput = BuildConfig.API_BASE_URL
+                                ApiFactory.customBaseUrl = null
+                                onCustomApiBaseUrlChange(null)
+                                testFeedback = "已恢复官方默认地址"
+                                testSuccess = true
+                            },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("恢复默认官方地址")
+                        }
+                    }
+                }
+            }
+
+            // 2. E2EE Sync Group
+            SettingsGroupCard(title = "多端安全同步") {
                 SettingsItemRow(
                     icon = { Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    title = "端对端加密同步",
-                    subtitle = "基于 Cloudflare D1 存储，端侧 AES-256-GCM 硬件加密",
+                    title = "端对端加密保护",
+                    subtitle = "数据于本地硬件级加密保护，安全无感同步至个人云端",
                     trailing = {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
@@ -1761,9 +1932,9 @@ private fun SettingsDialog(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 SettingsItemRow(
-                    icon = { Icon(Icons.Rounded.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
-                    title = "媒体极速微缩同步",
-                    subtitle = "餐食图片仅同步 ≤160px 低位深微缩图，零流量负担"
+                    icon = { Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
+                    title = "智能省流同步",
+                    subtitle = "仅同步数据摘要与轻量缩略图，极度节省流量与存储空间"
                 )
             }
 
@@ -1972,14 +2143,50 @@ private fun NutritionMetric(modifier: Modifier, value: String, label: String) {
 }
 
 @Composable
-private fun StatusMessage(message: String, modifier: Modifier = Modifier) {
+private fun StatusMessage(
+    message: String,
+    onDismiss: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        modifier = modifier
+        tonalElevation = 2.dp,
+        modifier = modifier.fillMaxWidth()
     ) {
-        Text(message, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                Icons.Rounded.Info,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            if (onDismiss != null) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "关闭提示",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -2190,7 +2397,8 @@ private fun HomeMealPanel(
     onNameChange: (Int, String) -> Unit,
     onGramsChange: (Int, Double?) -> Unit,
     onRemoveItem: (Int) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onAddManualItem: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
@@ -2355,8 +2563,15 @@ private fun HomeMealPanel(
                                 onClick = onPickImage,
                                 enabled = !analyzing && !saving
                             ) {
-                                Text("相册添加")
+                                Text("加图")
                             }
+                        }
+
+                        OutlinedButton(
+                            onClick = onAddManualItem,
+                            enabled = !saving
+                        ) {
+                            Text("手动添加")
                         }
                     }
                 }
@@ -2365,15 +2580,15 @@ private fun HomeMealPanel(
             // No staged images yet
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
                     onClick = onTakePhoto,
                     enabled = !analyzing && !saving,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text("拍照记录")
                 }
                 FilledTonalButton(
@@ -2381,9 +2596,15 @@ private fun HomeMealPanel(
                     enabled = !analyzing && !saving,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text("相册选择")
+                }
+                OutlinedButton(
+                    onClick = onAddManualItem,
+                    enabled = !saving
+                ) {
+                    Text("手动记一餐")
                 }
             }
             Text(
@@ -2521,8 +2742,23 @@ private fun HomeMealPanel(
         }
 
         if (draft.isNotEmpty()) {
-            Button(onClick = onSave, enabled = !saving && !analyzing) {
-                Text(if (saving) "正在保存" else "确认并记入今天")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = onSave,
+                    enabled = !saving && !analyzing,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (saving) "正在保存" else "确认并记入今天")
+                }
+                OutlinedButton(
+                    onClick = onAddManualItem,
+                    enabled = !saving && !analyzing
+                ) {
+                    Text("+ 加一道菜")
+                }
             }
             Text(
                 "名称和分量由你最后确认；确认前不会记进今天。",

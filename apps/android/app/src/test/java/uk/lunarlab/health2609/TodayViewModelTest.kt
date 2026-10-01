@@ -219,7 +219,8 @@ class TodayViewModelTest {
         assertFalse(state.analyzingHomeMeal)
         // CRITICAL REQUIREMENT: NO fake meal fallback!
         assertTrue(state.homeMealDraft.isEmpty())
-        assertTrue(state.homeMealNotes.any { it.contains("Cloudflare AI tunnel timeout") })
-        assertEquals("Cloudflare AI tunnel timeout", state.message)
+        val expectedMessage = uk.lunarlab.health2609.core.network.ApiFactory.formatErrorMessage(fakeApi.analyzeException!!)
+        assertTrue(state.homeMealNotes.any { it.contains(expectedMessage) })
+        assertEquals(expectedMessage, state.message)
     }
 }

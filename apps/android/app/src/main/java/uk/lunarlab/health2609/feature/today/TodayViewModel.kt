@@ -15,6 +15,7 @@ import uk.lunarlab.health2609.core.network.NutritionDto
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
 import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
+import uk.lunarlab.health2609.core.network.ApiFactory
 
 data class DishAmount(
     val servingMultiplier: Double = 0.0,
@@ -114,7 +115,7 @@ class TodayViewModel(
                     _uiState.update {
                         it.copy(
                             loading = false,
-                            message = error.message ?: "今日数据载入失败"
+                            message = ApiFactory.formatErrorMessage(error)
                         )
                     }
                 }
@@ -259,11 +260,12 @@ class TodayViewModel(
                     )
                 }
             }.onFailure { error ->
+                val friendly = ApiFactory.formatErrorMessage(error)
                 _uiState.update {
                     it.copy(
                         analyzingHomeMeal = false,
-                        homeMealNotes = listOf("识别失败: ${error.message ?: "视觉大模型未返回有效结果"}"),
-                        message = error.message ?: "图片识别失败，请检查网络或重试"
+                        homeMealNotes = listOf("识别未完成: $friendly"),
+                        message = friendly
                     )
                 }
             }
@@ -377,6 +379,27 @@ class TodayViewModel(
 
     fun showMessage(message: String) {
         _uiState.update { it.copy(message = message) }
+    }
+
+    fun clearMessage() {
+        _uiState.update { it.copy(message = null) }
+    }
+
+    fun addManualHomeMealItem(name: String = "自制菜品", grams: Double = 150.0) {
+        val newItem = HomeMealDraftItem(
+            name = name,
+            sourceGrams = grams,
+            grams = grams,
+            confidence = 1.0,
+            nutritionAtSource = null,
+            needsConfirmation = emptyList<String>()
+        )
+        _uiState.update {
+            it.copy(
+                homeMealDraft = it.homeMealDraft + newItem,
+                message = "已添加菜品，可调整分量后确认保存"
+            )
+        }
     }
 
     fun phoneActivitySyncStarted() {

@@ -11,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -169,6 +170,12 @@ class MainActivity : ComponentActivity() {
 
                 val selectedDestination by preferences.startDestination
                     .collectAsStateWithLifecycle(initialValue = "today")
+                val customApiBaseUrl by preferences.customApiBaseUrl
+                    .collectAsStateWithLifecycle(initialValue = null)
+
+                LaunchedEffect(customApiBaseUrl) {
+                    ApiFactory.customBaseUrl = customApiBaseUrl
+                }
 
                 StudentAppShell(
                     selectedDestination = selectedDestination,
@@ -363,7 +370,17 @@ class MainActivity : ComponentActivity() {
                     onEnergyReferenceChange =
                         viewModel::setEnergyReferenceInput,
                     onSaveEnergyReference =
-                        viewModel::saveEnergyReference
+                        viewModel::saveEnergyReference,
+                    customApiBaseUrl = customApiBaseUrl,
+                    onCustomApiBaseUrlChange = { url ->
+                        lifecycleScope.launch {
+                            preferences.setCustomApiBaseUrl(url)
+                            ApiFactory.customBaseUrl = url
+                            viewModel.refresh()
+                        }
+                    },
+                    onClearMessage = viewModel::clearMessage,
+                    onAddManualHomeMealItem = viewModel::addManualHomeMealItem
                     )
                 }
             }
