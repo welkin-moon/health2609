@@ -13,3 +13,8 @@ dist/
 *.aab
 artifacts/
 .DS_Store
+bin/
+obj/
+tools/agy-tray/bin/
+tools/agy-tray/obj/
+tools/agy-tray/publish/
