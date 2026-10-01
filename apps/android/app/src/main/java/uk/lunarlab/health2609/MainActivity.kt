@@ -29,6 +29,7 @@ import kotlinx.coroutines.withContext
 import uk.lunarlab.health2609.core.health.HealthConnectSource
 import uk.lunarlab.health2609.core.network.ApiFactory
 import uk.lunarlab.health2609.core.network.DemoIdentity
+import uk.lunarlab.health2609.feature.today.StagedMealImage
 import uk.lunarlab.health2609.feature.today.TodayRepository
 import uk.lunarlab.health2609.feature.today.TodayScreen
 import uk.lunarlab.health2609.feature.today.TodayViewModel
@@ -84,11 +85,11 @@ class MainActivity : ComponentActivity() {
 
                 val homeMealPicker =
                     rememberLauncherForActivityResult(
-                        ActivityResultContracts.PickVisualMedia()
-                    ) { uri ->
-                        if (uri != null) {
-                            analyzeHomeMealUri(
-                                uri = uri,
+                        ActivityResultContracts.PickMultipleVisualMedia(maxItems = 5)
+                    ) { uris ->
+                        if (uris.isNotEmpty()) {
+                            stageHomeMealUris(
+                                uris = uris,
                                 viewModel = viewModel
                             )
                         }
@@ -104,10 +105,10 @@ class MainActivity : ComponentActivity() {
                         pendingCameraFile = null
 
                         if (captured && uri != null) {
-                            analyzeHomeMealUri(
-                                uri = uri,
+                            stageHomeMealUris(
+                                uris = listOf(uri),
                                 viewModel = viewModel,
-                                cleanupFile = file
+                                cleanupFiles = file?.let { listOf(it) } ?: emptyList()
                             )
                         } else {
                             file?.delete()
@@ -242,6 +243,9 @@ class MainActivity : ComponentActivity() {
                             )
                         )
                     },
+                    onRemoveStagedMealImage = viewModel::removeStagedMealImage,
+                    onClearStagedMealImages = viewModel::clearStagedMealImages,
+                    onAnalyzeHomeMeal = viewModel::analyzeStagedHomeMeals,
                     onHomeMealSlotChange = viewModel::setHomeMealSlot,
                     onHomeMealNameChange = viewModel::setHomeMealName,
                     onHomeMealGramsChange = viewModel::setHomeMealGrams,
@@ -372,29 +376,48 @@ class MainActivity : ComponentActivity() {
         val fileName: String
     )
 
-    private fun analyzeHomeMealUri(
-        uri: Uri,
+    private fun stageHomeMealUris(
+        uris: List<Uri>,
         viewModel: TodayViewModel,
-        cleanupFile: File? = null
+        cleanupFiles: List<File> = emptyList()
     ) {
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    readImageForUpload(uri)
+                    uris.map { uri ->
+                        val upload = readImageForUpload(uri)
+                        val thumbnail = decodeThumbnail(upload.bytes)
+                        StagedMealImage(
+                            bytes = upload.bytes,
+                            mimeType = upload.mimeType,
+                            fileName = upload.fileName,
+                            thumbnail = thumbnail
+                        )
+                    }
                 }
-            }.onSuccess { image ->
-                viewModel.analyzeHomeMeal(
-                    bytes = image.bytes,
-                    mimeType = image.mimeType,
-                    fileName = image.fileName
-                )
+            }.onSuccess { stagedList ->
+                viewModel.stageMealImages(stagedList)
             }.onFailure { error ->
                 viewModel.showMessage(
                     error.message ?: "读取图片失败"
                 )
             }
-            cleanupFile?.delete()
+            cleanupFiles.forEach { it.delete() }
         }
+    }
+
+    private fun decodeThumbnail(bytes: ByteArray): android.graphics.Bitmap? {
+        return runCatching {
+            val boundsOptions = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+            val sampleSize = maxOf(1, maxOf(boundsOptions.outWidth, boundsOptions.outHeight) / 256)
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+            }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
+        }.getOrNull()
     }
 
     private fun readImageForUpload(uri: Uri): UploadImage {

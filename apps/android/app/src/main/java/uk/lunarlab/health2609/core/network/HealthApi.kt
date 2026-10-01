@@ -41,6 +41,12 @@ interface HealthApi {
 
     @Multipart
     @POST("v1/home-meals/analyze")
+    suspend fun analyzeHomeMeals(
+        @Part images: List<MultipartBody.Part>
+    ): HomeMealAnalysisResultDto
+
+    @Multipart
+    @POST("v1/home-meals/analyze")
     suspend fun analyzeHomeMeal(
         @Part image: MultipartBody.Part
     ): HomeMealAnalysisResultDto

@@ -150,4 +150,76 @@ class TodayViewModelTest {
         assertNotNull(fakeApi.lastSavedMealRequest)
         assertEquals("lunch", fakeApi.lastSavedMealRequest?.mealSlot)
     }
+
+    @Test
+    fun testStagedMealImages_limitsToFiveAndAllowsRemoval() {
+        val images = (1..7).map { i ->
+            uk.lunarlab.health2609.feature.today.StagedMealImage(
+                id = "img-$i",
+                bytes = "image-bytes-$i".toByteArray(),
+                mimeType = "image/jpeg",
+                fileName = "photo-$i.jpg"
+            )
+        }
+
+        viewModel.stageMealImages(images)
+        assertEquals(5, viewModel.uiState.value.stagedMealImages.size)
+        assertEquals("img-1", viewModel.uiState.value.stagedMealImages[0].id)
+        assertEquals("img-5", viewModel.uiState.value.stagedMealImages[4].id)
+        assertEquals("最多支持添加 5 张餐食图片", viewModel.uiState.value.message)
+
+        viewModel.removeStagedMealImage("img-2")
+        assertEquals(4, viewModel.uiState.value.stagedMealImages.size)
+        assertFalse(viewModel.uiState.value.stagedMealImages.any { it.id == "img-2" })
+
+        viewModel.clearStagedMealImages()
+        assertTrue(viewModel.uiState.value.stagedMealImages.isEmpty())
+    }
+
+    @Test
+    fun testAnalyzeStagedHomeMeals_multiImageSuccess() = runTest(testDispatcher) {
+        val images = listOf(
+            uk.lunarlab.health2609.feature.today.StagedMealImage(
+                id = "overview",
+                bytes = "img-overview".toByteArray(),
+                mimeType = "image/jpeg"
+            ),
+            uk.lunarlab.health2609.feature.today.StagedMealImage(
+                id = "closeup",
+                bytes = "img-closeup".toByteArray(),
+                mimeType = "image/jpeg"
+            )
+        )
+        viewModel.stageMealImages(images)
+        viewModel.analyzeStagedHomeMeals()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.analyzingHomeMeal)
+        assertEquals(1, state.homeMealDraft.size)
+        assertEquals("红烧牛肉", state.homeMealDraft[0].name)
+        assertTrue(state.message?.contains("已汇总 2 张照片") == true)
+    }
+
+    @Test
+    fun testAnalyzeStagedHomeMeals_failureReportsRealErrorWithoutFakeDraft() = runTest(testDispatcher) {
+        fakeApi.shouldFailAnalyze = true
+        fakeApi.analyzeException = RuntimeException("Cloudflare AI tunnel timeout")
+
+        val image = uk.lunarlab.health2609.feature.today.StagedMealImage(
+            id = "single",
+            bytes = "test-bytes".toByteArray(),
+            mimeType = "image/jpeg"
+        )
+        viewModel.stageMealImages(listOf(image))
+        viewModel.analyzeStagedHomeMeals()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.analyzingHomeMeal)
+        // CRITICAL REQUIREMENT: NO fake meal fallback!
+        assertTrue(state.homeMealDraft.isEmpty())
+        assertTrue(state.homeMealNotes.any { it.contains("Cloudflare AI tunnel timeout") })
+        assertEquals("Cloudflare AI tunnel timeout", state.message)
+    }
 }

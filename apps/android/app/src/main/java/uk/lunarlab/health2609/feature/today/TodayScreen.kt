@@ -10,6 +10,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.DirectionsRun
@@ -40,6 +45,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -92,6 +100,9 @@ fun TodayScreen(
     onSaveMeal: () -> Unit,
     onTakeHomeMealPhoto: () -> Unit,
     onPickHomeMealImage: () -> Unit,
+    onRemoveStagedMealImage: (String) -> Unit = {},
+    onClearStagedMealImages: () -> Unit = {},
+    onAnalyzeHomeMeal: () -> Unit = {},
     onHomeMealSlotChange: (String) -> Unit,
     onHomeMealNameChange: (Int, String) -> Unit,
     onHomeMealGramsChange: (Int, Double?) -> Unit,
@@ -231,6 +242,9 @@ fun TodayScreen(
                             onSaveMeal = onSaveMeal,
                             onTakeHomeMealPhoto = onTakeHomeMealPhoto,
                             onPickHomeMealImage = onPickHomeMealImage,
+                            onRemoveStagedMealImage = onRemoveStagedMealImage,
+                            onClearStagedMealImages = onClearStagedMealImages,
+                            onAnalyzeHomeMeal = onAnalyzeHomeMeal,
                             onHomeMealSlotChange = onHomeMealSlotChange,
                             onHomeMealNameChange = onHomeMealNameChange,
                             onHomeMealGramsChange = onHomeMealGramsChange,
@@ -258,6 +272,9 @@ fun TodayScreen(
                             onSaveMeal = onSaveMeal,
                             onTakeHomeMealPhoto = onTakeHomeMealPhoto,
                             onPickHomeMealImage = onPickHomeMealImage,
+                            onRemoveStagedMealImage = onRemoveStagedMealImage,
+                            onClearStagedMealImages = onClearStagedMealImages,
+                            onAnalyzeHomeMeal = onAnalyzeHomeMeal,
                             onHomeMealSlotChange = onHomeMealSlotChange,
                             onHomeMealNameChange = onHomeMealNameChange,
                             onHomeMealGramsChange = onHomeMealGramsChange,
@@ -311,6 +328,9 @@ private fun WideScreenContent(
     onSaveMeal: () -> Unit,
     onTakeHomeMealPhoto: () -> Unit,
     onPickHomeMealImage: () -> Unit,
+    onRemoveStagedMealImage: (String) -> Unit,
+    onClearStagedMealImages: () -> Unit,
+    onAnalyzeHomeMeal: () -> Unit,
     onHomeMealSlotChange: (String) -> Unit,
     onHomeMealNameChange: (Int, String) -> Unit,
     onHomeMealGramsChange: (Int, Double?) -> Unit,
@@ -388,12 +408,16 @@ private fun WideScreenContent(
                     item {
                         HomeMealPanel(
                             slot = state.homeMealSlot,
+                            stagedImages = state.stagedMealImages,
                             draft = state.homeMealDraft,
                             notes = state.homeMealNotes,
                             analyzing = state.analyzingHomeMeal,
                             saving = state.savingHomeMeal,
                             onTakePhoto = onTakeHomeMealPhoto,
                             onPickImage = onPickHomeMealImage,
+                            onRemoveStagedImage = onRemoveStagedMealImage,
+                            onClearStagedImages = onClearStagedMealImages,
+                            onAnalyze = onAnalyzeHomeMeal,
                             onSlotChange = onHomeMealSlotChange,
                             onNameChange = onHomeMealNameChange,
                             onGramsChange = onHomeMealGramsChange,
@@ -548,6 +572,9 @@ private fun CompactScreenContent(
     onSaveMeal: () -> Unit,
     onTakeHomeMealPhoto: () -> Unit,
     onPickHomeMealImage: () -> Unit,
+    onRemoveStagedMealImage: (String) -> Unit,
+    onClearStagedMealImages: () -> Unit,
+    onAnalyzeHomeMeal: () -> Unit,
     onHomeMealSlotChange: (String) -> Unit,
     onHomeMealNameChange: (Int, String) -> Unit,
     onHomeMealGramsChange: (Int, Double?) -> Unit,
@@ -617,12 +644,16 @@ private fun CompactScreenContent(
                 item {
                     HomeMealPanel(
                         slot = state.homeMealSlot,
+                        stagedImages = state.stagedMealImages,
                         draft = state.homeMealDraft,
                         notes = state.homeMealNotes,
                         analyzing = state.analyzingHomeMeal,
                         saving = state.savingHomeMeal,
                         onTakePhoto = onTakeHomeMealPhoto,
                         onPickImage = onPickHomeMealImage,
+                        onRemoveStagedImage = onRemoveStagedMealImage,
+                        onClearStagedImages = onClearStagedMealImages,
+                        onAnalyze = onAnalyzeHomeMeal,
                         onSlotChange = onHomeMealSlotChange,
                         onNameChange = onHomeMealNameChange,
                         onGramsChange = onHomeMealGramsChange,
@@ -2145,19 +2176,23 @@ private fun LunchSummary(totals: NutritionTotals, saving: Boolean, onSave: () ->
 @Composable
 private fun HomeMealPanel(
     slot: String,
+    stagedImages: List<StagedMealImage>,
     draft: List<HomeMealDraftItem>,
     notes: List<String>,
     analyzing: Boolean,
     saving: Boolean,
     onTakePhoto: () -> Unit,
     onPickImage: () -> Unit,
+    onRemoveStagedImage: (String) -> Unit,
+    onClearStagedImages: () -> Unit,
+    onAnalyze: () -> Unit,
     onSlotChange: (String) -> Unit,
     onNameChange: (Int, String) -> Unit,
     onGramsChange: (Int, Double?) -> Unit,
     onRemoveItem: (Int) -> Unit,
     onSave: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2175,35 +2210,201 @@ private fun HomeMealPanel(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Button(
-                onClick = onTakePhoto,
-                enabled = !analyzing && !saving,
-                modifier = Modifier.weight(1f)
+        // Multi-image staging section
+        if (stagedImages.isNotEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (analyzing) "正在识别…" else "拍照")
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "已选餐食照片 (${stagedImages.size}/5 张)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        TextButton(
+                            onClick = onClearStagedImages,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp),
+                            enabled = !analyzing
+                        ) {
+                            Text("清空全部", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        stagedImages.forEach { staged ->
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant,
+                                        RoundedCornerShape(14.dp)
+                                    )
+                            ) {
+                                if (staged.thumbnail != null) {
+                                    Image(
+                                        bitmap = staged.thumbnail.asImageBitmap(),
+                                        contentDescription = "餐食图片",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Restaurant,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                if (!analyzing) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(4.dp)
+                                            .size(24.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = { onRemoveStagedImage(staged.id) },
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Close,
+                                                contentDescription = "移除",
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (stagedImages.size < 5 && !analyzing) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                modifier = Modifier.size(80.dp),
+                                onClick = onTakePhoto
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.PhotoCamera,
+                                        contentDescription = "加拍",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "加拍一张",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onAnalyze,
+                            enabled = !analyzing && !saving,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                if (analyzing) "正在综合分析…" else "开始分析 (${stagedImages.size} 张照片)"
+                            )
+                        }
+
+                        if (stagedImages.size < 5) {
+                            OutlinedButton(
+                                onClick = onPickImage,
+                                enabled = !analyzing && !saving
+                            ) {
+                                Text("相册添加")
+                            }
+                        }
+                    }
+                }
             }
-            FilledTonalButton(
-                onClick = onPickImage,
-                enabled = !analyzing && !saving,
-                modifier = Modifier.weight(1f)
+        } else {
+            // No staged images yet
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("从相册选择")
+                Button(
+                    onClick = onTakePhoto,
+                    enabled = !analyzing && !saving,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("拍照记录")
+                }
+                FilledTonalButton(
+                    onClick = onPickImage,
+                    enabled = !analyzing && !saving,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("相册选择")
+                }
             }
+            Text(
+                "支持拍摄全桌、局部单菜特写或不同角度（最多5张），视觉大模型将综合识别并自动去重合并。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            )
         }
 
         if (analyzing) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(vertical = 4.dp)
             ) {
-                LoadingIndicator(modifier = Modifier.size(24.dp))
-                Text("正在整理食物和分量", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text(
+                    if (stagedImages.size > 1) "正在多图全景识别食物与估算分量…" else "正在识别食物与估算分量…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
 

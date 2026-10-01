@@ -88,23 +88,40 @@ class TodayRepository(
         )
     }
 
+    data class ImagePayload(
+        val bytes: ByteArray,
+        val mimeType: String,
+        val fileName: String = "meal.jpg"
+    )
+
+    suspend fun analyzeHomeMeals(
+        images: List<ImagePayload>
+    ): HomeMealAnalysisResultDto {
+        require(images.isNotEmpty()) { "请至少提供一张图片" }
+        require(images.size <= 5) { "最多支持上传 5 张图片" }
+
+        val parts = images.mapIndexed { index, img ->
+            require(img.bytes.isNotEmpty()) { "图片为空" }
+            require(img.bytes.size <= 8 * 1024 * 1024) { "单张图片不能超过 8 MB" }
+
+            val body = img.bytes.toRequestBody(
+                img.mimeType.toMediaTypeOrNull()
+            )
+            MultipartBody.Part.createFormData(
+                "images",
+                img.fileName.ifBlank { "meal_$index.jpg" },
+                body
+            )
+        }
+        return api.analyzeHomeMeals(parts)
+    }
+
     suspend fun analyzeHomeMeal(
         bytes: ByteArray,
         mimeType: String,
         fileName: String = "meal.jpg"
     ): HomeMealAnalysisResultDto {
-        require(bytes.isNotEmpty()) { "图片为空" }
-        require(bytes.size <= 8 * 1024 * 1024) { "图片不能超过 8 MB" }
-
-        val body = bytes.toRequestBody(
-            mimeType.toMediaTypeOrNull()
-        )
-        val part = MultipartBody.Part.createFormData(
-            "image",
-            fileName,
-            body
-        )
-        return api.analyzeHomeMeal(part)
+        return analyzeHomeMeals(listOf(ImagePayload(bytes, mimeType, fileName)))
     }
 
     suspend fun saveHomeMeal(

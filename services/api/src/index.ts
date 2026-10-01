@@ -806,69 +806,6 @@ app.post(
   }
 );
 
-function createFallbackAnalysisResult(reason: string, requestId: string) {
-  return {
-    schemaVersion: 1 as const,
-    items: [
-      {
-        name: "主食米饭/杂粮饭",
-        estimatedGrams: 150,
-        servingMultiplier: 1.0,
-        confidence: 0.85,
-        nutrition: {
-          energyKcal: 174,
-          proteinG: 3.9,
-          fatG: 0.5,
-          carbohydrateG: 38.6,
-          fiberG: 0.6,
-          sodiumMg: 2.0,
-          sugarG: 0.1,
-          saturatedFatG: 0.1
-        },
-        needsConfirmation: ["分量", "主食种类"]
-      },
-      {
-        name: "优质蛋白主菜（如瘦肉/鱼虾/蛋）",
-        estimatedGrams: 100,
-        servingMultiplier: 1.0,
-        confidence: 0.8,
-        nutrition: {
-          energyKcal: 155,
-          proteinG: 18.2,
-          fatG: 8.5,
-          carbohydrateG: 1.2,
-          fiberG: 0.0,
-          sodiumMg: 65.0,
-          sugarG: 0.2,
-          saturatedFatG: 2.1
-        },
-        needsConfirmation: ["菜品名称", "烹饪方式"]
-      },
-      {
-        name: "时令蔬菜/素菜",
-        estimatedGrams: 120,
-        servingMultiplier: 1.0,
-        confidence: 0.85,
-        nutrition: {
-          energyKcal: 45,
-          proteinG: 2.1,
-          fatG: 2.2,
-          carbohydrateG: 4.8,
-          fiberG: 2.0,
-          sodiumMg: 180.0,
-          sugarG: 1.5,
-          saturatedFatG: 0.4
-        },
-        needsConfirmation: ["蔬菜名称"]
-      }
-    ],
-    notes: [
-      `云端视觉识别服务连接受限（${reason}），已自动生成学生标准营养膳食草稿，请核对菜名及滑动分量后确认。`
-    ],
-    requestId
-  };
-}
-
 app.post("/v1/home-meals/analyze", async (c) => {
   const membership = await membershipFor(
     c.env.DB,
@@ -883,28 +820,38 @@ app.post("/v1/home-meals/analyze", async (c) => {
   }
 
   const form = await c.req.raw.formData();
-  const image = form.get("image");
-  if (!(image instanceof File)) {
+  const rawImages = [
+    ...form.getAll("images"),
+    ...form.getAll("image")
+  ];
+  const images = rawImages.filter((item): item is File => item instanceof File);
+
+  if (images.length === 0) {
     return c.json({ error: "image_required" }, 400);
   }
 
-  if (image.size > 8 * 1024 * 1024) {
-    return c.json({ error: "image_too_large" }, 413);
+  if (images.length > 5) {
+    return c.json({ error: "too_many_images", message: "一次最多上传 5 张餐食图片" }, 400);
   }
 
-  if (!image.type.startsWith("image/")) {
-    return c.json({ error: "invalid_image_type" }, 415);
+  for (const image of images) {
+    if (image.size <= 0 || image.size > 8 * 1024 * 1024) {
+      return c.json({ error: "image_too_large", message: "单张图片大小不能超过 8 MB" }, 413);
+    }
+    if (!image.type.startsWith("image/")) {
+      return c.json({ error: "invalid_image_type", message: "仅支持图片格式文件" }, 415);
+    }
   }
 
   const requestId = c.req.header("x-request-id") || c.req.header("cf-ray") || crypto.randomUUID();
   c.header("X-Request-Id", requestId);
 
   const outbound = new FormData();
-  outbound.set("image", image, image.name || "meal.jpg");
+  images.forEach((img, idx) => {
+    outbound.append("images", img, img.name || `meal_${idx}.jpg`);
+  });
   outbound.set("prompt", HOME_MEAL_AGY_PROMPT);
   outbound.set("schemaVersion", "1");
-
-  const allowFallback = c.req.header("x-allow-fallback") !== "false" && c.req.query("rawError") !== "true";
 
   let response: Response | null = null;
   try {
@@ -922,15 +869,12 @@ app.post("/v1/home-meals/analyze", async (c) => {
       signal: AbortSignal.timeout(135_000)
     });
   } catch (err: any) {
-    if (allowFallback) {
-      return c.json(createFallbackAnalysisResult(err.name === "TimeoutError" ? "超时" : "连接受限", requestId));
-    }
     if (err.name === "TimeoutError" || err.name === "AbortError") {
       return c.json(
         {
           error: "agy_timeout",
           requestId,
-          message: "Upstream analysis timed out after 135s"
+          message: "云端视觉分析超时（135秒），请重试或检查本地网桥"
         },
         504
       );
@@ -939,7 +883,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
       {
         error: "agy_unreachable",
         requestId,
-        message: err.message || "Failed to reach upstream analysis service"
+        message: err.message || "未能连接至云端视觉分析服务"
       },
       502
     );
@@ -959,17 +903,13 @@ app.post("/v1/home-meals/analyze", async (c) => {
     const detail = bridgeError?.detail || bridgeError?.message;
     const status = response.status === 429 ? 429 : response.status === 401 ? 502 : response.status;
 
-    if (allowFallback && status >= 500) {
-      return c.json(createFallbackAnalysisResult(`服务状态 ${status}`, requestId));
-    }
-
     return c.json(
       {
         error: errorCode,
         requestId,
         status: response.status,
         detail,
-        message: `Upstream service error: ${errorCode}`
+        message: detail ? `视觉分析失败: ${detail}` : `视觉服务异常 (${response.status})`
       },
       status >= 400 && status <= 599 ? (status as any) : 502
     );
@@ -979,14 +919,11 @@ app.post("/v1/home-meals/analyze", async (c) => {
   try {
     raw = await response.json();
   } catch {
-    if (allowFallback) {
-      return c.json(createFallbackAnalysisResult("数据解析受限", requestId));
-    }
     return c.json(
       {
         error: "agy_invalid_json",
         requestId,
-        message: "Failed to parse upstream response as JSON"
+        message: "未能解析视觉分析服务返回的 JSON 数据"
       },
       502
     );
@@ -994,13 +931,11 @@ app.post("/v1/home-meals/analyze", async (c) => {
 
   const parsed = homeMealAnalysisResultSchema.safeParse(raw);
   if (!parsed.success) {
-    if (allowFallback) {
-      return c.json(createFallbackAnalysisResult("结构不匹配", requestId));
-    }
     return c.json(
       {
         error: "agy_schema_invalid",
         requestId,
+        message: "视觉分析返回结果不符合规范定义",
         issues: parsed.error.issues.slice(0, 8)
       },
       502

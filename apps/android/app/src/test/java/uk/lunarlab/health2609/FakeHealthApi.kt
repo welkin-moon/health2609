@@ -86,8 +86,12 @@ class FakeHealthApi : HealthApi {
     override suspend fun schoolDayWindows(date: String): SchoolDayWindowsDto =
         SchoolDayWindowsDto(date = date, weekday = 3, windows = emptyList())
 
-    override suspend fun analyzeHomeMeal(image: MultipartBody.Part): HomeMealAnalysisResultDto =
-        HomeMealAnalysisResultDto(
+    var shouldFailAnalyze: Boolean = false
+    var analyzeException: Exception = RuntimeException("视觉模型服务异常")
+
+    override suspend fun analyzeHomeMeals(images: List<MultipartBody.Part>): HomeMealAnalysisResultDto {
+        if (shouldFailAnalyze) throw analyzeException
+        return HomeMealAnalysisResultDto(
             schemaVersion = 1,
             items = listOf(
                 HomeMealAnalysisItemDto(
@@ -99,6 +103,10 @@ class FakeHealthApi : HealthApi {
             ),
             notes = listOf("牛肉富含优质蛋白质")
         )
+    }
+
+    override suspend fun analyzeHomeMeal(image: MultipartBody.Part): HomeMealAnalysisResultDto =
+        analyzeHomeMeals(listOf(image))
 
     override suspend fun saveHomeMeal(request: ConfirmedHomeMealRequest): ApiWriteResult {
         lastSavedHomeMealRequest = request

@@ -14,11 +14,11 @@ const repoRoot = path.resolve(
 );
 const schemaPath = path.join(here, "home-meal.schema.json");
 const host = process.env.HEALTH2609_AGY_HOST || "127.0.0.1";
-const port = Number(process.env.HEALTH2609_AGY_PORT || "18787");
+const port = Number(process.env.HEALTH2609_AGY_PORT || "18788");
 const agyBin = process.env.AGY_BIN || "agy";
 const bearerToken = process.env.HEALTH2609_AGY_TOKEN || "";
 const maxQueued = Number(process.env.HEALTH2609_AGY_MAX_QUEUE || "4");
-const maxBodyBytes = 9 * 1024 * 1024;
+const maxBodyBytes = 40 * 1024 * 1024;
 const taskTimeoutMs = Number(process.env.HEALTH2609_AGY_TASK_TIMEOUT_MS || "120000");
 
 let agyProcess = null;
@@ -177,13 +177,17 @@ function extForMime(type) {
   return map[type] || ".img";
 }
 
-async function analyzeImage(filePath, suppliedPrompt, schemaVersion) {
+async function analyzeImages(imagePaths, suppliedPrompt, schemaVersion) {
   await ensureAgy();
+  const imageList = imagePaths.map((p, idx) => `Image ${idx + 1}: ${p}`).join("\n");
   const prompt = [
     "A new health2609 home-meal request has arrived.",
     "Create a FRESH child/subagent for this request and delegate the visual inspection to that child.",
-    "The child must inspect the local image file visually. Do not infer from the filename.",
-    `Image file: ${filePath}`,
+    `The child must inspect the ${imagePaths.length} local image file(s) visually. Do not infer from filenames.`,
+    imagePaths.length > 1
+      ? "This meal request contains multiple photos of the SAME meal (such as full plate overview, dish close-ups, different angles, side dishes or beverages). Carefully synthesize visual information across all images to produce a single consolidated, deduplicated list of meal items."
+      : "This meal request contains 1 photo of the meal.",
+    imageList,
     `schemaVersion: ${schemaVersion}`,
     "Use the following task instruction as the analysis contract:",
     "----- BEGIN TASK INSTRUCTION -----",
@@ -250,7 +254,7 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  let imagePath;
+  let imagePaths = [];
   try {
     const body = await readRequestBody(req);
     const request = new Request(`http://127.0.0.1${req.url}`, {
@@ -259,22 +263,34 @@ const server = createServer(async (req, res) => {
       body
     });
     const form = await request.formData();
-    const image = form.get("image");
+    const images = [
+      ...form.getAll("images"),
+      ...form.getAll("image")
+    ].filter((item) => item && typeof item.arrayBuffer === "function");
+
     const suppliedPrompt = String(form.get("prompt") || "");
     const schemaVersion = String(form.get("schemaVersion") || "");
 
-    if (!image || typeof image.arrayBuffer !== "function") {
+    if (images.length === 0) {
       json(res, 400, { error: "image_required", requestId });
       return;
     }
-    if (!String(image.type || "").startsWith("image/")) {
-      json(res, 415, { error: "invalid_image_type", requestId });
+    if (images.length > 5) {
+      json(res, 400, { error: "too_many_images", message: "最多支持 5 张图片", requestId });
       return;
     }
-    if (image.size <= 0 || image.size > 8 * 1024 * 1024) {
-      json(res, 413, { error: "image_size_invalid", requestId });
-      return;
+
+    for (const image of images) {
+      if (!String(image.type || "").startsWith("image/")) {
+        json(res, 415, { error: "invalid_image_type", requestId });
+        return;
+      }
+      if (image.size <= 0 || image.size > 8 * 1024 * 1024) {
+        json(res, 413, { error: "image_size_invalid", requestId });
+        return;
+      }
     }
+
     if (!suppliedPrompt || suppliedPrompt.length > 30000 || schemaVersion !== "1") {
       json(res, 400, { error: "task_contract_invalid", requestId });
       return;
@@ -282,11 +298,19 @@ const server = createServer(async (req, res) => {
 
     const tempDir = path.join(os.tmpdir(), "health2609-agy");
     await fs.mkdir(tempDir, { recursive: true });
-    imagePath = path.join(tempDir, `${crypto.randomUUID()}${extForMime(image.type)}`);
-    await fs.writeFile(imagePath, Buffer.from(await image.arrayBuffer()));
 
-    log(`[${requestId}] enqueuing image analysis (${image.size} bytes)`);
-    const output = await enqueue(() => analyzeImage(imagePath, suppliedPrompt, schemaVersion));
+    imagePaths = [];
+    let totalBytes = 0;
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      totalBytes += img.size;
+      const filePath = path.join(tempDir, `${crypto.randomUUID()}_${i}${extForMime(img.type)}`);
+      await fs.writeFile(filePath, Buffer.from(await img.arrayBuffer()));
+      imagePaths.push(filePath);
+    }
+
+    log(`[${requestId}] enqueuing analysis for ${images.length} image(s) (${totalBytes} bytes)`);
+    const output = await enqueue(() => analyzeImages(imagePaths, suppliedPrompt, schemaVersion));
     log(`[${requestId}] analysis completed successfully; ${output.items?.length ?? 0} items identified`);
     json(res, 200, { ...output, requestId });
   } catch (error) {
@@ -310,7 +334,9 @@ const server = createServer(async (req, res) => {
       json(res, 502, { error: "agy_bridge_failed", requestId, detail: message });
     }
   } finally {
-    if (imagePath) await fs.rm(imagePath, { force: true }).catch(() => {});
+    if (imagePaths.length > 0) {
+      await Promise.allSettled(imagePaths.map((p) => fs.rm(p, { force: true }).catch(() => {})));
+    }
   }
 });
 

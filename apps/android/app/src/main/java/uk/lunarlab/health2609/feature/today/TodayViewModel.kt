@@ -30,6 +30,21 @@ data class HomeMealDraftItem(
     val needsConfirmation: List<String>
 )
 
+data class StagedMealImage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val bytes: ByteArray,
+    val mimeType: String,
+    val fileName: String = "meal.jpg",
+    val thumbnail: android.graphics.Bitmap? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is StagedMealImage) return false
+        return id == other.id
+    }
+    override fun hashCode(): Int = id.hashCode()
+}
+
 data class TodayUiState(
     val date: String = LocalDate.now().toString(),
     val loading: Boolean = true,
@@ -50,6 +65,7 @@ data class TodayUiState(
     val manualActivityIntensity: String = "moderate",
     val energyReferenceInput: String = "",
     val homeMealSlot: String = "dinner",
+    val stagedMealImages: List<StagedMealImage> = emptyList(),
     val homeMealDraft: List<HomeMealDraftItem> = emptyList(),
     val homeMealNotes: List<String> = emptyList(),
     val message: String? = null
@@ -165,26 +181,54 @@ class TodayViewModel(
         _uiState.update { it.copy(manualActivityIntensity = intensity) }
     }
 
-    fun analyzeHomeMeal(
-        bytes: ByteArray,
-        mimeType: String,
-        fileName: String = "meal.jpg"
-    ) {
+    fun stageMealImages(newImages: List<StagedMealImage>) {
+        _uiState.update { current ->
+            val combined = (current.stagedMealImages + newImages).take(5)
+            val overLimit = current.stagedMealImages.size + newImages.size > 5
+            current.copy(
+                stagedMealImages = combined,
+                message = if (overLimit) "最多支持添加 5 张餐食图片" else null
+            )
+        }
+    }
+
+    fun removeStagedMealImage(id: String) {
+        _uiState.update { current ->
+            current.copy(
+                stagedMealImages = current.stagedMealImages.filter { it.id != id }
+            )
+        }
+    }
+
+    fun clearStagedMealImages() {
+        _uiState.update { it.copy(stagedMealImages = emptyList()) }
+    }
+
+    fun analyzeStagedHomeMeals() {
+        val images = _uiState.value.stagedMealImages
+        if (images.isEmpty()) {
+            _uiState.update { it.copy(message = "请先拍照或从相册添加餐食照片") }
+            return
+        }
         if (_uiState.value.analyzingHomeMeal) return
 
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     analyzingHomeMeal = true,
-                    message = "正在识别这顿饭…"
+                    message = if (images.size > 1) "正在多图综合识别这顿饭（共 ${images.size} 张）…" else "正在识别这顿饭…"
                 )
             }
 
             runCatching {
-                repository.analyzeHomeMeal(
-                    bytes = bytes,
-                    mimeType = mimeType,
-                    fileName = fileName
+                repository.analyzeHomeMeals(
+                    images.map { img ->
+                        TodayRepository.ImagePayload(
+                            bytes = img.bytes,
+                            mimeType = img.mimeType,
+                            fileName = img.fileName
+                        )
+                    }
                 )
             }.onSuccess { result ->
                 val draft = result.items.map { item ->
@@ -204,75 +248,35 @@ class TodayViewModel(
                         homeMealDraft = draft,
                         homeMealNotes = result.notes,
                         message = if (draft.isEmpty()) {
-                            "没有识别出明确食物，可以换一张图或手动记录"
+                            "未能识别出明确食物，可尝试补充更清晰的角度照片或手动添加"
                         } else {
-                            "识别完成，请确认名称和实际吃下的克数"
+                            if (images.size > 1) {
+                                "识别完成（已汇总 ${images.size} 张照片），请确认菜品名称与分量"
+                            } else {
+                                "识别完成，请确认菜品名称与分量"
+                            }
                         }
                     )
                 }
             }.onFailure { error ->
-                val fallbackDraft = if (_uiState.value.homeMealDraft.isEmpty()) {
-                    listOf(
-                        HomeMealDraftItem(
-                            name = "主食米饭/杂粮饭",
-                            sourceGrams = 150.0,
-                            grams = 150.0,
-                            confidence = 0.85,
-                            nutritionAtSource = uk.lunarlab.health2609.core.network.NutritionDto(
-                                energyKcal = 174.0,
-                                proteinG = 3.9,
-                                fatG = 0.5,
-                                carbohydrateG = 38.6,
-                                fiberG = 0.6,
-                                sodiumMg = 2.0
-                            ),
-                            needsConfirmation = listOf("分量", "主食种类")
-                        ),
-                        HomeMealDraftItem(
-                            name = "优质蛋白主菜（如瘦肉/鱼虾/蛋）",
-                            sourceGrams = 100.0,
-                            grams = 100.0,
-                            confidence = 0.8,
-                            nutritionAtSource = uk.lunarlab.health2609.core.network.NutritionDto(
-                                energyKcal = 155.0,
-                                proteinG = 18.2,
-                                fatG = 8.5,
-                                carbohydrateG = 1.2,
-                                fiberG = 0.0,
-                                sodiumMg = 65.0
-                            ),
-                            needsConfirmation = listOf("菜品名称", "烹饪方式")
-                        ),
-                        HomeMealDraftItem(
-                            name = "时令蔬菜/素菜",
-                            sourceGrams = 120.0,
-                            grams = 120.0,
-                            confidence = 0.85,
-                            nutritionAtSource = uk.lunarlab.health2609.core.network.NutritionDto(
-                                energyKcal = 45.0,
-                                proteinG = 2.1,
-                                fatG = 2.2,
-                                carbohydrateG = 4.8,
-                                fiberG = 2.0,
-                                sodiumMg = 180.0
-                            ),
-                            needsConfirmation = listOf("蔬菜名称")
-                        )
-                    )
-                } else {
-                    _uiState.value.homeMealDraft
-                }
-
                 _uiState.update {
                     it.copy(
                         analyzingHomeMeal = false,
-                        homeMealDraft = fallbackDraft,
-                        homeMealNotes = listOf("云端智能识别受限，已自动生成标准膳食营养草稿，请滑动滑块确认。"),
-                        message = "已启用营养膳食草稿，滑动滑块确认即可记入今天"
+                        homeMealNotes = listOf("识别失败: ${error.message ?: "视觉大模型未返回有效结果"}"),
+                        message = error.message ?: "图片识别失败，请检查网络或重试"
                     )
                 }
             }
         }
+    }
+
+    fun analyzeHomeMeal(
+        bytes: ByteArray,
+        mimeType: String,
+        fileName: String = "meal.jpg"
+    ) {
+        stageMealImages(listOf(StagedMealImage(bytes = bytes, mimeType = mimeType, fileName = fileName)))
+        analyzeStagedHomeMeals()
     }
 
     fun setHomeMealSlot(slot: String) {
@@ -354,6 +358,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         savingHomeMeal = false,
+                        stagedMealImages = emptyList(),
                         homeMealDraft = emptyList(),
                         homeMealNotes = emptyList()
                     )
