@@ -39,8 +39,14 @@ import uk.lunarlab.health2609.core.storage.AppearanceMode
 import uk.lunarlab.health2609.core.storage.AppearancePreferences
 import uk.lunarlab.health2609.core.storage.Health2609Preferences
 import uk.lunarlab.health2609.core.storage.UserProfile
+import uk.lunarlab.health2609.feature.today.SettingsDialog
 import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val repository by lazy {
@@ -145,9 +151,14 @@ class MainActivity : ComponentActivity() {
                                     pendingSchoolWearableSync = false
                                     val missingText = permState.missingLabels.joinToString("、")
                                     val msg = if (permState.granted.isEmpty()) {
-                                        "未获得运动健康授权；若系统未自动弹出授权窗口，可前往系统设置开启"
+                                        "未获得运动健康授权；若系统未自动弹出授权窗口，请在系统设置中开启"
                                     } else {
                                         "仍缺少【$missingText】读取权限，请在系统设置中允许所有运动权限"
+                                    }
+                                    if (permState.granted.isEmpty()) {
+                                        runCatching {
+                                            startActivity(healthConnectSource.createSettingsIntent())
+                                        }
                                     }
                                     if (wasSchoolSync) {
                                         viewModel.schoolActivitySyncFailed(msg)
@@ -180,13 +191,27 @@ class MainActivity : ComponentActivity() {
                     ApiFactory.customBaseUrl = customApiBaseUrl
                 }
 
+                val prettyDate = remember(state.date) {
+                    runCatching {
+                        LocalDate.parse(state.date).format(
+                            DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.SIMPLIFIED_CHINESE)
+                        )
+                    }.getOrDefault(state.date)
+                }
+
+                var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
+
                 StudentAppShell(
                     selectedDestination = selectedDestination,
                     onDestinationChange = { destination ->
                         lifecycleScope.launch {
                             preferences.setStartDestination(destination)
                         }
-                    }
+                    },
+                    dateText = prettyDate,
+                    onOpenSettings = { showSettingsDialog = true },
+                    onRefresh = viewModel::refresh,
+                    isRefreshing = state.loading
                 ) { destination, wideLayout ->
                     TodayScreen(
                     destination = destination,
@@ -389,8 +414,64 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             preferences.setUserProfile(profile)
                         }
-                    }
+                    },
+                    onOpenSettings = { showSettingsDialog = true }
                     )
+                }
+
+                if (showSettingsDialog) {
+                    Dialog(
+                        onDismissRequest = { showSettingsDialog = false },
+                        properties = DialogProperties(usePlatformDefaultWidth = false)
+                    ) {
+                        SettingsDialog(
+                            schools = state.schools,
+                            selectedSchoolId = selectedSchoolId,
+                            appearanceMode = appearance.mode,
+                            dynamicColor = appearance.dynamicColor,
+                            customApiBaseUrl = customApiBaseUrl,
+                            userProfile = userProfile,
+                            onSchoolChange = { schoolId ->
+                                DemoIdentity.schoolId = schoolId
+                                lifecycleScope.launch {
+                                    preferences.setSelectedSchoolId(schoolId)
+                                    viewModel.refresh()
+                                }
+                            },
+                            onAppearanceModeChange = { mode ->
+                                lifecycleScope.launch {
+                                    preferences.setAppearanceMode(mode)
+                                }
+                            },
+                            onDynamicColorChange = { enabled ->
+                                lifecycleScope.launch {
+                                    preferences.setDynamicColor(enabled)
+                                }
+                            },
+                            onCustomApiBaseUrlChange = { url ->
+                                lifecycleScope.launch {
+                                    preferences.setCustomApiBaseUrl(url)
+                                    ApiFactory.customBaseUrl = url
+                                    viewModel.refresh()
+                                }
+                            },
+                            onUserProfileChange = { profile ->
+                                lifecycleScope.launch {
+                                    preferences.setUserProfile(profile)
+                                }
+                            },
+                            onApplyRecommendedEnergy = { kcal ->
+                                viewModel.setEnergyReferenceInput(kcal.toString())
+                                viewModel.saveEnergyReference()
+                            },
+                            onOpenHealthSettings = {
+                                lifecycleScope.launch {
+                                    startActivity(healthConnectSource.createSettingsIntent())
+                                }
+                            },
+                            onDismiss = { showSettingsDialog = false }
+                        )
+                    }
                 }
             }
         }

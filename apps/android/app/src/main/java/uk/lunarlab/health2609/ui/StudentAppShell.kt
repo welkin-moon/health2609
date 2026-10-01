@@ -31,11 +31,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.DirectionsRun
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -71,10 +77,15 @@ private val destinations = listOf(
     StudentDestination("activity", "运动", Icons.Rounded.DirectionsRun)
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StudentAppShell(
     selectedDestination: String,
     onDestinationChange: (String) -> Unit,
+    dateText: String = "",
+    onOpenSettings: (() -> Unit)? = null,
+    onRefresh: (() -> Unit)? = null,
+    isRefreshing: Boolean = false,
     content: @Composable (String, Boolean) -> Unit
 ) {
     val initialPage = remember {
@@ -110,23 +121,60 @@ fun StudentAppShell(
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val useNavigationRail = maxWidth >= 600.dp
-
-        Box(
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        val currentTitle = remember(pagerState.currentPage) {
+                            destinations.getOrNull(pagerState.currentPage)?.label ?: "今天"
+                        }
+                        Text(currentTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        if (dateText.isNotBlank()) {
+                            Text(
+                                dateText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    if (onOpenSettings != null) {
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Rounded.Settings, contentDescription = "设置")
+                        }
+                    }
+                    if (onRefresh != null) {
+                        IconButton(onClick = onRefresh, enabled = !isRefreshing) {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "更新今天的数据")
+                        }
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = if (useNavigationRail) 104.dp else 0.dp)
+                .padding(innerPadding)
         ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = !useNavigationRail,
-                beyondViewportPageCount = 2
-            ) { pageIndex ->
-                content(destinations[pageIndex].route, useNavigationRail)
+            val useNavigationRail = maxWidth >= 600.dp
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = if (useNavigationRail) 104.dp else 0.dp)
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = true,
+                    beyondViewportPageCount = 2
+                ) { pageIndex ->
+                    content(destinations[pageIndex].route, useNavigationRail)
+                }
             }
-        }
 
         if (useNavigationRail) {
             FloatingStudentRail(
@@ -169,6 +217,7 @@ fun StudentAppShell(
             )
         }
     }
+}
 }
 
 @Composable
@@ -222,7 +271,7 @@ private fun FloatingStudentDock(
                     },
                     onDragStopped = { velocity ->
                         isDockDragging = false
-                        val targetIndex = (pageProgress + (-velocity / screenWidthPx) * 0.25f)
+                        val targetIndex = (pageProgress + (velocity / screenWidthPx) * 0.25f)
                             .roundToInt()
                             .coerceIn(destinations.indices)
                         onSelectPage(targetIndex)
@@ -322,14 +371,7 @@ private fun FloatingStudentRail(
         }
     }
 
-    val animatedOffsetPx by animateFloatAsState(
-        targetValue = (pagerState.currentPage * slotHeightPx).coerceIn(0f, maxOffsetPx),
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "rail-indicator"
-    )
+    val railOffsetPx = (pageProgress * slotHeightPx).coerceIn(0f, maxOffsetPx)
 
     Surface(
         modifier = modifier,
@@ -349,7 +391,7 @@ private fun FloatingStudentRail(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(slotHeight)
-                    .offset { IntOffset(0, animatedOffsetPx.roundToInt()) },
+                    .offset { IntOffset(0, railOffsetPx.roundToInt()) },
                 shape = RoundedCornerShape(28.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer
             ) {}

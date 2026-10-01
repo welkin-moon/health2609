@@ -133,7 +133,8 @@ fun TodayScreen(
     onClearMessage: () -> Unit = {},
     onAddManualHomeMealItem: () -> Unit = {},
     userProfile: UserProfile = UserProfile(),
-    onUserProfileChange: (UserProfile) -> Unit = {}
+    onUserProfileChange: (UserProfile) -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     val lunchPreview = remember(state.menu, state.amounts) {
         val dishes = state.menu?.dishes.orEmpty()
@@ -157,97 +158,55 @@ fun TodayScreen(
         )
     }
 
-    val prettyDate = remember(state.date) {
-        runCatching {
-            LocalDate.parse(state.date).format(
-                DateTimeFormatter.ofPattern("M月d日 EEEE", Locale.SIMPLIFIED_CHINESE)
-            )
-        }.getOrDefault(state.date)
-    }
-
-    var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
-
-    val screenTitle = when (destination) {
-        "meals" -> "饮食"
-        "activity" -> "运动"
-        else -> "今天"
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(screenTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            prettyDate,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showSettingsDialog = true }) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "设置")
-                    }
-                    IconButton(onClick = onRefresh, enabled = !state.loading) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "更新今天的数据")
-                    }
-                }
-            )
-        }
-    ) { innerPadding ->
-        if (state.loading && state.menu == null && state.summary == null) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(innerPadding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                LoadingIndicator()
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "正在同步今天的数据",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "餐食、运动和学校安排会一起更新",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            return@Scaffold
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+    if (state.loading && state.menu == null && state.summary == null) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                AnimatedVisibility(
-                    visible = state.message != null,
-                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                            expandVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
-                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                           shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                ) {
-                    state.message?.let { message ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    horizontal = if (wideLayout) 24.dp else 18.dp,
-                                    vertical = 6.dp
-                                )
-                        ) {
-                            StatusMessage(message, onDismiss = onClearMessage)
-                        }
+            LoadingIndicator()
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "正在同步今天的数据",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "餐食、运动和学校安排会一起更新",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        return
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = state.message != null,
+                enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                        expandVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)),
+                exit = fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
+                       shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing))
+            ) {
+                state.message?.let { message ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = if (wideLayout) 24.dp else 18.dp,
+                                vertical = 6.dp
+                            )
+                    ) {
+                        StatusMessage(message, onDismiss = onClearMessage)
                     }
                 }
+            }
 
-                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     if (wideLayout) {
                         WideScreenContent(
                             destination = destination,
@@ -276,7 +235,7 @@ fun TodayScreen(
                             onSyncPhoneActivity = onSyncPhoneActivity,
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference,
-                            onOpenSettings = { showSettingsDialog = true },
+                            onOpenSettings = onOpenSettings,
                             onAddManualHomeMealItem = onAddManualHomeMealItem,
                             userProfile = userProfile
                         )
@@ -308,7 +267,7 @@ fun TodayScreen(
                             onSyncPhoneActivity = onSyncPhoneActivity,
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference,
-                            onOpenSettings = { showSettingsDialog = true },
+                            onOpenSettings = onOpenSettings,
                             onAddManualHomeMealItem = onAddManualHomeMealItem,
                             userProfile = userProfile
                         )
@@ -317,34 +276,6 @@ fun TodayScreen(
             }
         }
     }
-
-    if (showSettingsDialog) {
-        Dialog(
-            onDismissRequest = { showSettingsDialog = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            SettingsDialog(
-                schools = state.schools,
-                selectedSchoolId = selectedSchoolId,
-                appearanceMode = appearanceMode,
-                dynamicColor = dynamicColor,
-                customApiBaseUrl = customApiBaseUrl,
-                userProfile = userProfile,
-                onSchoolChange = onSchoolChange,
-                onAppearanceModeChange = onAppearanceModeChange,
-                onDynamicColorChange = onDynamicColorChange,
-                onCustomApiBaseUrlChange = onCustomApiBaseUrlChange,
-                onUserProfileChange = onUserProfileChange,
-                onApplyRecommendedEnergy = { kcal ->
-                    onEnergyReferenceChange(kcal.toString())
-                    onSaveEnergyReference()
-                },
-                onOpenHealthSettings = onRequestHealthPermissions,
-                onDismiss = { showSettingsDialog = false }
-            )
-        }
-    }
-}
 
 @Composable
 private fun WideScreenContent(
@@ -1763,7 +1694,7 @@ private fun ManualActivityCard(
 }
 
 @Composable
-private fun SettingsDialog(
+internal fun SettingsDialog(
     schools: List<StudentSchoolDto>,
     selectedSchoolId: String,
     appearanceMode: AppearanceMode,
