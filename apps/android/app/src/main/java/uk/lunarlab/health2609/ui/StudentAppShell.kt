@@ -122,7 +122,7 @@ fun StudentAppShell(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = !useNavigationRail,
-                beyondViewportPageCount = 1
+                beyondViewportPageCount = 2
             ) { pageIndex ->
                 content(destinations[pageIndex].route, useNavigationRail)
             }

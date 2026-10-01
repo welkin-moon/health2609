@@ -38,6 +38,7 @@ import uk.lunarlab.health2609.feature.today.TodayViewModelFactory
 import uk.lunarlab.health2609.core.storage.AppearanceMode
 import uk.lunarlab.health2609.core.storage.AppearancePreferences
 import uk.lunarlab.health2609.core.storage.Health2609Preferences
+import uk.lunarlab.health2609.core.storage.UserProfile
 import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
 
@@ -172,6 +173,8 @@ class MainActivity : ComponentActivity() {
                     .collectAsStateWithLifecycle(initialValue = "today")
                 val customApiBaseUrl by preferences.customApiBaseUrl
                     .collectAsStateWithLifecycle(initialValue = null)
+                val userProfile by preferences.userProfile
+                    .collectAsStateWithLifecycle(initialValue = UserProfile())
 
                 LaunchedEffect(customApiBaseUrl) {
                     ApiFactory.customBaseUrl = customApiBaseUrl
@@ -380,7 +383,13 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onClearMessage = viewModel::clearMessage,
-                    onAddManualHomeMealItem = viewModel::addManualHomeMealItem
+                    onAddManualHomeMealItem = viewModel::addManualHomeMealItem,
+                    userProfile = userProfile,
+                    onUserProfileChange = { profile ->
+                        lifecycleScope.launch {
+                            preferences.setUserProfile(profile)
+                        }
+                    }
                     )
                 }
             }

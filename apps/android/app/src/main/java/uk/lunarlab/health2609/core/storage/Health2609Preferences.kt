@@ -2,6 +2,8 @@ package uk.lunarlab.health2609.core.storage
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -22,6 +24,45 @@ data class AppearancePreferences(
     val mode: AppearanceMode = AppearanceMode.SYSTEM,
     val dynamicColor: Boolean = true
 )
+
+data class UserProfile(
+    val age: Int = 14,
+    val gender: String = "neutral", // "male", "female", "neutral"
+    val heightCm: Double = 165.0,
+    val weightKg: Double = 55.0
+) {
+    val bmi: Double
+        get() {
+            val hM = heightCm / 100.0
+            return if (hM > 0.5) {
+                kotlin.math.round((weightKg / (hM * hM)) * 10.0) / 10.0
+            } else 20.0
+        }
+
+    val recommendedEnergyKcal: Int
+        get() {
+            val base = when {
+                age <= 9 -> 1600
+                age in 10..12 -> if (gender == "male") 2000 else if (gender == "female") 1800 else 1900
+                age in 13..15 -> if (gender == "male") 2400 else if (gender == "female") 2100 else 2250
+                else -> if (gender == "male") 2600 else if (gender == "female") 2200 else 2400
+            }
+            return when {
+                bmi >= 24.0 -> (base - 400).coerceAtLeast(1500)
+                bmi >= 22.0 -> (base - 250).coerceAtLeast(1500)
+                bmi < 16.5 -> base + 200
+                else -> base
+            }
+        }
+
+    val bmiStatusText: String
+        get() = when {
+            bmi >= 24.0 -> "BMI $bmi · 超重/偏高，建议制造能量缺口"
+            bmi >= 22.0 -> "BMI $bmi · 轻度偏高，建议适度控制总热量"
+            bmi < 16.5 -> "BMI $bmi · 体重偏轻，建议适当补充热量与优质蛋白"
+            else -> "BMI $bmi · 体重正常，建议维持健康平衡摄入"
+        }
+}
 
 class Health2609Preferences(context: Context) {
     private val dataStore = context.applicationContext.health2609DataStore
@@ -47,6 +88,24 @@ class Health2609Preferences(context: Context) {
             mode = mode,
             dynamicColor = preferences[DYNAMIC_COLOR] ?: true
         )
+    }
+
+    val userProfile: Flow<UserProfile> = dataStore.data.map { preferences ->
+        UserProfile(
+            age = preferences[USER_AGE] ?: 14,
+            gender = preferences[USER_GENDER] ?: "neutral",
+            heightCm = preferences[USER_HEIGHT_CM] ?: 165.0,
+            weightKg = preferences[USER_WEIGHT_KG] ?: 55.0
+        )
+    }
+
+    suspend fun setUserProfile(profile: UserProfile) {
+        dataStore.edit { preferences ->
+            preferences[USER_AGE] = profile.age.coerceIn(6, 25)
+            preferences[USER_GENDER] = profile.gender
+            preferences[USER_HEIGHT_CM] = profile.heightCm.coerceIn(80.0, 230.0)
+            preferences[USER_WEIGHT_KG] = profile.weightKg.coerceIn(20.0, 200.0)
+        }
     }
 
     suspend fun setStartDestination(destination: String) {
@@ -100,6 +159,10 @@ class Health2609Preferences(context: Context) {
         val APPEARANCE_MODE = stringPreferencesKey("appearance_mode")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val CUSTOM_API_BASE_URL = stringPreferencesKey("custom_api_base_url")
+        val USER_AGE = intPreferencesKey("user_age")
+        val USER_GENDER = stringPreferencesKey("user_gender")
+        val USER_HEIGHT_CM = doublePreferencesKey("user_height_cm")
+        val USER_WEIGHT_KG = doublePreferencesKey("user_weight_kg")
         val ALLOWED_DESTINATIONS = setOf("today", "meals", "activity")
     }
 }

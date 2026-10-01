@@ -6,6 +6,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -71,6 +73,7 @@ import uk.lunarlab.health2609.core.network.DishDto
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
 import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.storage.AppearanceMode
+import uk.lunarlab.health2609.core.storage.UserProfile
 
 private val portionOptions = listOf(
     0.0 to "没吃",
@@ -128,7 +131,9 @@ fun TodayScreen(
     customApiBaseUrl: String? = null,
     onCustomApiBaseUrlChange: (String?) -> Unit = {},
     onClearMessage: () -> Unit = {},
-    onAddManualHomeMealItem: () -> Unit = {}
+    onAddManualHomeMealItem: () -> Unit = {},
+    userProfile: UserProfile = UserProfile(),
+    onUserProfileChange: (UserProfile) -> Unit = {}
 ) {
     val lunchPreview = remember(state.menu, state.amounts) {
         val dishes = state.menu?.dishes.orEmpty()
@@ -272,7 +277,8 @@ fun TodayScreen(
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference,
                             onOpenSettings = { showSettingsDialog = true },
-                            onAddManualHomeMealItem = onAddManualHomeMealItem
+                            onAddManualHomeMealItem = onAddManualHomeMealItem,
+                            userProfile = userProfile
                         )
                     } else {
                         CompactScreenContent(
@@ -303,7 +309,8 @@ fun TodayScreen(
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference,
                             onOpenSettings = { showSettingsDialog = true },
-                            onAddManualHomeMealItem = onAddManualHomeMealItem
+                            onAddManualHomeMealItem = onAddManualHomeMealItem,
+                            userProfile = userProfile
                         )
                     }
                 }
@@ -322,10 +329,16 @@ fun TodayScreen(
                 appearanceMode = appearanceMode,
                 dynamicColor = dynamicColor,
                 customApiBaseUrl = customApiBaseUrl,
+                userProfile = userProfile,
                 onSchoolChange = onSchoolChange,
                 onAppearanceModeChange = onAppearanceModeChange,
                 onDynamicColorChange = onDynamicColorChange,
                 onCustomApiBaseUrlChange = onCustomApiBaseUrlChange,
+                onUserProfileChange = onUserProfileChange,
+                onApplyRecommendedEnergy = { kcal ->
+                    onEnergyReferenceChange(kcal.toString())
+                    onSaveEnergyReference()
+                },
                 onOpenHealthSettings = onRequestHealthPermissions,
                 onDismiss = { showSettingsDialog = false }
             )
@@ -362,7 +375,8 @@ private fun WideScreenContent(
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit,
     onOpenSettings: () -> Unit,
-    onAddManualHomeMealItem: () -> Unit = {}
+    onAddManualHomeMealItem: () -> Unit = {},
+    userProfile: UserProfile = UserProfile()
 ) {
     Row(
         modifier = Modifier
@@ -537,6 +551,7 @@ private fun WideScreenContent(
                             currentReference = state.summary?.energy?.dailyEnergyReferenceKcal,
                             energyReferenceInput = state.energyReferenceInput,
                             savingReference = state.savingEnergyReference,
+                            userProfile = userProfile,
                             onEnergyReferenceChange = onEnergyReferenceChange,
                             onSaveEnergyReference = onSaveEnergyReference
                         )
@@ -569,8 +584,7 @@ private fun WideScreenContent(
                     item {
                         SchoolEntryCard(
                             schools = state.schools,
-                            selectedSchoolId = selectedSchoolId,
-                            onOpenSettings = onOpenSettings
+                            selectedSchoolId = selectedSchoolId
                         )
                     }
                 }
@@ -608,7 +622,8 @@ private fun CompactScreenContent(
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit,
     onOpenSettings: () -> Unit,
-    onAddManualHomeMealItem: () -> Unit = {}
+    onAddManualHomeMealItem: () -> Unit = {},
+    userProfile: UserProfile = UserProfile()
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -726,9 +741,6 @@ private fun CompactScreenContent(
 
             else -> {
                 item {
-                    NextActionCard(summary = state.summary)
-                }
-                item {
                     EnergyBalanceCard(summary = state.summary)
                 }
                 item {
@@ -742,9 +754,13 @@ private fun CompactScreenContent(
                         currentReference = state.summary?.energy?.dailyEnergyReferenceKcal,
                         energyReferenceInput = state.energyReferenceInput,
                         savingReference = state.savingEnergyReference,
+                        userProfile = userProfile,
                         onEnergyReferenceChange = onEnergyReferenceChange,
                         onSaveEnergyReference = onSaveEnergyReference
                     )
+                }
+                item {
+                    NextActionCard(summary = state.summary)
                 }
                 item {
                     ActivityTimelineFeed(
@@ -755,8 +771,7 @@ private fun CompactScreenContent(
                 item {
                     SchoolEntryCard(
                         schools = state.schools,
-                        selectedSchoolId = selectedSchoolId,
-                        onOpenSettings = onOpenSettings
+                        selectedSchoolId = selectedSchoolId
                     )
                 }
                 item {
@@ -1052,6 +1067,7 @@ private fun DailyEnergyReferenceSettingCard(
     currentReference: Int?,
     energyReferenceInput: String,
     savingReference: Boolean,
+    userProfile: UserProfile = UserProfile(),
     onEnergyReferenceChange: (String) -> Unit,
     onSaveEnergyReference: () -> Unit,
     modifier: Modifier = Modifier
@@ -1073,26 +1089,71 @@ private fun DailyEnergyReferenceSettingCard(
                 )
                 val refText = currentReference?.let { it.toString() + " 千卡" } ?: "未设定"
                 Text(
-                    "依据学龄儿童性别、年龄与身体活动强度设定（当前基准：" + refText + "）",
+                    "依据学龄儿童体征与活动强度设定（当前基准：" + refText + "）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            val presets = listOf("1800", "2000", "2200", "2400")
+            // Profile recommendation banner
+            if (userProfile.recommendedEnergyKcal > 0) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "体征推荐基准：" + userProfile.recommendedEnergyKcal + " 千卡",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                userProfile.bmiStatusText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                        if (currentReference != userProfile.recommendedEnergyKcal) {
+                            FilledTonalButton(
+                                onClick = {
+                                    onEnergyReferenceChange(userProfile.recommendedEnergyKcal.toString())
+                                    onSaveEnergyReference()
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text("采纳推荐", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+
+            val presets = remember(userProfile.recommendedEnergyKcal) {
+                val defaultList = listOf(1800, 2000, 2200, 2400)
+                (defaultList + userProfile.recommendedEnergyKcal).distinct().sorted().map { it.toString() }
+            }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 presets.forEach { preset ->
                     val isSelected = currentReference?.toString() == preset || energyReferenceInput == preset
+                    val isRecommended = preset == userProfile.recommendedEnergyKcal.toString()
                     FilterChip(
                         selected = isSelected,
                         onClick = {
                             onEnergyReferenceChange(preset)
                             onSaveEnergyReference()
                         },
-                        label = { Text(preset + " 千卡") }
+                        label = { Text(if (isRecommended) preset + " 千卡 (推荐)" else preset + " 千卡") }
                     )
                 }
             }
@@ -1135,105 +1196,66 @@ private fun NextActionCard(
     val intake = nutrition?.energyKcal?.roundToInt() ?: 0
 
     Surface(
-        shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.12f)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Rounded.DirectionsRun,
+                        Icons.Rounded.AutoAwesome,
                         contentDescription = null,
-                        modifier = Modifier.padding(8.dp).size(22.dp)
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
                     )
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(
-                        "科学循证行动建议",
-                        style = MaterialTheme.typography.titleMedium,
+                        "今日健康行动提示",
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Text(
-                        "基于教育部青少年健康标准与膳食指南",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.76f)
-                    )
                 }
+                Text(
+                    "WS/T 578-2017 & 中小学标准",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.16f))
+            val motionAdvice = if (activity?.targetReached == true) {
+                "运动：累计已达 " + totalMinutes + " 分钟（达成每日 120 分钟标准），晚间宜进行适度拉伸放松。"
+            } else {
+                "运动：今日累计 " + totalMinutes + " 分钟，距 120 分钟还差 " + remainingMinutes + " 分钟，建议课后安排慢跑或球类运动。"
+            }
 
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    "运动指导",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                )
-                val exerciseAdvice = if (activity?.targetReached == true) {
-                    "今日累计运动已达 " + totalMinutes + " 分钟，达到教育部每日 120 分钟标准！运动节律良好，建议晚间进行 5-10 分钟轻度拉伸放松，利于骨骼肌恢复与安稳入睡。"
-                } else {
-                    "今日累计运动 " + totalMinutes + " 分钟，距离教育部 120 分钟日均标准还差 " + remainingMinutes + " 分钟。建议放学后或傍晚安排 30 分钟中高强度运动（如跳绳、慢跑、羽毛球），促进骨量积累与体质增强。"
-                }
-                Text(
-                    exerciseAdvice,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.90f)
-                )
+            val nutritionAdvice = when {
+                intake == 0 -> "膳食：尚未录入今日餐食，午餐/晚餐后及时记餐将自动分析供能比。"
+                macro != null && macro.protein in 0.1..11.9 -> "膳食：蛋白质供能比偏低，建议适量补充鸡蛋、鱼虾或豆制品。"
+                macro != null && macro.fat > 35.0 -> "膳食：脂肪摄入比例偏高，晚餐建议清淡蒸煮并多吃深色蔬菜。"
+                (nutrition?.sodiumMg ?: 0.0) > 2000 -> "膳食：今日钠摄入偏高，注意清淡饮食并补足水分。"
+                else -> "膳食：三大宏量营养素配比均衡，继续保持良好节律。"
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    "膳食与营养",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                    motionAdvice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                val nutritionAdvice = when {
-                    intake == 0 -> {
-                        "今日尚未记录完整餐食分量。建议在午餐或晚餐后及时记录，系统将自动分析宏量供能比及微量营养素储备。"
-                    }
-                    macro != null && macro.protein > 0 && macro.protein < 12.0 -> {
-                        "当前蛋白质供能比偏低（" + macro.protein.roundToInt() + "%，参考适宜区间 10%–15%）。晚餐建议适当补充富含优质蛋白的食物，如鸡蛋、鱼虾、瘦肉或豆制品。"
-                    }
-                    macro != null && macro.fat > 35.0 -> {
-                        "当前脂肪供能比较高（" + macro.fat.roundToInt() + "%，参考区间 20%–30%）。后续正餐建议以清淡、蒸煮或凉拌为主，并增加深色蔬菜摄入。"
-                    }
-                    (nutrition?.sodiumMg ?: 0.0) > 2000 -> {
-                        "今日钠摄入已达 " + (nutrition?.sodiumMg ?: 0.0).roundToInt() + " mg，接近单日参考上限。建议晚间饮食保持清淡并注意补足水分。"
-                    }
-                    else -> {
-                        "今日营养摄入结构良好，三大宏量营养素处于均衡推荐区间。请注意保持充足水分与规律睡眠。"
-                    }
-                }
                 Text(
                     nutritionAdvice,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.90f)
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.08f)
-            ) {
-                Text(
-                    "循证依据：WS/T 578-2017 学龄儿童膳食营养素参考摄入量 · 教育部中小学健康促进行动",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.72f),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -1353,7 +1375,6 @@ private fun TimelineItemRow(
 private fun SchoolEntryCard(
     schools: List<StudentSchoolDto>,
     selectedSchoolId: String,
-    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currentSchoolName = schools.firstOrNull { it.id == selectedSchoolId }?.name ?: "默认示范学校"
@@ -1365,7 +1386,7 @@ private fun SchoolEntryCard(
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
@@ -1382,19 +1403,10 @@ private fun SchoolEntryCard(
             }
 
             Text(
-                "校内午餐菜谱与体育课程由所在学校统一发布。如转校或体验其他学校数据，可随时点击设置切换。",
+                "校内午餐菜谱与体育课程由所在学校统一发布。如需切换学校或设置偏好，可点击页面右上角设置图标。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            OutlinedButton(
-                onClick = onOpenSettings,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Rounded.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("切换学校 / 设置主题")
-            }
         }
     }
 }
@@ -1584,6 +1596,8 @@ private fun ManualActivityCard(
 ) {
     var showManual by rememberSaveable { mutableStateOf(!collapsible) }
     var activityType by rememberSaveable(initialType) { mutableStateOf(initialType) }
+    val presetTypesScrollState = rememberScrollState()
+    val intensityScrollState = rememberScrollState()
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -1618,13 +1632,21 @@ private fun ManualActivityCard(
                 }
             }
 
-            AnimatedVisibility(visible = showManual) {
+            AnimatedVisibility(
+                visible = showManual,
+                enter = expandVertically(
+                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(durationMillis = 150)),
+                exit = shrinkVertically(
+                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(durationMillis = 120))
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("运动类型", style = MaterialTheme.typography.labelLarge)
 
                     val presetTypes = listOf("跑步", "跳绳", "羽毛球", "篮球", "自主运动")
                     Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(presetTypesScrollState),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         presetTypes.forEach { type ->
@@ -1698,7 +1720,7 @@ private fun ManualActivityCard(
                     }
 
                     Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        modifier = Modifier.horizontalScroll(intensityScrollState),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         IntensityChip(
@@ -1747,10 +1769,13 @@ private fun SettingsDialog(
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
     customApiBaseUrl: String? = null,
+    userProfile: UserProfile = UserProfile(),
     onSchoolChange: (String) -> Unit,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
     onCustomApiBaseUrlChange: (String?) -> Unit = {},
+    onUserProfileChange: (UserProfile) -> Unit = {},
+    onApplyRecommendedEnergy: (Int) -> Unit = {},
     onOpenHealthSettings: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1761,6 +1786,14 @@ private fun SettingsDialog(
     var testingConnection by remember { mutableStateOf(false) }
     var testFeedback by remember { mutableStateOf<String?>(null) }
     var testSuccess by remember { mutableStateOf(false) }
+
+    var ageText by remember(userProfile.age) { mutableStateOf(userProfile.age.toString()) }
+    var heightText by remember(userProfile.heightCm) {
+        mutableStateOf(if (userProfile.heightCm % 1.0 == 0.0) userProfile.heightCm.toInt().toString() else userProfile.heightCm.toString())
+    }
+    var weightText by remember(userProfile.weightKg) {
+        mutableStateOf(if (userProfile.weightKg % 1.0 == 0.0) userProfile.weightKg.toInt().toString() else userProfile.weightKg.toString())
+    }
 
     Surface(
         modifier = Modifier
@@ -1773,14 +1806,12 @@ private fun SettingsDialog(
         tonalElevation = 6.dp,
         shadowElevation = 12.dp
     ) {
-        Column(
-            modifier = Modifier
-                .padding(horizontal = 20.dp, vertical = 20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Sticky Header: X button always visible on top!
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
@@ -1793,7 +1824,7 @@ private fun SettingsDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "多端同步 · 服务器连接 · 就读学校 · 外观显示",
+                        "身体体征 · 网络连接 · 就读学校 · 外观显示",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1806,155 +1837,304 @@ private fun SettingsDialog(
                 }
             }
 
-            // 1. Server Connection Group
-            SettingsGroupCard(title = "服务连接与网络") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SettingsItemRow(
-                        icon = { Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        title = "API 服务地址",
-                        subtitle = "支持切换官方云端、局域网私有化或本地调试地址"
-                    )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                    OutlinedTextField(
-                        value = serverInput,
-                        onValueChange = {
-                            serverInput = it
-                            testFeedback = null
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("服务根地址 (URL)") },
-                        placeholder = { Text("https://h2609.lunarlab.uk/") },
-                        textStyle = MaterialTheme.typography.bodySmall
-                    )
+            // Scrollable Content
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 1. Profile & Energy Recommendations
+                SettingsGroupCard(title = "体征档案与能量推荐") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "生理性别与学龄",
+                            subtitle = "用于计算基础代谢率与儿童青少年体质标准"
+                        )
 
-                    if (testFeedback != null) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (testSuccess) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
-                            modifier = Modifier.fillMaxWidth()
+                        // Gender Selection: Male, Female, Neutral (supports unselecting both)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            FilterChip(
+                                selected = userProfile.gender == "male",
+                                onClick = {
+                                    val newGender = if (userProfile.gender == "male") "neutral" else "male"
+                                    onUserProfileChange(userProfile.copy(gender = newGender))
+                                },
+                                label = { Text("男生") }
+                            )
+                            FilterChip(
+                                selected = userProfile.gender == "female",
+                                onClick = {
+                                    val newGender = if (userProfile.gender == "female") "neutral" else "female"
+                                    onUserProfileChange(userProfile.copy(gender = newGender))
+                                },
+                                label = { Text("女生") }
+                            )
+                            FilterChip(
+                                selected = userProfile.gender == "neutral",
+                                onClick = {
+                                    onUserProfileChange(userProfile.copy(gender = "neutral"))
+                                },
+                                label = { Text("中性 / 不指定") }
+                            )
+                        }
+
+                        // Age, Height, Weight inputs
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = ageText,
+                                onValueChange = { input ->
+                                    ageText = input
+                                    input.toIntOrNull()?.let {
+                                        onUserProfileChange(userProfile.copy(age = it))
+                                    }
+                                },
+                                label = { Text("年龄 (岁)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            OutlinedTextField(
+                                value = heightText,
+                                onValueChange = { input ->
+                                    heightText = input
+                                    input.toDoubleOrNull()?.let {
+                                        onUserProfileChange(userProfile.copy(heightCm = it))
+                                    }
+                                },
+                                label = { Text("身高 (cm)") },
+                                modifier = Modifier.weight(1.2f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            OutlinedTextField(
+                                value = weightText,
+                                onValueChange = { input ->
+                                    weightText = input
+                                    input.toDoubleOrNull()?.let {
+                                        onUserProfileChange(userProfile.copy(weightKg = it))
+                                    }
+                                },
+                                label = { Text("体重 (kg)") },
+                                modifier = Modifier.weight(1.2f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+
+                        // Recommendation result banner
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(
-                                    if (testSuccess) Icons.Rounded.CheckCircle else Icons.Rounded.Error,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (testSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        userProfile.bmiStatusText,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        "${userProfile.recommendedEnergyKcal} 千卡/天",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
                                 Text(
-                                    testFeedback.orEmpty(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (testSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                    "依据《WS/T 578-2017 学龄儿童营养素参考摄入量》，已根据体质推荐适宜能量平衡目标。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                 )
+
+                                Button(
+                                    onClick = {
+                                        onApplyRecommendedEnergy(userProfile.recommendedEnergyKcal)
+                                        testFeedback = "已采纳推荐基准：${userProfile.recommendedEnergyKcal} 千卡"
+                                        testSuccess = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("采纳为今日能量基准 (${userProfile.recommendedEnergyKcal} 千卡)")
+                                }
                             }
                         }
                     }
+                }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                testingConnection = true
-                                testFeedback = "正在测通..."
-                                coroutineScope.launch {
-                                    val result = ApiFactory.testConnection(serverInput)
-                                    testingConnection = false
-                                    testSuccess = result.success
-                                    testFeedback = result.message
+                // 2. Server Connection Group
+                SettingsGroupCard(title = "服务连接与网络") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "API 服务地址",
+                            subtitle = "支持切换官方云端、局域网私有化或本地调试地址"
+                        )
+
+                        OutlinedTextField(
+                            value = serverInput,
+                            onValueChange = {
+                                serverInput = it
+                                testFeedback = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("服务根地址 (URL)") },
+                            placeholder = { Text("https://h2609.lunarlab.uk/") },
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+
+                        if (testFeedback != null) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (testSuccess) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        if (testSuccess) Icons.Rounded.CheckCircle else Icons.Rounded.Error,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (testSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                    Text(
+                                        testFeedback.orEmpty(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (testSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                    )
                                 }
-                            },
-                            enabled = !testingConnection,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(if (testingConnection) "测通中…" else "测试连通性")
+                            }
                         }
 
-                        Button(
-                            onClick = {
-                                val clean = serverInput.trim()
-                                val target = if (clean == BuildConfig.API_BASE_URL.trim()) null else clean
-                                ApiFactory.customBaseUrl = target
-                                onCustomApiBaseUrlChange(target)
-                                testFeedback = "已保存并切换至当前地址"
-                                testSuccess = true
-                            },
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("应用地址")
-                        }
-                    }
+                            OutlinedButton(
+                                onClick = {
+                                    testingConnection = true
+                                    testFeedback = "正在测通..."
+                                    coroutineScope.launch {
+                                        val result = ApiFactory.testConnection(serverInput)
+                                        testingConnection = false
+                                        testSuccess = result.success
+                                        testFeedback = result.message
+                                    }
+                                },
+                                enabled = !testingConnection,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(if (testingConnection) "测通中…" else "测试连通性")
+                            }
 
-                    if (serverInput.trim() != BuildConfig.API_BASE_URL.trim()) {
-                        TextButton(
-                            onClick = {
-                                serverInput = BuildConfig.API_BASE_URL
-                                ApiFactory.customBaseUrl = null
-                                onCustomApiBaseUrlChange(null)
-                                testFeedback = "已恢复官方默认地址"
-                                testSuccess = true
-                            },
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text("恢复默认官方地址")
+                            Button(
+                                onClick = {
+                                    val clean = serverInput.trim()
+                                    val target = if (clean == BuildConfig.API_BASE_URL.trim()) null else clean
+                                    ApiFactory.customBaseUrl = target
+                                    onCustomApiBaseUrlChange(target)
+                                    testFeedback = "已保存并切换至当前地址"
+                                    testSuccess = true
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("应用地址")
+                            }
+                        }
+
+                        if (serverInput.trim() != BuildConfig.API_BASE_URL.trim()) {
+                            TextButton(
+                                onClick = {
+                                    serverInput = BuildConfig.API_BASE_URL
+                                    ApiFactory.customBaseUrl = null
+                                    onCustomApiBaseUrlChange(null)
+                                    testFeedback = "已恢复官方默认地址"
+                                    testSuccess = true
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("恢复默认官方地址")
+                            }
                         }
                     }
                 }
-            }
 
-            // 2. E2EE Sync Group
-            SettingsGroupCard(title = "多端安全同步") {
-                SettingsItemRow(
-                    icon = { Icon(Icons.Rounded.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                    title = "端对端加密保护",
-                    subtitle = "数据于本地硬件级加密保护，安全无感同步至个人云端",
-                    trailing = {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
+                // 3. School Group
+                SettingsGroupCard(title = "学校关联") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
+                            title = "就读学校",
+                            subtitle = "关联食堂菜谱与体育课程安排"
+                        )
+
+                        if (schools.isEmpty()) {
                             Text(
-                                "已就绪",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                "暂无可选学校，正在使用默认学校。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 48.dp)
                             )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 48.dp)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                schools.forEach { school ->
+                                    FilterChip(
+                                        selected = selectedSchoolId == school.id,
+                                        onClick = { onSchoolChange(school.id) },
+                                        label = { Text(school.name) }
+                                    )
+                                }
+                            }
                         }
                     }
-                )
+                }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                SettingsItemRow(
-                    icon = { Icon(Icons.Rounded.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.secondary) },
-                    title = "智能省流同步",
-                    subtitle = "仅同步数据摘要与轻量缩略图，极度节省流量与存储空间"
-                )
-            }
-
-            // 2. School Group
-            SettingsGroupCard(title = "学校关联") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SettingsItemRow(
-                        icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
-                        title = "就读学校",
-                        subtitle = "关联食堂菜谱与体育课程安排"
-                    )
-
-                    if (schools.isEmpty()) {
-                        Text(
-                            "暂无可选学校，正在使用默认学校。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 48.dp)
+                // 4. Appearance Group
+                SettingsGroupCard(title = "外观与色彩") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "主题深浅",
+                            subtitle = "切换浅色、深色或随系统切换"
                         )
-                    } else {
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1962,88 +2142,61 @@ private fun SettingsDialog(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            schools.forEach { school ->
+                            listOf(
+                                AppearanceMode.SYSTEM to "跟随系统",
+                                AppearanceMode.LIGHT to "浅色",
+                                AppearanceMode.DARK to "深色"
+                            ).forEach { (mode, label) ->
                                 FilterChip(
-                                    selected = selectedSchoolId == school.id,
-                                    onClick = { onSchoolChange(school.id) },
-                                    label = { Text(school.name) }
+                                    selected = appearanceMode == mode,
+                                    onClick = { onAppearanceModeChange(mode) },
+                                    label = { Text(label) }
                                 )
                             }
                         }
-                    }
-                }
-            }
 
-            // 3. Appearance Group
-            SettingsGroupCard(title = "外观与色彩") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SettingsItemRow(
-                        icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        title = "主题深浅",
-                        subtitle = "切换浅色、深色或随系统切换"
-                    )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 48.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            AppearanceMode.SYSTEM to "跟随系统",
-                            AppearanceMode.LIGHT to "浅色",
-                            AppearanceMode.DARK to "深色"
-                        ).forEach { (mode, label) ->
-                            FilterChip(
-                                selected = appearanceMode == mode,
-                                onClick = { onAppearanceModeChange(mode) },
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                    SettingsItemRow(
-                        icon = {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                                    Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                        SettingsItemRow(
+                            icon = {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                        Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
                                 }
+                            },
+                            title = "Monet 动态色彩自适应",
+                            subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
+                            trailing = {
+                                Switch(
+                                    checked = dynamicColor,
+                                    onCheckedChange = onDynamicColorChange
+                                )
                             }
-                        },
-                        title = "Monet 动态色彩自适应",
-                        subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
-                        trailing = {
-                            Switch(
-                                checked = dynamicColor,
-                                onCheckedChange = onDynamicColorChange
-                            )
-                        }
-                    )
+                        )
+                    }
                 }
-            }
 
-            // 4. Health & Permissions Group
-            SettingsGroupCard(title = "运动健康服务") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SettingsItemRow(
-                        icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                        title = "Health Connect 权限",
-                        subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
-                    )
+                // 5. Health & Permissions Group
+                SettingsGroupCard(title = "运动健康服务") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "Health Connect 权限",
+                            subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
+                        )
 
-                    OutlinedButton(
-                        onClick = onOpenHealthSettings,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 48.dp)
-                    ) {
-                        Text("打开系统运动健康设置")
+                        OutlinedButton(
+                            onClick = onOpenHealthSettings,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp)
+                        ) {
+                            Text("打开系统运动健康设置")
+                        }
                     }
                 }
             }
