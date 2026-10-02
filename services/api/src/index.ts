@@ -753,7 +753,11 @@ app.get("/v1/today/summary", async (c) => {
           : Number((health as any).active_energy_kcal),
       manuallyEstimatedActiveEnergyKcal: Number(
         (manual as any)?.estimated_active_energy_kcal ?? 0
-      )
+      ),
+      steps:
+        (health as any)?.steps == null
+          ? null
+          : Number((health as any).steps)
     },
     energy: {
       dailyEnergyReferenceKcal,

@@ -142,7 +142,8 @@ data class ActivitySummaryDto(
     val targetReached: Boolean = false,
     val intensityMinutes: IntensityMinutesDto = IntensityMinutesDto(),
     val activeEnergyKcal: Double? = null,
-    val manuallyEstimatedActiveEnergyKcal: Double = 0.0
+    val manuallyEstimatedActiveEnergyKcal: Double = 0.0,
+    val steps: Long? = null
 )
 
 data class EnergySummaryDto(

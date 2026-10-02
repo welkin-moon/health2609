@@ -32,8 +32,9 @@ const bootstrapPrompt = [
   "You are the resident AGY coordinator for the health2609 student health project.",
   "Your only image-analysis job is estimating home-meal contents for later user confirmation; never treat estimates as medical diagnoses or exact measurements.",
   "Each request supplies the authoritative task instruction, image path, and schema version. Read that request instruction carefully before analysis.",
-  "For EVERY later meal-image request, create a fresh child/subagent to inspect that image visually. Do not reuse food items, quantities, or assumptions from earlier requests.",
-  "The resident parent must validate and normalize the child result, preserve uncertainty, and return only the configured JSON schema.",
+  "Inspect each meal-image request directly in a single pass without spawning nested child subagents or entering recursive delegation loops.",
+  "Do not reuse food items, quantities, or assumptions from earlier requests.",
+  "Preserve uncertainty, and return only the configured JSON schema.",
   "If an item or amount is ambiguous, lower confidence and add a concise needsConfirmation entry instead of inventing precision.",
   "For this bootstrap turn only, return schemaVersion=1, an empty items array, and notes=[\"resident_ready\"]."
 ].join("\n");
@@ -133,7 +134,12 @@ function sendRaw(prompt, timeoutMs) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       if (pendingResult) pendingResult = null;
+      log(`turn timeout (${timeoutMs}ms) exceeded; stopping AGY and triggering background recovery`);
       stopAgy("turn_timeout");
+      // Resilient background recovery so agyReady recovers to true rather than staying false
+      ensureAgy().catch((err) => {
+        log(`background recovery after turn_timeout failed: ${err.message}`);
+      });
       reject(new Error("agy_timeout"));
     }, timeoutMs);
     pendingResult = { resolve, reject, timer };
@@ -142,19 +148,31 @@ function sendRaw(prompt, timeoutMs) {
   });
 }
 
-async function ensureAgy() {
+async function ensureAgy(maxRetries = 2) {
   if (agyProcess && agyReady) return;
   if (startPromise) return startPromise;
 
   startPromise = (async () => {
-    if (!agyProcess) spawnAgy();
-    const result = await sendRaw(bootstrapPrompt, 120000);
-    const ready = result.structured_output || safeParseJson(result.response);
-    if (!ready || ready.schemaVersion !== 1) {
-      throw new Error("agy_bootstrap_invalid");
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (!agyProcess) spawnAgy();
+        const result = await sendRaw(bootstrapPrompt, 120000);
+        const ready = result.structured_output || safeParseJson(result.response);
+        if (!ready || ready.schemaVersion !== 1) {
+          throw new Error("agy_bootstrap_invalid");
+        }
+        agyReady = true;
+        log(`resident AGY ready; conversation=${result.conversation_id || "unknown"}`);
+        return;
+      } catch (error) {
+        log(`bootstrap attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+        stopAgy(`bootstrap_attempt_${attempt}_failed`);
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
-    agyReady = true;
-    log(`resident AGY ready; conversation=${result.conversation_id || "unknown"}`);
   })();
 
   try {
@@ -182,8 +200,8 @@ async function analyzeImages(imagePaths, suppliedPrompt, schemaVersion) {
   const imageList = imagePaths.map((p, idx) => `Image ${idx + 1}: ${p}`).join("\n");
   const prompt = [
     "A new health2609 home-meal request has arrived.",
-    "Create a FRESH child/subagent for this request and delegate the visual inspection to that child.",
-    `The child must inspect the ${imagePaths.length} local image file(s) visually. Do not infer from filenames.`,
+    "Inspect the local image file(s) directly and generate the structured analysis in this single pass.",
+    "Do NOT spawn nested child subagents, recursive loops, or repetitive delegation chains.",
     imagePaths.length > 1
       ? "This meal request contains multiple photos of the SAME meal (such as full plate overview, dish close-ups, different angles, side dishes or beverages). Carefully synthesize visual information across all images to produce a single consolidated, deduplicated list of meal items."
       : "This meal request contains 1 photo of the meal.",
@@ -193,7 +211,7 @@ async function analyzeImages(imagePaths, suppliedPrompt, schemaVersion) {
     "----- BEGIN TASK INSTRUCTION -----",
     suppliedPrompt,
     "----- END TASK INSTRUCTION -----",
-    "After the child returns, validate/normalize it as the resident parent and return ONLY the configured structured output.",
+    "Return ONLY the configured structured output conforming to the schema.",
     "Never carry food identity, quantity, or confidence assumptions from another request."
   ].join("\n");
 

@@ -22,6 +22,8 @@ import uk.lunarlab.health2609.core.network.SchoolActivityOverrideRequest
 import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
+import uk.lunarlab.health2609.core.utils.ImageCompressor
+
 data class TodayData(
     val menu: TodayMenuDto,
     val summary: DailySummaryDto,
@@ -100,7 +102,22 @@ class TodayRepository(
         require(images.isNotEmpty()) { "请至少提供一张图片" }
         require(images.size <= 5) { "最多支持上传 5 张图片" }
 
-        val parts = images.mapIndexed { index, img ->
+        val compressedList = images.map { img ->
+            val result = runCatching {
+                ImageCompressor.compressFromBytes(img.bytes)
+            }.getOrNull()
+            if (result != null) {
+                img.copy(
+                    bytes = result.bytes,
+                    mimeType = result.mimeType,
+                    fileName = result.fileName
+                )
+            } else {
+                img
+            }
+        }
+
+        val parts = compressedList.mapIndexed { index, img ->
             require(img.bytes.isNotEmpty()) { "图片为空" }
             require(img.bytes.size <= 8 * 1024 * 1024) { "单张图片不能超过 8 MB" }
 

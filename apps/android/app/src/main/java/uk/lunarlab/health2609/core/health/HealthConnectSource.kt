@@ -85,16 +85,21 @@ class HealthConnectSource(
     }
 
     fun createSettingsIntent(): Intent {
-        val manageIntent = Intent("android.health.connect.action.MANAGE_HEALTH_PERMISSIONS").apply {
-            putExtra(Intent.EXTRA_PACKAGE_NAME, appContext.packageName)
-        }
-        if (manageIntent.resolveActivity(appContext.packageManager) != null) {
-            return manageIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
+        val candidates = listOf(
+            Intent("android.settings.HEALTH_CONNECT_SETTINGS"),
+            Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS),
+            Intent("android.health.connect.action.MANAGE_HEALTH_PERMISSIONS").apply {
+                putExtra(Intent.EXTRA_PACKAGE_NAME, appContext.packageName)
+            }
+        )
 
-        val clientSettingsIntent = Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
-        if (clientSettingsIntent.resolveActivity(appContext.packageManager) != null) {
-            return clientSettingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        for (candidate in candidates) {
+            val resolvable = runCatching {
+                candidate.resolveActivity(appContext.packageManager) != null
+            }.getOrDefault(false)
+            if (resolvable) {
+                return candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
         }
 
         return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
@@ -163,12 +168,23 @@ class HealthConnectSource(
                     ?: 0.0
         }
 
+        val recordedMinutes = exerciseDuration.toMinutes().coerceAtMost(1440).toInt()
+        val estimatedMinutes = if (steps > 0L) {
+            (steps / 100L).coerceIn(1L, 1440L).toInt()
+        } else {
+            0
+        }
+        val effectiveMinutes = maxOf(recordedMinutes, estimatedMinutes)
+        val effectiveEnergyKcal = if (activeEnergyKcal <= 0.0 && steps > 0L) {
+            steps * 0.04
+        } else {
+            activeEnergyKcal
+        }
+
         return HealthConnectDayAggregate(
-            exerciseMinutes = exerciseDuration.toMinutes()
-                .coerceAtMost(1440)
-                .toInt(),
+            exerciseMinutes = effectiveMinutes,
             steps = steps.coerceIn(0L, 200_000L),
-            activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
+            activeEnergyKcal = effectiveEnergyKcal.coerceIn(0.0, 20_000.0)
         )
     }
 
@@ -213,10 +229,23 @@ class HealthConnectSource(
                     ?.inKilocalories ?: 0.0
         }
 
+        val recordedMinutes = exerciseDuration.toMinutes().coerceAtMost(1440).toInt()
+        val estimatedMinutes = if (steps > 0L) {
+            (steps / 100L).coerceIn(1L, 1440L).toInt()
+        } else {
+            0
+        }
+        val effectiveMinutes = maxOf(recordedMinutes, estimatedMinutes)
+        val effectiveEnergyKcal = if (activeEnergyKcal <= 0.0 && steps > 0L) {
+            steps * 0.04
+        } else {
+            activeEnergyKcal
+        }
+
         return HealthConnectDayAggregate(
-            exerciseMinutes = exerciseDuration.toMinutes().coerceAtMost(1440).toInt(),
+            exerciseMinutes = effectiveMinutes,
             steps = steps.coerceIn(0L, 200_000L),
-            activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
+            activeEnergyKcal = effectiveEnergyKcal.coerceIn(0.0, 20_000.0)
         )
     }
 

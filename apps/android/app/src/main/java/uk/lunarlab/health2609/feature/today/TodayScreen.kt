@@ -41,8 +41,11 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material3.*
+import uk.lunarlab.health2609.core.sync.SyncState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -104,6 +107,7 @@ fun TodayScreen(
     appearanceMode: AppearanceMode,
     dynamicColor: Boolean,
     wideLayout: Boolean,
+    hasBottomDock: Boolean = !wideLayout,
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
     onSchoolChange: (String) -> Unit,
@@ -246,6 +250,7 @@ fun TodayScreen(
                             destination = destination,
                             state = state,
                             selectedSchoolId = selectedSchoolId,
+                            hasBottomDock = hasBottomDock,
                             lunchPreview = lunchPreview,
                             onPortionChange = onPortionChange,
                             onGramsChange = onGramsChange,
@@ -411,6 +416,7 @@ private fun WideScreenContent(
                     item {
                         ActivityStatsCard(
                             summary = state.summary,
+                            syncedSteps = state.syncedSteps,
                             syncing = state.syncingPhoneActivity,
                             onSync = onSyncPhoneActivity,
                             onRequestHealthPermissions = onRequestHealthPermissions
@@ -474,7 +480,10 @@ private fun WideScreenContent(
                         EnergyBalanceCard(summary = state.summary)
                     }
                     item {
-                        MoeExerciseProgressCard(summary = state.summary)
+                        MoeExerciseProgressCard(
+                            summary = state.summary,
+                            syncedSteps = state.syncedSteps
+                        )
                     }
                     item {
                         MacroNutrientCard(summary = state.summary)
@@ -531,6 +540,7 @@ private fun CompactScreenContent(
     destination: String,
     state: TodayUiState,
     selectedSchoolId: String,
+    hasBottomDock: Boolean = true,
     lunchPreview: NutritionTotals,
     onPortionChange: (String, Double) -> Unit,
     onGramsChange: (String, Double?) -> Unit,
@@ -564,7 +574,7 @@ private fun CompactScreenContent(
             start = 18.dp,
             end = 18.dp,
             top = 8.dp,
-            bottom = 150.dp
+            bottom = if (hasBottomDock) 150.dp else 36.dp
         ),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
@@ -643,6 +653,7 @@ private fun CompactScreenContent(
                 item {
                     ActivityStatsCard(
                         summary = state.summary,
+                        syncedSteps = state.syncedSteps,
                         syncing = state.syncingPhoneActivity,
                         onSync = onSyncPhoneActivity,
                         onRequestHealthPermissions = onRequestHealthPermissions
@@ -677,7 +688,10 @@ private fun CompactScreenContent(
                     EnergyBalanceCard(summary = state.summary)
                 }
                 item {
-                    MoeExerciseProgressCard(summary = state.summary)
+                    MoeExerciseProgressCard(
+                        summary = state.summary,
+                        syncedSteps = state.syncedSteps
+                    )
                 }
                 item {
                     MacroNutrientCard(summary = state.summary)
@@ -815,10 +829,12 @@ private fun EnergyBalanceCard(
 @Composable
 private fun MoeExerciseProgressCard(
     summary: DailySummaryDto?,
+    syncedSteps: Long? = null,
     modifier: Modifier = Modifier
 ) {
     val activity = summary?.activity
     val totalMinutes = activity?.totalMinutes ?: 0
+    val steps = activity?.steps ?: syncedSteps ?: 0L
     val intensity = activity?.intensityMinutes ?: IntensityMinutesDto()
     val mvpaMinutes = intensity.moderate + intensity.vigorous
     val vigorousMinutes = intensity.vigorous
@@ -851,7 +867,7 @@ private fun MoeExerciseProgressCard(
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "按时长和强度查看已记录的运动",
+                        "关注中高强度运动、今日步数与能量消耗",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
                     )
@@ -874,7 +890,7 @@ private fun MoeExerciseProgressCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         if (mvpaMinutes > 0) mvpaMinutes.toString() + " 分钟" else totalMinutes.toString() + " 分钟",
                         style = MaterialTheme.typography.displaySmall,
@@ -887,10 +903,28 @@ private fun MoeExerciseProgressCard(
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     )
                 }
+                if (steps > 0L) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text(
+                            "$steps 步",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            "今日步数",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
+                        )
+                    }
+                }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         activeKcal?.let { it.toString() + " 千卡" } ?: "—",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
@@ -1111,7 +1145,13 @@ private fun DailyEnergyReferenceSettingCard(
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                             Text(
-                                "按身体信息计算，可自行调整",
+                                userProfile.bmrStatusText,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                userProfile.bmiStatusText,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
                             )
@@ -1407,12 +1447,17 @@ private fun SchoolEntryCard(
 @Composable
 private fun ActivityStatsCard(
     summary: DailySummaryDto?,
+    syncedSteps: Long? = null,
     syncing: Boolean,
     onSync: () -> Unit,
     onRequestHealthPermissions: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val activity = summary?.activity
+    val totalMinutes = activity?.totalMinutes ?: 0
+    val steps = activity?.steps ?: syncedSteps ?: 0L
+    val activeEnergy = activity?.activeEnergyKcal?.roundToInt()
+        ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -1429,13 +1474,26 @@ private fun ActivityStatsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "$totalMinutes 分钟",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (steps > 0L) {
+                            Text(
+                                "$steps 步",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     Text(
-                        (activity?.totalMinutes ?: 0).toString() + " 分钟",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        "今天已记录的运动",
+                        "今天已记录的运动 · 步数与活动统计",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1456,7 +1514,12 @@ private fun ActivityStatsCard(
                 }
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActivityMetric(
+                    modifier = Modifier.weight(1f),
+                    value = if (steps > 0L) "$steps 步" else "—",
+                    label = "今日步数"
+                )
                 ActivityMetric(
                     modifier = Modifier.weight(1f),
                     value = (activity?.peMinutes ?: 0).toString() + " 分钟",
@@ -1469,7 +1532,7 @@ private fun ActivityStatsCard(
                 )
                 ActivityMetric(
                     modifier = Modifier.weight(1f),
-                    value = activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
+                    value = activeEnergy?.let { "$it 千卡" } ?: "—",
                     label = "活动消耗"
                 )
             }
@@ -1598,7 +1661,14 @@ private fun ManualActivityCard(
         modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier
+                .padding(18.dp)
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (collapsible) {
@@ -1628,11 +1698,25 @@ private fun ManualActivityCard(
             AnimatedVisibility(
                 visible = showManual,
                 enter = expandVertically(
-                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                ) + fadeIn(animationSpec = tween(durationMillis = 150)),
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeIn(
+                    animationSpec = spring(
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ),
                 exit = shrinkVertically(
-                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                ) + fadeOut(animationSpec = tween(durationMillis = 120))
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeOut(
+                    animationSpec = spring(
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("运动类型", style = MaterialTheme.typography.labelLarge)
@@ -1743,6 +1827,10 @@ internal fun SettingsDialog(
     onCustomApiBaseUrlChange: (String?) -> Unit = {},
     onUserProfileChange: suspend (UserProfile) -> Unit = {},
     onApplyRecommendedEnergy: (Int) -> Unit = {},
+    syncState: SyncState? = null,
+    onOpenSyncDialog: () -> Unit = {},
+    onTriggerSync: () -> Unit = {},
+    isSyncing: Boolean = false,
     onOpenHealthSettings: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1967,7 +2055,14 @@ internal fun SettingsDialog(
                                 }
 
                                 Text(
-                                    "根据当前身体信息估算，可自行调整。",
+                                    userProfile.bmrStatusText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                Text(
+                                    "已根据临床 Mifflin-St Jeor 基础代谢公式与轻中度活动系数，结合体质指数推荐每日能量基准。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                 )
@@ -2200,6 +2295,166 @@ internal fun SettingsDialog(
                     }
                 }
 
+                // 3. School Group
+                SettingsGroupCard(title = "学校关联") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
+                            title = "就读学校",
+                            subtitle = "关联食堂菜谱与体育课程安排"
+                        )
+
+                        if (schools.isEmpty()) {
+                            Text(
+                                "暂无可选学校，正在使用默认学校。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 48.dp)
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 48.dp)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                schools.forEach { school ->
+                                    FilterChip(
+                                        selected = selectedSchoolId == school.id,
+                                        onClick = { onSchoolChange(school.id) },
+                                        label = { Text(school.name) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. E2EE Sync Group
+                SettingsGroupCard(title = "学校账号与端对端加密云同步") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsItemRow(
+                            icon = {
+                                Icon(
+                                    if (syncState?.isEnabled == true) Icons.Rounded.CloudDone else Icons.Rounded.CloudSync,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            title = if (syncState?.isEnabled == true) "端对端加密云同步已就绪" else "学校账号云同步",
+                            subtitle = if (syncState?.isEnabled == true) {
+                                "学号: ${syncState.username} · ${syncState.deviceCount} 台设备 · 上次: ${syncState.lastSyncTimestamp ?: "刚刚"}"
+                            } else {
+                                "保护个人隐私 · 跨设备端对端加密多端同步"
+                            }
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (syncState?.isEnabled == true) {
+                                FilledTonalButton(
+                                    onClick = onTriggerSync,
+                                    enabled = !isSyncing,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (isSyncing) "同步中…" else "立即同步")
+                                }
+                                OutlinedButton(
+                                    onClick = onOpenSyncDialog,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("账号设置")
+                                }
+                            } else {
+                                Button(
+                                    onClick = onOpenSyncDialog,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("登录学校账号并配置加密同步")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Appearance Group
+                SettingsGroupCard(title = "外观与色彩") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "主题深浅",
+                            subtitle = "切换浅色、深色或随系统切换"
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                AppearanceMode.SYSTEM to "跟随系统",
+                                AppearanceMode.LIGHT to "浅色",
+                                AppearanceMode.DARK to "深色"
+                            ).forEach { (mode, label) ->
+                                FilterChip(
+                                    selected = appearanceMode == mode,
+                                    onClick = { onAppearanceModeChange(mode) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        SettingsItemRow(
+                            icon = {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                        Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                }
+                            },
+                            title = "Monet 动态色彩自适应",
+                            subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
+                            trailing = {
+                                Switch(
+                                    checked = dynamicColor,
+                                    onCheckedChange = onDynamicColorChange
+                                )
+                            }
+                        )
+                    }
+                }
+
+                // 5. Health & Permissions Group
+                SettingsGroupCard(title = "运动健康服务") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "Health Connect 权限",
+                            subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
+                        )
+
+                        OutlinedButton(
+                            onClick = onOpenHealthSettings,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 48.dp)
+                        ) {
+                            Text("打开系统运动健康设置")
+                        }
+                    }
+                }
             }
         }
     }

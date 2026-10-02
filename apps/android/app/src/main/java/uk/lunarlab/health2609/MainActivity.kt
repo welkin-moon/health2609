@@ -39,6 +39,10 @@ import uk.lunarlab.health2609.core.storage.AppearanceMode
 import uk.lunarlab.health2609.core.storage.AppearancePreferences
 import uk.lunarlab.health2609.core.storage.Health2609Preferences
 import uk.lunarlab.health2609.core.storage.UserProfile
+import uk.lunarlab.health2609.core.sync.SyncRepository
+import uk.lunarlab.health2609.core.sync.SyncState
+import uk.lunarlab.health2609.core.utils.ImageCompressor
+import uk.lunarlab.health2609.feature.sync.LoginSyncDialog
 import uk.lunarlab.health2609.feature.today.SettingsDialog
 import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
@@ -59,6 +63,10 @@ class MainActivity : ComponentActivity() {
 
     private val preferences by lazy {
         Health2609Preferences(this)
+    }
+
+    private val syncRepository by lazy {
+        SyncRepository(this)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -180,8 +188,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                val selectedDestination by preferences.startDestination
+                val savedStartDestination by preferences.startDestination
                     .collectAsStateWithLifecycle(initialValue = "today")
+                var currentDestination by rememberSaveable { mutableStateOf<String?>(null) }
+                val selectedDestination = currentDestination ?: savedStartDestination
                 val customApiBaseUrl by preferences.customApiBaseUrl
                     .collectAsStateWithLifecycle(initialValue = null)
                 val userProfile by preferences.userProfile
@@ -200,19 +210,22 @@ class MainActivity : ComponentActivity() {
                 }
 
                 var showSettingsDialog by rememberSaveable { mutableStateOf(false) }
+                val syncState by syncRepository.syncState.collectAsStateWithLifecycle(
+                    initialValue = SyncState()
+                )
+                var showLoginSyncDialog by rememberSaveable { mutableStateOf(false) }
+                var isSyncingNow by remember { mutableStateOf(false) }
 
                 StudentAppShell(
                     selectedDestination = selectedDestination,
                     onDestinationChange = { destination ->
-                        lifecycleScope.launch {
-                            preferences.setStartDestination(destination)
-                        }
+                        currentDestination = destination
                     },
                     dateText = prettyDate,
                     onOpenSettings = { showSettingsDialog = true },
                     onRefresh = viewModel::refresh,
                     isRefreshing = state.loading
-                ) { destination, wideLayout ->
+                ) { destination, wideLayout, hasBottomDock ->
                     TodayScreen(
                     destination = destination,
                     state = state,
@@ -220,6 +233,7 @@ class MainActivity : ComponentActivity() {
                     appearanceMode = appearance.mode,
                     dynamicColor = appearance.dynamicColor,
                     wideLayout = wideLayout,
+                    hasBottomDock = hasBottomDock,
                     onAppearanceModeChange = { mode ->
                         lifecycleScope.launch {
                             preferences.setAppearanceMode(mode)
@@ -456,20 +470,55 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onUserProfileChange = { profile ->
-                                preferences.setUserProfile(profile)
+                                lifecycleScope.launch {
+                                    preferences.setUserProfile(profile)
+                                    viewModel.setEnergyReferenceInput(profile.recommendedEnergyKcal.toString())
+                                    viewModel.saveEnergyReference()
+                                }
                             },
                             onApplyRecommendedEnergy = { kcal ->
                                 viewModel.setEnergyReferenceInput(kcal.toString())
                                 viewModel.saveEnergyReference()
                             },
+                            syncState = syncState,
+                            onOpenSyncDialog = { showLoginSyncDialog = true },
+                            onTriggerSync = {
+                                if (!isSyncingNow) {
+                                    isSyncingNow = true
+                                    lifecycleScope.launch {
+                                        syncRepository.triggerSync()
+                                            .onSuccess { msg ->
+                                                isSyncingNow = false
+                                                viewModel.showMessage(msg)
+                                            }
+                                            .onFailure { err ->
+                                                isSyncingNow = false
+                                                viewModel.showMessage(err.message ?: "同步失败")
+                                            }
+                                    }
+                                }
+                            },
+                            isSyncing = isSyncingNow,
                             onOpenHealthSettings = {
                                 lifecycleScope.launch {
-                                    startActivity(healthConnectSource.createSettingsIntent())
+                                    runCatching {
+                                        startActivity(healthConnectSource.createSettingsIntent())
+                                    }.onFailure {
+                                        viewModel.showMessage("无法打开系统健康设置")
+                                    }
                                 }
                             },
                             onDismiss = { showSettingsDialog = false }
                         )
                     }
+                }
+
+                if (showLoginSyncDialog) {
+                    LoginSyncDialog(
+                        syncRepository = syncRepository,
+                        currentSchoolId = selectedSchoolId,
+                        onDismiss = { showLoginSyncDialog = false }
+                    )
                 }
             }
         }
@@ -526,41 +575,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun readImageForUpload(uri: Uri): UploadImage {
-        val maxBytes = 8 * 1024 * 1024
-        val output = ByteArrayOutputStream()
-
-        contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "无法读取这张图片" }
-
-            val buffer = ByteArray(64 * 1024)
-            var total = 0
-
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                total += count
-                require(total <= maxBytes) {
-                    "图片不能超过 8 MB"
-                }
-                output.write(buffer, 0, count)
-            }
-        }
-
-        val mimeType = contentResolver.getType(uri)
-            ?.takeIf { it.startsWith("image/") }
-            ?: "image/jpeg"
-
-        val suffix = when (mimeType) {
-            "image/png" -> "png"
-            "image/webp" -> "webp"
-            "image/heic", "image/heif" -> "heic"
-            else -> "jpg"
-        }
-
+        val compressed = ImageCompressor.compressFromUri(this@MainActivity, uri)
         return UploadImage(
-            bytes = output.toByteArray(),
-            mimeType = mimeType,
-            fileName = "home-meal.$suffix"
+            bytes = compressed.bytes,
+            mimeType = compressed.mimeType,
+            fileName = compressed.fileName
         )
     }
 
@@ -651,7 +670,10 @@ class MainActivity : ComponentActivity() {
             } else {
                 "已更新校外运动：${aggregate.exerciseMinutes} 分钟 · ${aggregate.steps} 步"
             }
-            viewModel.phoneActivitySyncFinished(message)
+            viewModel.phoneActivitySyncFinished(
+                message = message,
+                syncedSteps = aggregate.steps
+            )
         }.onFailure { error ->
             viewModel.phoneActivitySyncFailed(
                 error.message ?: "手机运动数据同步失败"

@@ -69,6 +69,7 @@ data class TodayUiState(
     val stagedMealImages: List<StagedMealImage> = emptyList(),
     val homeMealDraft: List<HomeMealDraftItem> = emptyList(),
     val homeMealNotes: List<String> = emptyList(),
+    val syncedSteps: Long? = null,
     val message: String? = null
 )
 
@@ -412,7 +413,10 @@ class TodayViewModel(
         }
     }
 
-    fun phoneActivitySyncFinished(message: String = "手机运动数据已更新") {
+    fun phoneActivitySyncFinished(
+        message: String = "手机运动数据已更新",
+        syncedSteps: Long? = null
+    ) {
         val date = _uiState.value.date
         viewModelScope.launch {
             runCatching { repository.loadSummary(date) }
@@ -420,6 +424,7 @@ class TodayViewModel(
                     _uiState.update {
                         it.copy(
                             summary = summary,
+                            syncedSteps = syncedSteps ?: it.syncedSteps,
                             syncingPhoneActivity = false,
                             message = message
                         )
@@ -429,7 +434,9 @@ class TodayViewModel(
                     _uiState.update {
                         it.copy(
                             syncingPhoneActivity = false,
-                            message = "手机数据已提交，汇总暂时未能刷新。请稍后刷新页面。"
+                            syncedSteps = syncedSteps ?: it.syncedSteps,
+                            message = error.message
+                                ?: "手机数据已提交，但汇总刷新失败"
                         )
                     }
                 }

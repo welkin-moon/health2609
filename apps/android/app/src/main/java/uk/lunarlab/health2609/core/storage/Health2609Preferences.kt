@@ -39,24 +39,43 @@ data class UserProfile(
             } else 20.0
         }
 
+    val bmr: Double
+        get() {
+            val base = 10.0 * weightKg + 6.25 * heightCm - 5.0 * age
+            val result = when (gender.lowercase()) {
+                "male" -> base + 5.0
+                "female" -> base - 161.0
+                else -> base - 78.0 // (5.0 + -161.0) / 2.0 = -78.0 (average of male and female)
+            }
+            return kotlin.math.round(result * 10.0) / 10.0
+        }
+
     val recommendedEnergyKcal: Int
         get() {
-            val base = when {
-                age <= 9 -> 1600
-                age in 10..12 -> if (gender == "male") 2000 else if (gender == "female") 1800 else 1900
-                age in 13..15 -> if (gender == "male") 2400 else if (gender == "female") 2100 else 2250
-                else -> if (gender == "male") 2600 else if (gender == "female") 2200 else 2400
+            val tdee = bmr * 1.35
+            val adjusted = when {
+                bmi >= 28.0 -> tdee - 400.0
+                bmi >= 24.0 -> tdee - 250.0
+                bmi < 16.5 -> tdee + 200.0
+                bmi < 18.5 -> tdee + 100.0
+                else -> tdee
             }
-            return when {
-                bmi >= 24.0 -> (base - 400).coerceAtLeast(1500)
-                bmi >= 22.0 -> (base - 250).coerceAtLeast(1500)
-                bmi < 16.5 -> base + 200
-                else -> base
+            return kotlin.math.round(adjusted).toInt().coerceIn(1200, 3800)
+        }
+
+    val bmrStatusText: String
+        get() {
+            val genderText = when (gender.lowercase()) {
+                "male" -> "男生"
+                "female" -> "女生"
+                else -> "通用"
             }
+            return "BMR基础代谢 ${bmr.toInt()} kcal/天 ($genderText · Mifflin-St Jeor)"
         }
 
     val bmiStatusText: String
         get() = when {
+            bmi >= 28.0 -> "BMI $bmi · 肥胖，建议控制饮食并增加日常活动"
             bmi >= 24.0 -> "BMI $bmi · 超重/偏高，建议制造能量缺口"
             bmi >= 22.0 -> "BMI $bmi · 轻度偏高，建议适度控制总热量"
             bmi < 16.5 -> "BMI $bmi · 体重偏轻，建议适当补充热量与优质蛋白"

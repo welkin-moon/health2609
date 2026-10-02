@@ -1,5 +1,6 @@
 package uk.lunarlab.health2609.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
@@ -87,7 +89,7 @@ fun StudentAppShell(
     onOpenSettings: (() -> Unit)? = null,
     onRefresh: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
-    content: @Composable (String, Boolean) -> Unit
+    content: @Composable (destination: String, wideLayout: Boolean, hasBottomDock: Boolean) -> Unit
 ) {
     val initialPage = remember {
         destinations.indexOfFirst { it.route == selectedDestination }.coerceAtLeast(0)
@@ -120,6 +122,23 @@ fun StudentAppShell(
                 onDestinationChange(route)
             }
         }
+    }
+
+    val currentRoute = destinations.getOrNull(pagerState.currentPage)?.route ?: selectedDestination
+    val canGoBackToToday = currentRoute != "today" || selectedDestination != "today"
+
+    BackHandler(enabled = canGoBackToToday) {
+        val todayIndex = destinations.indexOfFirst { it.route == "today" }.coerceAtLeast(0)
+        coroutineScope.launch {
+            pagerState.animateScrollToPage(
+                page = todayIndex,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+        onDestinationChange("today")
     }
 
     Scaffold(
@@ -160,7 +179,11 @@ fun StudentAppShell(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            val useNavigationRail = maxWidth >= 600.dp
+            val isCompact = maxWidth < 600.dp
+            val isMedium = maxWidth in 600.dp..<840.dp
+            val isExpanded = maxWidth >= 840.dp
+
+            val useNavigationRail = !isCompact
 
             Box(
                 modifier = Modifier
@@ -173,52 +196,75 @@ fun StudentAppShell(
                     userScrollEnabled = true,
                     beyondViewportPageCount = 2
                 ) { pageIndex ->
-                    content(destinations[pageIndex].route, useNavigationRail)
+                    val route = destinations[pageIndex].route
+                    when {
+                        isMedium -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth()
+                                        .widthIn(max = 640.dp)
+                                ) {
+                                    content(route, false, false)
+                                }
+                            }
+                        }
+                        isExpanded -> {
+                            content(route, true, false)
+                        }
+                        else -> {
+                            content(route, false, true)
+                        }
+                    }
                 }
             }
 
-        if (useNavigationRail) {
-            FloatingStudentRail(
-                pagerState = pagerState,
-                onSelectPage = { page ->
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(
-                            page = page,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
+            if (useNavigationRail) {
+                FloatingStudentRail(
+                    pagerState = pagerState,
+                    onSelectPage = { page ->
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(
+                                page = page,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
                             )
-                        )
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .safeDrawingPadding()
-                    .padding(start = 12.dp)
-            )
-        } else {
-            FloatingStudentDock(
-                pagerState = pagerState,
-                screenWidthPx = with(LocalDensity.current) { maxWidth.toPx() },
-                onSelectPage = { page ->
-                    coroutineScope.launch {
-                        pagerState.animateScrollToPage(
-                            page = page,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .safeDrawingPadding()
+                        .padding(start = 12.dp)
+                )
+            } else {
+                FloatingStudentDock(
+                    pagerState = pagerState,
+                    screenWidthPx = with(LocalDensity.current) { maxWidth.toPx() },
+                    onSelectPage = { page ->
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(
+                                page = page,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
                             )
-                        )
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            )
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                )
+            }
         }
     }
-}
 }
 
 @Composable
