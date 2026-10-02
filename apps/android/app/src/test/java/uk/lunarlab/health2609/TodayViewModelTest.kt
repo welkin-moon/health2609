@@ -220,7 +220,40 @@ class TodayViewModelTest {
         // CRITICAL REQUIREMENT: NO fake meal fallback!
         assertTrue(state.homeMealDraft.isEmpty())
         val expectedMessage = uk.lunarlab.health2609.core.network.ApiFactory.formatErrorMessage(fakeApi.analyzeException!!)
-        assertTrue(state.homeMealNotes.any { it.contains(expectedMessage) })
+        assertTrue(state.homeMealNotes.any { it.contains("已保留") })
+        assertEquals(listOf(image), state.stagedMealImages)
         assertEquals(expectedMessage, state.message)
+    }
+
+    @Test
+    fun recognitionFailureKeepsEditedDishAndPhoto() = runTest(testDispatcher) {
+        viewModel.analyzeHomeMeal("photo".toByteArray(), "image/jpeg")
+        advanceUntilIdle()
+        viewModel.setHomeMealName(0, "清炖牛肉")
+        viewModel.setHomeMealGrams(0, 180.0)
+        val draft = viewModel.uiState.value.homeMealDraft
+        val photos = viewModel.uiState.value.stagedMealImages
+
+        fakeApi.shouldFailAnalyze = true
+        fakeApi.analyzeException = RuntimeException("timeout")
+        viewModel.analyzeStagedHomeMeals()
+        advanceUntilIdle()
+
+        assertEquals(draft, viewModel.uiState.value.homeMealDraft)
+        assertEquals(photos, viewModel.uiState.value.stagedMealImages)
+        assertFalse(viewModel.uiState.value.analyzingHomeMeal)
+    }
+
+    @Test
+    fun unnamedManualDishIsNotSilentlySavedOrDropped() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        viewModel.addManualHomeMealItem()
+        viewModel.saveHomeMeal()
+        advanceUntilIdle()
+
+        assertEquals(1, viewModel.uiState.value.homeMealDraft.size)
+        assertTrue(viewModel.uiState.value.homeMealDraft.single().name.isBlank())
+        assertEquals(null, fakeApi.lastSavedHomeMealRequest)
+        assertEquals("请填写每道菜的名称，再保存这餐。", viewModel.uiState.value.message)
     }
 }

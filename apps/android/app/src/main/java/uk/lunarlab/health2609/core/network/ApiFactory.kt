@@ -1,12 +1,14 @@
 package uk.lunarlab.health2609.core.network
 
 import java.util.concurrent.TimeUnit
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import retrofit2.Retrofit
+import retrofit2.HttpException
 import retrofit2.converter.gson.GsonConverterFactory
 import uk.lunarlab.health2609.BuildConfig
 
@@ -38,26 +40,47 @@ object ApiFactory {
         }
 
     fun formatErrorMessage(error: Throwable): String {
+        if (error is HttpException) {
+            val code = runCatching {
+                val body = error.response()?.errorBody()?.string() ?: "{}"
+                JsonParser.parseString(body).asJsonObject.get("error")?.asString
+            }.getOrNull()
+            return when {
+                code == "queue_full" -> "识别服务正忙，请稍后重试。"
+                error.code() == 429 -> "服务正忙，请稍后重试。"
+                code == "agy_timeout" -> "照片识别超时，请重试。"
+                error.code() in setOf(408, 504, 524) -> "服务响应超时，请重试。"
+                code == "agy_auth_failed" -> "识别服务暂时无法使用，请稍后重试。"
+                code in setOf("agy_output_invalid", "agy_schema_invalid", "agy_invalid_json") -> "这次未能完成识别，请重试或手动记录。"
+                code == "membership_not_found" -> "暂时无法读取学校信息，请到设置中选择学校。"
+                error.code() == 413 -> "照片过大，请换一张较小的照片。"
+                error.code() in setOf(401, 403) -> "服务暂时无法访问，请检查连接后重试。"
+                error.code() >= 500 -> "服务暂时不可用，请稍后重试。"
+                else -> "这次操作未完成，请检查填写内容后重试。"
+            }
+        }
         val raw = error.message ?: ""
         return when {
             error is java.net.UnknownHostException ||
             raw.contains("Unable to resolve host", ignoreCase = true) ||
             raw.contains("No address associated with hostname", ignoreCase = true) ->
-                "未能连接到健康服务（域名解析受阻），已启用本地模式。可在设置中调整服务器地址。"
+                "暂时连不上服务，请检查网络后重试。"
             error is java.net.SocketTimeoutException || raw.contains("timeout", ignoreCase = true) ->
                 "连接服务器超时，请检查网络连接后重试。"
             error is java.net.ConnectException ||
             raw.contains("Failed to connect", ignoreCase = true) ||
             raw.contains("Connection refused", ignoreCase = true) ->
-                "无法连接到服务器，请确认服务地址正确且网络通常。"
+                "暂时连不上服务，请检查网络或服务器地址。"
             raw.contains("HTTP 502", ignoreCase = true) || raw.contains("Bad Gateway", ignoreCase = true) ->
-                "云端分析网关暂时不可用 (502)，可稍后重试或切换为本地服务。"
+                "识别服务暂时不可用，请稍后重试。"
             raw.contains("HTTP 401", ignoreCase = true) || raw.contains("HTTP 403", ignoreCase = true) ->
-                "访问凭证未通过，请检查账号授权。"
+                "服务暂时无法访问，请检查连接后重试。"
             else ->
-                raw.ifBlank { "操作遇到异常，请稍后重试" }
+                "这次操作未完成，请稍后重试。"
         }
     }
+
+    fun isValidBaseUrl(value: String): Boolean = value.toHttpUrlOrNull() != null
 
     suspend fun testConnection(targetUrl: String): ConnectionTestResult {
         return withContext(Dispatchers.IO) {

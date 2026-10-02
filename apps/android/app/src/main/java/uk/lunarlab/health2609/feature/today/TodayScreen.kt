@@ -58,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -402,8 +403,8 @@ private fun WideScreenContent(
                 ) {
                     item {
                         SectionHeading(
-                            title = "运动统计与同步",
-                            subtitle = "手机运动数据与学校体育时段记录",
+                            title = "运动记录",
+                            subtitle = "校内体育与校外运动一起查看",
                             icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
                         )
                     }
@@ -434,8 +435,8 @@ private fun WideScreenContent(
                 ) {
                     item {
                         SectionHeading(
-                            title = "快速补记运动",
-                            subtitle = "预设项目、时长滑块与强度选择",
+                            title = "补记运动",
+                            subtitle = "选择项目，填写实际时长和强度",
                             icon = { Icon(Icons.Rounded.Edit, contentDescription = null) }
                         )
                     }
@@ -464,8 +465,8 @@ private fun WideScreenContent(
                 ) {
                     item {
                         SectionHeading(
-                            title = "核心概览",
-                            subtitle = "摄入平衡、运动达标与宏量构成",
+                            title = "今日记录",
+                            subtitle = "看看今天记录了什么",
                             icon = { Icon(Icons.Rounded.Restaurant, contentDescription = null) }
                         )
                     }
@@ -499,8 +500,8 @@ private fun WideScreenContent(
                 ) {
                     item {
                         SectionHeading(
-                            title = "行动与动态",
-                            subtitle = "循证健康指导、全天时段与学校配置",
+                            title = "接下来",
+                            subtitle = "补全记录，查看学校安排",
                             icon = { Icon(Icons.Rounded.DirectionsRun, contentDescription = null) }
                         )
                     }
@@ -740,33 +741,26 @@ private fun EnergyBalanceCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "能量摄入与目标平衡",
+                    "已记录能量",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
                 )
                 if (reference != null && gap != null) {
                     val gapText = if (gap >= 0) {
-                        "距参考还需 " + gap.roundToInt() + " 千卡"
+                        "比参考少 " + gap.roundToInt() + " 千卡"
                     } else {
-                        "超出参考 " + abs(gap).roundToInt() + " 千卡"
+                        "比参考多 " + abs(gap).roundToInt() + " 千卡"
                     }
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = if (gap >= 0) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.errorContainer
-                        }
+                        color = MaterialTheme.colorScheme.secondaryContainer
                     ) {
                         Text(
                             gapText,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Medium,
-                            color = if (gap >= 0) {
-                                MaterialTheme.colorScheme.onSecondaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onErrorContainer
-                            },
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -780,7 +774,7 @@ private fun EnergyBalanceCard(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        "今日总摄入",
+                        "已记录摄入",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -792,7 +786,7 @@ private fun EnergyBalanceCard(
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        "每日参考目标",
+                        "每日参考值",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -833,12 +827,7 @@ private fun MoeExerciseProgressCard(
     val activeKcal = activity?.activeEnergyKcal?.roundToInt()
         ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
 
-    val intensityStatus = when {
-        vigorousMinutes >= 20 || mvpaMinutes >= 60 -> "活力达标"
-        mvpaMinutes >= 30 -> "良好活力"
-        totalMinutes > 0 -> "运动提升中"
-        else -> "待激活"
-    }
+    val intensityStatus = if (totalMinutes > 0) "已记录" else "还未记录"
 
     Surface(
         shape = RoundedCornerShape(28.dp),
@@ -855,14 +844,14 @@ private fun MoeExerciseProgressCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        "运动活力与强度",
+                        "今天的运动",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "关注中高强度运动，激活心肺活力",
+                        "按时长和强度查看已记录的运动",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
                     )
@@ -892,7 +881,7 @@ private fun MoeExerciseProgressCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (mvpaMinutes > 0) "中高强度运动 (有效激活)" else "累计运动时间",
+                        if (mvpaMinutes > 0) "中高强度运动" else "累计运动时间",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -905,7 +894,7 @@ private fun MoeExerciseProgressCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "活动能量消耗",
+                        "估算活动消耗",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
                     )
@@ -966,12 +955,12 @@ private fun MoeExerciseProgressCard(
                 OverviewMetric(
                     Modifier.weight(1f),
                     vigorousMinutes.toString() + " 分钟",
-                    "高强度 (高心率)"
+                    "高强度"
                 )
                 OverviewMetric(
                     Modifier.weight(1f),
                     moderateMinutes.toString() + " 分钟",
-                    "中等强度 (有氧)"
+                    "中等强度"
                 )
                 OverviewMetric(
                     Modifier.weight(1f),
@@ -1010,12 +999,12 @@ private fun MacroNutrientCard(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    "三大宏量营养素供能比",
+                    "营养构成",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    "学龄期推荐参考：蛋白质 10%–15% · 脂肪 20%–30% · 碳水 50%–65%",
+                    "来自已保存的餐食，记录越完整，构成越有参考价值",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1089,13 +1078,13 @@ private fun DailyEnergyReferenceSettingCard(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    "每日能量参考基准",
+                    "每日能量参考",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 val refText = currentReference?.let { it.toString() + " 千卡" } ?: "未设定"
                 Text(
-                    "当前基准：" + refText + " · 可根据体质与运动消耗推荐调整",
+                    "当前基准：" + refText + " · 可自行调整",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1116,13 +1105,13 @@ private fun DailyEnergyReferenceSettingCard(
                     ) {
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                "体征推荐基准：" + userProfile.recommendedEnergyKcal + " 千卡",
+                                "按身体信息估算：" + userProfile.recommendedEnergyKcal + " 千卡",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                             Text(
-                                userProfile.bmiStatusText,
+                                "按身体信息计算，可自行调整",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
                             )
@@ -1133,9 +1122,10 @@ private fun DailyEnergyReferenceSettingCard(
                                     onEnergyReferenceChange(userProfile.recommendedEnergyKcal.toString())
                                     onSaveEnergyReference()
                                 },
+                                enabled = !savingReference,
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                             ) {
-                                Text("采纳推荐", style = MaterialTheme.typography.labelSmall)
+                                Text("使用估算值", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -1151,7 +1141,7 @@ private fun DailyEnergyReferenceSettingCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 presets.forEach { preset ->
-                    val isSelected = currentReference?.toString() == preset || energyReferenceInput == preset
+                    val isSelected = energyReferenceInput == preset
                     val isRecommended = preset == userProfile.recommendedEnergyKcal.toString()
                     FilterChip(
                         selected = isSelected,
@@ -1159,7 +1149,8 @@ private fun DailyEnergyReferenceSettingCard(
                             onEnergyReferenceChange(preset)
                             onSaveEnergyReference()
                         },
-                        label = { Text(if (isRecommended) preset + " 千卡 (推荐)" else preset + " 千卡") }
+                        enabled = !savingReference,
+                        label = { Text(if (isRecommended) preset + " 千卡（估算）" else preset + " 千卡") }
                     )
                 }
             }
@@ -1174,7 +1165,7 @@ private fun DailyEnergyReferenceSettingCard(
                     onValueChange = onEnergyReferenceChange,
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    label = { Text("自定义目标（千卡）") },
+                    label = { Text("参考值（千卡）") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
                 Button(
@@ -1198,7 +1189,6 @@ private fun NextActionCard(
     val totalMinutes = activity?.totalMinutes ?: 0
     val intensity = activity?.intensityMinutes ?: IntensityMinutesDto()
     val mvpaMinutes = intensity.moderate + intensity.vigorous
-    val macro = nutrition?.macroCompositionPercent
     val intake = nutrition?.energyKcal?.roundToInt() ?: 0
 
     Surface(
@@ -1226,35 +1216,27 @@ private fun NextActionCard(
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        "今日健康行动提示",
+                        "记录提醒",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
                 Text(
-                    "活力建议",
+                    "今天",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
 
-            val motionAdvice = when {
-                intensity.vigorous >= 20 || mvpaMinutes >= 60 ->
-                    "运动：中高强度运动达标，有效提升心肺与肌肉体适能，晚间宜适度拉伸放松。"
-                mvpaMinutes in 20..59 ->
-                    "运动：已完成 " + mvpaMinutes + " 分钟中高强度运动，建议课后适当增加跳绳、跑步或球类，保持充沛活力。"
-                totalMinutes > 0 ->
-                    "运动：今日多为轻松活动（累计 " + totalMinutes + " 分钟），建议安排 20 分钟中高强度锻炼，激活运动代谢。"
-                else ->
-                    "运动：今日尚未记录运动，课后建议安排 20-30 分钟慢跑或球类等中高强度活动。"
+            val motionAdvice = if (totalMinutes > 0) {
+                "已记录 $totalMinutes 分钟运动，其中中高强度 $mvpaMinutes 分钟。还有遗漏的话，可以去运动页补记。"
+            } else {
+                "今天还没有运动记录，可以同步手机记录，也可以手动补记。"
             }
-
-            val nutritionAdvice = when {
-                intake == 0 -> "膳食：尚未录入今日餐食，午餐/晚餐后及时记餐将自动分析供能比。"
-                macro != null && macro.protein in 0.1..11.9 -> "膳食：蛋白质供能比偏低，建议适量补充鸡蛋、鱼虾或豆制品。"
-                macro != null && macro.fat > 35.0 -> "膳食：脂肪摄入比例偏高，晚餐建议清淡蒸煮并多吃深色蔬菜。"
-                (nutrition?.sodiumMg ?: 0.0) > 2000 -> "膳食：今日钠摄入偏高，注意清淡饮食并补足水分。"
-                else -> "膳食：三大宏量营养素配比均衡，继续保持良好节律。"
+            val nutritionAdvice = if (intake > 0) {
+                "这里只汇总已保存的餐食。别忘了补上早餐、晚餐和加餐。"
+            } else {
+                "今天还没有餐食记录。去饮食页选择学校午餐，或记录其他餐食。"
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1302,15 +1284,15 @@ private fun ActivityTimelineFeed(
                 val timeSpan = schoolWindows.joinToString("、") { it.startTime + "–" + it.endTime }.ifBlank { "08:00–17:00" }
                 TimelineItemRow(
                     time = timeSpan,
-                    title = "在校学习与作息",
-                    subtitle = "学校常规教学作息时段"
+                    title = "在校时段",
+                    subtitle = "学校提供的作息安排"
                 )
 
                 if (peWindows.isEmpty()) {
                     TimelineItemRow(
                         time = "校内课时",
-                        title = "今日无体育课排期",
-                        subtitle = "当日课表暂无排课"
+                        title = "今天没有体育课安排",
+                        subtitle = "以学校发布的课表为准"
                     )
                 } else {
                     peWindows.forEach { pe ->
@@ -1318,14 +1300,14 @@ private fun ActivityTimelineFeed(
                         TimelineItemRow(
                             time = pe.startTime + "–" + pe.endTime,
                             title = "校内体育课",
-                            subtitle = "排课安排" + recorded
+                            subtitle = "课表安排" + recorded
                         )
                     }
                 }
 
                 TimelineItemRow(
                     time = "放学 / 课后",
-                    title = "校外自主活动",
+                    title = "校外运动",
                     subtitle = "已记录 " + outsideMinutes + " 分钟（自主锻炼或手环同步）"
                 )
 
@@ -1336,8 +1318,8 @@ private fun ActivityTimelineFeed(
                 }
                 TimelineItemRow(
                     time = "数据源",
-                    title = "体育课时采纳：" + sourceText,
-                    subtitle = "可在“运动”页面一键切换数据采纳源"
+                    title = "体育课数据：" + sourceText,
+                    subtitle = "可在“运动”页选择记录来源"
                 )
             }
         }
@@ -1401,7 +1383,7 @@ private fun SchoolEntryCard(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    "学校与班级信息",
+                    "我的学校",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1414,7 +1396,7 @@ private fun SchoolEntryCard(
             }
 
             Text(
-                "校内午餐菜谱与体育课程由所在学校统一发布。如需切换学校或设置偏好，可点击页面右上角设置图标。",
+                "学校发布午餐菜单和体育安排，可在右上角设置中切换学校。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1463,13 +1445,13 @@ private fun ActivityStatsCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FilledTonalButton(onClick = onSync, enabled = !syncing) {
-                        Text(if (syncing) "正在更新" else "更新手机里的运动")
+                        Text(if (syncing) "正在更新" else "同步运动记录")
                     }
                     TextButton(
                         onClick = onRequestHealthPermissions,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
-                        Text("申请 / 打开健康权限设置")
+                        Text("管理运动权限")
                     }
                 }
             }
@@ -1636,7 +1618,7 @@ private fun ManualActivityCard(
                     Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "课外与自主运动补记",
+                        "手动记录运动",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1677,59 +1659,29 @@ private fun ManualActivityCard(
                         label = { Text("运动项目") }
                     )
 
-                    val activityMultiplier = (minutes / 40.0).coerceIn(0.0, 2.0)
-                    val multiplierDisplay = when {
-                        activityMultiplier <= 0.05 -> "0.0x (未达标/0分钟)"
-                        activityMultiplier in 0.45..0.55 -> "0.5x (半程/20分钟)"
-                        activityMultiplier in 0.95..1.05 -> "1.0x (达标整节课/40分钟)"
-                        activityMultiplier in 1.45..1.55 -> "1.5x (超额运动/60分钟)"
-                        activityMultiplier in 1.95..2.0 -> "2.0x (双倍高强度/80+分钟)"
-                        else -> "${roundOneDecimal(activityMultiplier)}x (${minutes} 分钟)"
-                    }
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("运动量 (0x - 2x 课时倍率)", style = MaterialTheme.typography.labelLarge)
-                        Text(
-                            multiplierDisplay,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        Text("运动时长", style = MaterialTheme.typography.labelLarge)
+                        Text("$minutes 分钟", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                     }
-
                     Slider(
-                        value = activityMultiplier.toFloat(),
-                        onValueChange = { factor ->
-                            val mins = ((factor * 40.0) / 5.0).roundToInt() * 5
-                            onMinutesChange(mins)
-                        },
-                        valueRange = 0f..2f,
-                        steps = 19
+                        value = minutes.toFloat().coerceIn(5f, 300f),
+                        onValueChange = { onMinutesChange((it / 5f).roundToInt() * 5) },
+                        valueRange = 5f..300f,
+                        steps = 58
                     )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        listOf(
-                            0.0 to "0x",
-                            0.5 to "0.5x (半程)",
-                            1.0 to "1.0x (整节)",
-                            1.5 to "1.5x",
-                            2.0 to "2.0x (双倍)"
-                        ).forEach { (mark, text) ->
-                            Text(
-                                text,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (abs(activityMultiplier - mark) < 0.1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            )
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(15, 30, 45, 60).forEach { preset ->
+                            FilterChip(selected = minutes == preset,
+                                onClick = { onMinutesChange(preset) },
+                                label = { Text("$preset 分钟") })
                         }
                     }
-
+                    Text("运动强度", style = MaterialTheme.typography.labelLarge)
                     Row(
                         modifier = Modifier.horizontalScroll(intensityScrollState),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1755,7 +1707,11 @@ private fun ManualActivityCard(
                     }
 
                     Text(
-                        "如果手机已经记到同一段运动，会尽量避免重复累加。",
+                        when (intensity) {
+                            "light" -> "轻松：呼吸变化不大。已同步的运动不用再补记。"
+                            "vigorous" -> "较累：呼吸明显加快。已同步的运动不用再补记。"
+                            else -> "中等：呼吸比平时快。已同步的运动不用再补记。"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1785,7 +1741,7 @@ internal fun SettingsDialog(
     onAppearanceModeChange: (AppearanceMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
     onCustomApiBaseUrlChange: (String?) -> Unit = {},
-    onUserProfileChange: (UserProfile) -> Unit = {},
+    onUserProfileChange: suspend (UserProfile) -> Unit = {},
     onApplyRecommendedEnergy: (Int) -> Unit = {},
     onOpenHealthSettings: () -> Unit,
     onDismiss: () -> Unit
@@ -1798,13 +1754,20 @@ internal fun SettingsDialog(
     var testFeedback by remember { mutableStateOf<String?>(null) }
     var testSuccess by remember { mutableStateOf(false) }
 
-    var ageText by remember(userProfile.age) { mutableStateOf(userProfile.age.toString()) }
-    var heightText by remember(userProfile.heightCm) {
+    var ageText by rememberSaveable { mutableStateOf(userProfile.age.toString()) }
+    var heightText by rememberSaveable {
         mutableStateOf(if (userProfile.heightCm % 1.0 == 0.0) userProfile.heightCm.toInt().toString() else userProfile.heightCm.toString())
     }
-    var weightText by remember(userProfile.weightKg) {
+    var weightText by rememberSaveable {
         mutableStateOf(if (userProfile.weightKg % 1.0 == 0.0) userProfile.weightKg.toInt().toString() else userProfile.weightKg.toString())
     }
+
+    var gender by rememberSaveable { mutableStateOf(userProfile.gender) }
+    var profileFeedback by remember { mutableStateOf<String?>(null) }
+    var savingProfile by remember { mutableStateOf(false) }
+    var showServerSettings by rememberSaveable { mutableStateOf(false) }
+    val draftProfile = profileFromInputs(ageText, gender, heightText, weightText)
+    val profileChanged = draftProfile != userProfile
 
     Surface(
         modifier = Modifier
@@ -1835,14 +1798,14 @@ internal fun SettingsDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "身体体征 · 网络连接 · 就读学校 · 外观显示",
+                        "身体信息、学校和外观",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "关闭设置")
                 }
@@ -1860,113 +1823,137 @@ internal fun SettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // 1. Profile & Energy Recommendations
-                SettingsGroupCard(title = "体征档案与能量推荐") {
+                SettingsGroupCard(title = "身体信息") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         SettingsItemRow(
                             icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "生理性别与学龄",
-                            subtitle = "用于评估体质指数与推荐能量"
+                            title = "按需填写",
+                            subtitle = "估算每日能量"
                         )
 
-                        // Gender Selection: Male, Female, Neutral (supports unselecting both)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp),
+                        // Keep all profile edits local until the user saves.
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
-                                selected = userProfile.gender == "male",
+                                selected = gender == "male",
                                 onClick = {
-                                    val newGender = if (userProfile.gender == "male") "neutral" else "male"
-                                    onUserProfileChange(userProfile.copy(gender = newGender))
+                                    gender = "male"
+                                    profileFeedback = null
                                 },
+                                enabled = !savingProfile,
                                 label = { Text("男生") }
                             )
                             FilterChip(
-                                selected = userProfile.gender == "female",
+                                selected = gender == "female",
                                 onClick = {
-                                    val newGender = if (userProfile.gender == "female") "neutral" else "female"
-                                    onUserProfileChange(userProfile.copy(gender = newGender))
+                                    gender = "female"
+                                    profileFeedback = null
                                 },
+                                enabled = !savingProfile,
                                 label = { Text("女生") }
                             )
                             FilterChip(
-                                selected = userProfile.gender == "neutral",
+                                selected = gender == "neutral",
                                 onClick = {
-                                    onUserProfileChange(userProfile.copy(gender = "neutral"))
+                                    gender = "neutral"
+                                    profileFeedback = null
                                 },
-                                label = { Text("中性 / 不指定") }
+                                enabled = !savingProfile,
+                                label = { Text("不指定") }
                             )
                         }
 
                         // Age, Height, Weight inputs
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = ageText,
-                                onValueChange = { input ->
-                                    ageText = input
-                                    input.toIntOrNull()?.let {
-                                        onUserProfileChange(userProfile.copy(age = it))
-                                    }
-                                },
-                                label = { Text("年龄 (岁)") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                            )
-                            OutlinedTextField(
-                                value = heightText,
-                                onValueChange = { input ->
-                                    heightText = input
-                                    input.toDoubleOrNull()?.let {
-                                        onUserProfileChange(userProfile.copy(heightCm = it))
-                                    }
-                                },
-                                label = { Text("身高 (cm)") },
-                                modifier = Modifier.weight(1.2f),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                            )
-                            OutlinedTextField(
-                                value = weightText,
-                                onValueChange = { input ->
-                                    weightText = input
-                                    input.toDoubleOrNull()?.let {
-                                        onUserProfileChange(userProfile.copy(weightKg = it))
-                                    }
-                                },
-                                label = { Text("体重 (kg)") },
-                                modifier = Modifier.weight(1.2f),
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                            )
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            val singleColumn = maxWidth < 280.dp || LocalDensity.current.fontScale > 1.1f
+                            FlowRow(
+                                maxItemsInEachRow = if (singleColumn) 1 else 3,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = ageText,
+                                    enabled = !savingProfile,
+                                    onValueChange = { input ->
+                                        ageText = input
+                                        profileFeedback = null
+                                    },
+                                    label = { Text("年龄") },
+                                    suffix = { Text("岁") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
+                                OutlinedTextField(
+                                    value = heightText,
+                                    enabled = !savingProfile,
+                                    onValueChange = { input ->
+                                        heightText = input
+                                        profileFeedback = null
+                                    },
+                                    label = { Text("身高") },
+                                    suffix = { Text("cm") },
+                                    modifier = Modifier.weight(1.2f),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                                )
+                                OutlinedTextField(
+                                    value = weightText,
+                                    enabled = !savingProfile,
+                                    onValueChange = { input ->
+                                        weightText = input
+                                        profileFeedback = null
+                                    },
+                                    label = { Text("体重") },
+                                    suffix = { Text("kg") },
+                                    modifier = Modifier.weight(1.2f),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                                )
+                            }
                         }
 
-                        // Recommendation result banner
+                        if (draftProfile == null) {
+                            Text("请输入年龄 6–25 岁、身高 80–230 cm、体重 20–200 kg。",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                        Button(
+                            onClick = {
+                                val profile = draftProfile ?: return@Button
+                                savingProfile = true
+                                coroutineScope.launch {
+                                    try {
+                                        onUserProfileChange(profile)
+                                        profileFeedback = "身体信息已保存"
+                                    } catch (error: Exception) {
+                                        profileFeedback = "暂时未能保存，请重试。"
+                                    } finally {
+                                        savingProfile = false
+                                    }
+                                }
+                            },
+                            enabled = !savingProfile && draftProfile != null && profileChanged,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (savingProfile) "保存中…" else "保存身体信息") }
+                        profileFeedback?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+                        // Saved profile reference stays separate from the edit draft.
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 48.dp)
+
                         ) {
                             Column(
                                 modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(
-                                        userProfile.bmiStatusText,
+                                        "BMI ${userProfile.bmi} · 按当前信息计算",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -1980,7 +1967,7 @@ internal fun SettingsDialog(
                                 }
 
                                 Text(
-                                    "已根据体质指数与日常运动消耗，推荐适宜的能量平衡目标。",
+                                    "根据当前身体信息估算，可自行调整。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                 )
@@ -1988,25 +1975,136 @@ internal fun SettingsDialog(
                                 Button(
                                     onClick = {
                                         onApplyRecommendedEnergy(userProfile.recommendedEnergyKcal)
-                                        testFeedback = "已采纳推荐基准：${userProfile.recommendedEnergyKcal} 千卡"
+                                        testFeedback = "已使用估算值基准：${userProfile.recommendedEnergyKcal} 千卡"
                                         testSuccess = true
                                     },
+                                    enabled = !savingProfile && draftProfile != null && !profileChanged,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("采纳为今日能量基准 (${userProfile.recommendedEnergyKcal} 千卡)")
+                                    Text("使用此能量参考值")
                                 }
                             }
                         }
                     }
                 }
 
-                // 2. Server Connection Group
-                SettingsGroupCard(title = "服务连接与网络") {
+                // 3. School Group
+                SettingsGroupCard(title = "学校关联") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
+                            title = "就读学校",
+                            subtitle = "关联食堂菜谱与体育课程安排"
+                        )
+
+                        if (schools.isEmpty()) {
+                            Text(
+                                "暂时没有可选学校，请稍后刷新。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                            )
+                        } else {
+                            FlowRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                schools.forEach { school ->
+                                    FilterChip(
+                                        selected = selectedSchoolId == school.id,
+                                        onClick = { onSchoolChange(school.id) },
+                                        label = { Text(school.name) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Appearance Group
+                SettingsGroupCard(title = "外观与色彩") {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "主题",
+                            subtitle = "选择你习惯的显示方式"
+                        )
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                AppearanceMode.SYSTEM to "跟随系统",
+                                AppearanceMode.LIGHT to "浅色",
+                                AppearanceMode.DARK to "深色"
+                            ).forEach { (mode, label) ->
+                                FilterChip(
+                                    selected = appearanceMode == mode,
+                                    onClick = { onAppearanceModeChange(mode) },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        SettingsItemRow(
+                            icon = {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                        Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
+                                }
+                            },
+                            title = "跟随壁纸配色",
+                            subtitle = "界面颜色随系统壁纸变化",
+                            trailing = {
+                                Switch(
+                                    checked = dynamicColor,
+                                    onCheckedChange = onDynamicColorChange
+                                )
+                            }
+                        )
+                    }
+                }
+
+                // 5. Health & Permissions Group
+                SettingsGroupCard(title = "运动健康服务") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsItemRow(
+                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = "运动数据权限",
+                            subtitle = "允许读取系统运动记录后，即可同步"
+                        )
+
+                        OutlinedButton(
+                            onClick = onOpenHealthSettings,
+                            modifier = Modifier
+                                .fillMaxWidth()
+
+                        ) {
+                            Text("打开系统运动健康设置")
+                        }
+                    }
+                }
+
+                // 2. Server Connection Group
+                SettingsGroupCard(title = "服务器设置") {
+                    TextButton(onClick = { showServerSettings = !showServerSettings }) {
+                        Text(if (showServerSettings) "收起服务器设置" else "修改服务器地址")
+                    }
+                    if (showServerSettings) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsItemRow(
                             icon = { Icon(Icons.Rounded.Dns, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "API 服务地址",
-                            subtitle = "支持切换官方云端、局域网私有化或本地调试地址"
+                            title = "服务地址",
+                            subtitle = "连接其他服务器时再修改"
                         )
 
                         OutlinedTextField(
@@ -2017,7 +2115,7 @@ internal fun SettingsDialog(
                             },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            label = { Text("服务根地址 (URL)") },
+                            label = { Text("服务器地址") },
                             placeholder = { Text("https://h2609.lunarlab.uk/") },
                             textStyle = MaterialTheme.typography.bodySmall
                         )
@@ -2055,7 +2153,7 @@ internal fun SettingsDialog(
                             OutlinedButton(
                                 onClick = {
                                     testingConnection = true
-                                    testFeedback = "正在测通..."
+                                    testFeedback = "正在检查连接…"
                                     coroutineScope.launch {
                                         val result = ApiFactory.testConnection(serverInput)
                                         testingConnection = false
@@ -2063,13 +2161,14 @@ internal fun SettingsDialog(
                                         testFeedback = result.message
                                     }
                                 },
-                                enabled = !testingConnection,
+                                enabled = !testingConnection && ApiFactory.isValidBaseUrl(serverInput.trim()),
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(if (testingConnection) "测通中…" else "测试连通性")
+                                Text(if (testingConnection) "检查中…" else "检查连接")
                             }
 
                             Button(
+                                enabled = !testingConnection && ApiFactory.isValidBaseUrl(serverInput.trim()),
                                 onClick = {
                                     val clean = serverInput.trim()
                                     val target = if (clean == BuildConfig.API_BASE_URL.trim()) null else clean
@@ -2080,7 +2179,7 @@ internal fun SettingsDialog(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("应用地址")
+                                Text("保存地址")
                             }
                         }
 
@@ -2095,121 +2194,12 @@ internal fun SettingsDialog(
                                 },
                                 modifier = Modifier.align(Alignment.End)
                             ) {
-                                Text("恢复默认官方地址")
+                                Text("恢复默认地址")
                             }
                         }
                     }
                 }
 
-                // 3. School Group
-                SettingsGroupCard(title = "学校关联") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
-                            title = "就读学校",
-                            subtitle = "关联食堂菜谱与体育课程安排"
-                        )
-
-                        if (schools.isEmpty()) {
-                            Text(
-                                "暂无可选学校，正在使用默认学校。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 48.dp)
-                            )
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 48.dp)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                schools.forEach { school ->
-                                    FilterChip(
-                                        selected = selectedSchoolId == school.id,
-                                        onClick = { onSchoolChange(school.id) },
-                                        label = { Text(school.name) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 4. Appearance Group
-                SettingsGroupCard(title = "外观与色彩") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "主题深浅",
-                            subtitle = "切换浅色、深色或随系统切换"
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(
-                                AppearanceMode.SYSTEM to "跟随系统",
-                                AppearanceMode.LIGHT to "浅色",
-                                AppearanceMode.DARK to "深色"
-                            ).forEach { (mode, label) ->
-                                FilterChip(
-                                    selected = appearanceMode == mode,
-                                    onClick = { onAppearanceModeChange(mode) },
-                                    label = { Text(label) }
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                        SettingsItemRow(
-                            icon = {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer
-                                ) {
-                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                                        Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    }
-                                }
-                            },
-                            title = "Monet 动态色彩自适应",
-                            subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
-                            trailing = {
-                                Switch(
-                                    checked = dynamicColor,
-                                    onCheckedChange = onDynamicColorChange
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // 5. Health & Permissions Group
-                SettingsGroupCard(title = "运动健康服务") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "Health Connect 权限",
-                            subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
-                        )
-
-                        OutlinedButton(
-                            onClick = onOpenHealthSettings,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                        ) {
-                            Text("打开系统运动健康设置")
-                        }
-                    }
-                }
             }
         }
     }
@@ -2341,7 +2331,7 @@ private fun StatusMessage(
             if (onDismiss != null) {
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         Icons.Rounded.Close,
@@ -2459,7 +2449,7 @@ private fun DishRow(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "进食分量 (0x - 2x)",
+                        "实际吃下的分量",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2482,21 +2472,21 @@ private fun DishRow(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     listOf(
-                        0.0 to "0x 没吃",
-                        0.5 to "0.5x 半份",
-                        1.0 to "1.0x 一份",
-                        1.5 to "1.5x 多吃",
-                        2.0 to "2.0x 两份"
+                        0.0 to "没吃",
+                        0.5 to "半份",
+                        1.0 to "1份",
+                        1.5 to "1½份",
+                        2.0 to "2份"
                     ).forEach { (stepValue, stepLabel) ->
                         TextButton(
                             onClick = { onPortionChange(stepValue) },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Text(
                                 stepLabel,
@@ -2577,6 +2567,7 @@ private fun HomeMealPanel(
                 FilterChip(
                     selected = slot == value,
                     onClick = { onSlotChange(value) },
+                    enabled = !saving && !analyzing,
                     label = { Text(label) }
                 )
             }
@@ -2606,10 +2597,10 @@ private fun HomeMealPanel(
                         TextButton(
                             onClick = onClearStagedImages,
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                             enabled = !analyzing
                         ) {
-                            Text("清空全部", style = MaterialTheme.typography.labelSmall)
+                            Text("清空照片", style = MaterialTheme.typography.labelSmall)
                         }
                     }
 
@@ -2660,7 +2651,7 @@ private fun HomeMealPanel(
                                         modifier = Modifier
                                             .align(Alignment.TopEnd)
                                             .padding(4.dp)
-                                            .size(24.dp)
+                                            .size(48.dp)
                                     ) {
                                         IconButton(
                                             onClick = { onRemoveStagedImage(staged.id) },
@@ -2668,7 +2659,7 @@ private fun HomeMealPanel(
                                         ) {
                                             Icon(
                                                 Icons.Rounded.Close,
-                                                contentDescription = "移除",
+                                                contentDescription = "移除这张照片",
                                                 modifier = Modifier.size(14.dp)
                                             )
                                         }
@@ -2706,37 +2697,17 @@ private fun HomeMealPanel(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = onAnalyze,
-                            enabled = !analyzing && !saving,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                if (analyzing) "正在综合分析…" else "开始分析 (${stagedImages.size} 张照片)"
-                            )
-                        }
-
+                    Button(onClick = onAnalyze, enabled = !analyzing && !saving,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (analyzing) "识别中…" else "识别这餐")
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (stagedImages.size < 5) {
-                            OutlinedButton(
-                                onClick = onPickImage,
-                                enabled = !analyzing && !saving
-                            ) {
-                                Text("加图")
-                            }
+                            OutlinedButton(onClick = onPickImage, enabled = !analyzing && !saving) { Text("添加照片") }
                         }
-
-                        OutlinedButton(
-                            onClick = onAddManualItem,
-                            enabled = !saving
-                        ) {
-                            Text("手动添加")
-                        }
+                        TextButton(onClick = onAddManualItem, enabled = !analyzing && !saving) { Text("手动添加菜品") }
                     }
                 }
             }
@@ -2753,7 +2724,7 @@ private fun HomeMealPanel(
                 ) {
                     Icon(Icons.Rounded.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("拍照记录")
+                    Text("拍照")
                 }
                 FilledTonalButton(
                     onClick = onPickImage,
@@ -2762,17 +2733,16 @@ private fun HomeMealPanel(
                 ) {
                     Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("相册选择")
-                }
-                OutlinedButton(
-                    onClick = onAddManualItem,
-                    enabled = !saving
-                ) {
-                    Text("手动记一餐")
+                    Text("相册")
                 }
             }
+            TextButton(onClick = onAddManualItem, enabled = !analyzing && !saving) {
+                Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("手动记录")
+            }
             Text(
-                "支持拍摄全桌、局部单菜特写或不同角度（最多5张），视觉大模型将综合识别并自动去重合并。",
+                "最多选 5 张同一餐的照片。识别后可以修改菜名和分量。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
             )
@@ -2786,7 +2756,7 @@ private fun HomeMealPanel(
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 Text(
-                    if (stagedImages.size > 1) "正在多图全景识别食物与估算分量…" else "正在识别食物与估算分量…",
+                    if (stagedImages.size > 1) "正在识别这餐的照片…" else "正在识别照片…",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -2815,11 +2785,13 @@ private fun HomeMealPanel(
                         OutlinedTextField(
                             value = item.name,
                             onValueChange = { onNameChange(index, it) },
+                            enabled = !saving && !analyzing,
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("食物名称") }
+                            label = { Text("菜名") },
+                            placeholder = { Text("例如：番茄炒蛋") }
                         )
-                        IconButton(onClick = { onRemoveItem(index) }) {
+                        IconButton(onClick = { onRemoveItem(index) }, enabled = !saving && !analyzing) {
                             Icon(Icons.Rounded.Close, contentDescription = "移除")
                         }
                     }
@@ -2831,12 +2803,12 @@ private fun HomeMealPanel(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "分量 (0x - 2x)",
+                                "调整分量",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                String.format(Locale.US, "%.2fx (约 %d 克)", currentMultiplier, currentGrams.roundToInt()),
+                                if (item.grams == null) "分量待确认" else String.format(Locale.US, "%.2f份 · 约%d克", currentMultiplier, currentGrams.roundToInt()),
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -2845,6 +2817,7 @@ private fun HomeMealPanel(
 
                         Slider(
                             value = currentMultiplier,
+                            enabled = !saving && !analyzing,
                             onValueChange = { newVal ->
                                 val snapped = (newVal * 4f).roundToInt() / 4f
                                 val updatedGrams = (sourceGrams * snapped).roundToInt().toDouble()
@@ -2855,16 +2828,16 @@ private fun HomeMealPanel(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        Row(
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             listOf(
-                                0.0 to "0x 没吃",
-                                0.5 to "0.5x 半份",
-                                1.0 to "1.0x 整份",
-                                1.5 to "1.5x",
-                                2.0 to "2.0x 双份"
+                                0.0 to "没吃",
+                                0.5 to "半份",
+                                1.0 to "1份",
+                                1.5 to "1½份",
+                                2.0 to "2份"
                             ).forEach { (stepValue, stepLabel) ->
                                 TextButton(
                                     onClick = {
@@ -2872,7 +2845,8 @@ private fun HomeMealPanel(
                                         onGramsChange(index, updatedGrams)
                                     },
                                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(26.dp)
+                                    enabled = !saving && !analyzing,
+                                    modifier = Modifier.heightIn(min = 48.dp)
                                 ) {
                                     Text(
                                         stepLabel,
@@ -2912,20 +2886,20 @@ private fun HomeMealPanel(
             ) {
                 Button(
                     onClick = onSave,
-                    enabled = !saving && !analyzing,
+                    enabled = !saving && !analyzing && draft.all { it.name.isNotBlank() },
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(if (saving) "正在保存" else "确认并记入今天")
+                    Text(if (saving) "正在保存" else "保存这餐")
                 }
                 OutlinedButton(
                     onClick = onAddManualItem,
                     enabled = !saving && !analyzing
                 ) {
-                    Text("+ 加一道菜")
+                    Text("添加菜品")
                 }
             }
             Text(
-                "名称和分量由你最后确认；确认前不会记进今天。",
+                "确认菜名和分量后保存，才会计入今天的记录。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

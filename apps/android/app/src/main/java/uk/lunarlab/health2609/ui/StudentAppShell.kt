@@ -3,7 +3,8 @@ package uk.lunarlab.health2609.ui
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -244,7 +245,7 @@ private fun FloatingStudentDock(
 
     val dragState = rememberDraggableState { delta ->
         // Dragging dock drives pager offset in real-time synchronously (跟手)
-        val pagerDelta = -delta * (screenWidthPx / slotWidthPx)
+        val pagerDelta = delta * (screenWidthPx / slotWidthPx)
         pagerState.dispatchRawDelta(pagerDelta)
     }
 
@@ -265,7 +266,7 @@ private fun FloatingStudentDock(
                 .draggable(
                     state = dragState,
                     orientation = Orientation.Horizontal,
-                    startDragImmediately = true,
+                    startDragImmediately = false,
                     onDragStarted = {
                         isDockDragging = true
                     },
@@ -329,7 +330,9 @@ private fun DockItem(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(28.dp))
-            .clickable(
+            .selectable(
+                selected = emphasis > 0.5f,
+                role = Role.Tab,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
@@ -340,7 +343,7 @@ private fun DockItem(
     ) {
         Icon(
             imageVector = destination.icon,
-            contentDescription = destination.label,
+            contentDescription = null,
             modifier = Modifier.size(20.dp),
             tint = itemColor
         )
@@ -408,7 +411,9 @@ private fun FloatingStudentRail(
                             .fillMaxWidth()
                             .height(slotHeight)
                             .clip(RoundedCornerShape(28.dp))
-                            .clickable(
+                            .selectable(
+                                selected = emphasis > 0.5f,
+                                role = Role.Tab,
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
                                 onClick = { onSelectPage(index) }
@@ -418,7 +423,7 @@ private fun FloatingStudentRail(
                     ) {
                         Icon(
                             imageVector = destination.icon,
-                            contentDescription = destination.label,
+                            contentDescription = null,
                             modifier = Modifier.size(22.dp),
                             tint = itemColor
                         )

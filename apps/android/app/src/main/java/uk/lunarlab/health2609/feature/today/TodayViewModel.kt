@@ -264,7 +264,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         analyzingHomeMeal = false,
-                        homeMealNotes = listOf("识别未完成: $friendly"),
+                        homeMealNotes = listOf("照片和已编辑的菜品已保留，可以重试或手动修改。"),
                         message = friendly
                     )
                 }
@@ -322,7 +322,11 @@ class TodayViewModel(
 
     fun saveHomeMeal() {
         val state = _uiState.value
-        if (state.savingHomeMeal || state.homeMealDraft.isEmpty()) return
+        if (state.savingHomeMeal || state.analyzingHomeMeal || state.homeMealDraft.isEmpty()) return
+        if (state.homeMealDraft.any { it.name.isBlank() }) {
+            _uiState.update { it.copy(message = "请填写每道菜的名称，再保存这餐。") }
+            return
+        }
 
         val confirmed = state.homeMealDraft
             .filter { it.name.trim().isNotEmpty() }
@@ -370,7 +374,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         savingHomeMeal = false,
-                        message = error.message ?: "餐食保存失败"
+                        message = ApiFactory.formatErrorMessage(error)
                     )
                 }
             }
@@ -385,7 +389,7 @@ class TodayViewModel(
         _uiState.update { it.copy(message = null) }
     }
 
-    fun addManualHomeMealItem(name: String = "自制菜品", grams: Double = 150.0) {
+    fun addManualHomeMealItem(name: String = "", grams: Double = 150.0) {
         val newItem = HomeMealDraftItem(
             name = name,
             sourceGrams = grams,
@@ -397,7 +401,7 @@ class TodayViewModel(
         _uiState.update {
             it.copy(
                 homeMealDraft = it.homeMealDraft + newItem,
-                message = "已添加菜品，可调整分量后确认保存"
+                message = "请填写菜名，并调整实际吃下的分量。"
             )
         }
     }
@@ -425,8 +429,7 @@ class TodayViewModel(
                     _uiState.update {
                         it.copy(
                             syncingPhoneActivity = false,
-                            message = error.message
-                                ?: "手机数据已提交，但汇总刷新失败"
+                            message = "手机数据已提交，汇总暂时未能刷新。请稍后刷新页面。"
                         )
                     }
                 }
@@ -466,7 +469,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         syncingSchoolActivity = false,
-                        message = error.message ?: "学校体育数据已更新，但刷新失败"
+                        message = "学校体育数据已更新，汇总暂时未能刷新。请稍后刷新页面。"
                     )
                 }
             }
@@ -504,7 +507,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         savingMeal = false,
-                        message = error.message ?: "午餐保存失败"
+                        message = ApiFactory.formatErrorMessage(error)
                     )
                 }
             }
@@ -532,7 +535,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         savingActivity = false,
-                        message = error.message ?: "运动保存失败"
+                        message = ApiFactory.formatErrorMessage(error)
                     )
                 }
             }
@@ -546,7 +549,7 @@ class TodayViewModel(
         val kcal = state.energyReferenceInput.toIntOrNull()
         if (kcal != null && kcal !in 500..6000) {
             _uiState.update {
-                it.copy(message = "参考能量请输入 500–6000 kcal")
+                it.copy(message = "请输入 500–6000 千卡的参考值")
             }
             return
         }
@@ -563,7 +566,7 @@ class TodayViewModel(
                 _uiState.update {
                     it.copy(
                         savingEnergyReference = false,
-                        message = error.message ?: "参考能量保存失败"
+                        message = ApiFactory.formatErrorMessage(error)
                     )
                 }
             }
@@ -591,8 +594,7 @@ class TodayViewModel(
                             savingMeal = false,
                             savingActivity = false,
                             savingEnergyReference = false,
-                            message = error.message
-                                ?: "$successMessage，但刷新汇总失败"
+                            message = "$successMessage，汇总暂时未能刷新。请稍后刷新页面。"
                         )
                     }
                 }

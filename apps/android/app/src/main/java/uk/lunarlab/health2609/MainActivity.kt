@@ -456,9 +456,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onUserProfileChange = { profile ->
-                                lifecycleScope.launch {
-                                    preferences.setUserProfile(profile)
-                                }
+                                preferences.setUserProfile(profile)
                             },
                             onApplyRecommendedEnergy = { kcal ->
                                 viewModel.setEnergyReferenceInput(kcal.toString())
