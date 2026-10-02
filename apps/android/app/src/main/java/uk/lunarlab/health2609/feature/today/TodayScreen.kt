@@ -69,6 +69,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import uk.lunarlab.health2609.core.network.DailySummaryDto
+import uk.lunarlab.health2609.core.network.IntensityMinutesDto
 import uk.lunarlab.health2609.core.network.DishDto
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
 import uk.lunarlab.health2609.core.network.StudentSchoolDto
@@ -823,9 +824,21 @@ private fun MoeExerciseProgressCard(
     modifier: Modifier = Modifier
 ) {
     val activity = summary?.activity
-    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
     val totalMinutes = activity?.totalMinutes ?: 0
-    val progress = (totalMinutes.toFloat() / target).coerceIn(0f, 1f)
+    val intensity = activity?.intensityMinutes ?: IntensityMinutesDto()
+    val mvpaMinutes = intensity.moderate + intensity.vigorous
+    val vigorousMinutes = intensity.vigorous
+    val moderateMinutes = intensity.moderate
+    val lightMinutes = intensity.light
+    val activeKcal = activity?.activeEnergyKcal?.roundToInt()
+        ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
+
+    val intensityStatus = when {
+        vigorousMinutes >= 20 || mvpaMinutes >= 60 -> "活力达标"
+        mvpaMinutes >= 30 -> "良好活力"
+        totalMinutes > 0 -> "运动提升中"
+        else -> "待激活"
+    }
 
     Surface(
         shape = RoundedCornerShape(28.dp),
@@ -844,12 +857,12 @@ private fun MoeExerciseProgressCard(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        "教育部 120 分钟运动达标",
+                        "运动活力与强度",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "中小学生日均校内外综合体育活动",
+                        "关注中高强度运动，激活心肺活力",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
                     )
@@ -859,7 +872,7 @@ private fun MoeExerciseProgressCard(
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f)
                 ) {
                     Text(
-                        if (activity?.targetReached == true) "已达标" else "目标 " + target + " 分钟",
+                        intensityStatus,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
@@ -872,44 +885,106 @@ private fun MoeExerciseProgressCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom
             ) {
-                Text(
-                    totalMinutes.toString() + " 分钟",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    "完成度 " + (progress * 100).roundToInt().toString() + "%",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Medium
-                )
+                Column {
+                    Text(
+                        if (mvpaMinutes > 0) mvpaMinutes.toString() + " 分钟" else totalMinutes.toString() + " 分钟",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (mvpaMinutes > 0) "中高强度运动 (有效激活)" else "累计运动时间",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        activeKcal?.let { it.toString() + " 千卡" } ?: "—",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "活动能量消耗",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
+                    )
+                }
             }
 
-            LinearProgressIndicator(
-                progress = { progress },
+            // Multi-segment intensity distribution bar
+            val totalRecorded = (vigorousMinutes + moderateMinutes + lightMinutes).toFloat()
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(10.dp),
-                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
-            )
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f))
+            ) {
+                if (totalRecorded > 0f) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        if (vigorousMinutes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(vigorousMinutes.toFloat())
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.error)
+                            )
+                        }
+                        if (moderateMinutes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(moderateMinutes.toFloat())
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                        }
+                        if (lightMinutes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(lightMinutes.toFloat())
+                                    .fillMaxHeight()
+                                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f))
+                            )
+                        }
+                    }
+                } else if (totalMinutes > 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth((totalMinutes.toFloat() / 60f).coerceIn(0.1f, 1f))
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
 
+            // Intensity breakdown metrics
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 OverviewMetric(
                     Modifier.weight(1f),
-                    (activity?.peMinutes ?: 0).toString() + " 分钟",
-                    "校内体育课"
+                    vigorousMinutes.toString() + " 分钟",
+                    "高强度 (高心率)"
                 )
                 OverviewMetric(
                     Modifier.weight(1f),
-                    (activity?.outsideMinutes ?: 0).toString() + " 分钟",
-                    "校外自主运动"
+                    moderateMinutes.toString() + " 分钟",
+                    "中等强度 (有氧)"
                 )
                 OverviewMetric(
                     Modifier.weight(1f),
-                    activity?.activeEnergyKcal?.roundToInt()?.let { it.toString() + " 千卡" } ?: "—",
-                    "活动消耗"
+                    lightMinutes.toString() + " 分钟",
+                    "轻松日常"
+                )
+            }
+
+            if ((activity?.peMinutes ?: 0) > 0 || (activity?.outsideMinutes ?: 0) > 0) {
+                Text(
+                    "全天累计 " + totalMinutes + " 分钟 · 含校内体育 " + (activity?.peMinutes ?: 0) + " 分钟，校外 " + (activity?.outsideMinutes ?: 0) + " 分钟",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
                 )
             }
         }
@@ -1020,7 +1095,7 @@ private fun DailyEnergyReferenceSettingCard(
                 )
                 val refText = currentReference?.let { it.toString() + " 千卡" } ?: "未设定"
                 Text(
-                    "依据学龄儿童体征与活动强度设定（当前基准：" + refText + "）",
+                    "当前基准：" + refText + " · 可根据体质与运动消耗推荐调整",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1120,9 +1195,9 @@ private fun NextActionCard(
 ) {
     val activity = summary?.activity
     val nutrition = summary?.nutrition
-    val target = (activity?.targetMinutes ?: 120).coerceAtLeast(1)
     val totalMinutes = activity?.totalMinutes ?: 0
-    val remainingMinutes = (target - totalMinutes).coerceAtLeast(0)
+    val intensity = activity?.intensityMinutes ?: IntensityMinutesDto()
+    val mvpaMinutes = intensity.moderate + intensity.vigorous
     val macro = nutrition?.macroCompositionPercent
     val intake = nutrition?.energyKcal?.roundToInt() ?: 0
 
@@ -1157,16 +1232,21 @@ private fun NextActionCard(
                     )
                 }
                 Text(
-                    "WS/T 578-2017 & 中小学标准",
+                    "活力建议",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
 
-            val motionAdvice = if (activity?.targetReached == true) {
-                "运动：累计已达 " + totalMinutes + " 分钟（达成每日 120 分钟标准），晚间宜进行适度拉伸放松。"
-            } else {
-                "运动：今日累计 " + totalMinutes + " 分钟，距 120 分钟还差 " + remainingMinutes + " 分钟，建议课后安排慢跑或球类运动。"
+            val motionAdvice = when {
+                intensity.vigorous >= 20 || mvpaMinutes >= 60 ->
+                    "运动：中高强度运动达标，有效提升心肺与肌肉体适能，晚间宜适度拉伸放松。"
+                mvpaMinutes in 20..59 ->
+                    "运动：已完成 " + mvpaMinutes + " 分钟中高强度运动，建议课后适当增加跳绳、跑步或球类，保持充沛活力。"
+                totalMinutes > 0 ->
+                    "运动：今日多为轻松活动（累计 " + totalMinutes + " 分钟），建议安排 20 分钟中高强度锻炼，激活运动代谢。"
+                else ->
+                    "运动：今日尚未记录运动，课后建议安排 20-30 分钟慢跑或球类等中高强度活动。"
             }
 
             val nutritionAdvice = when {
@@ -1230,7 +1310,7 @@ private fun ActivityTimelineFeed(
                     TimelineItemRow(
                         time = "校内课时",
                         title = "今日无体育课排期",
-                        subtitle = "依据校历与当日课表"
+                        subtitle = "当日课表暂无排课"
                     )
                 } else {
                     peWindows.forEach { pe ->
@@ -1785,7 +1865,7 @@ internal fun SettingsDialog(
                         SettingsItemRow(
                             icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                             title = "生理性别与学龄",
-                            subtitle = "用于计算基础代谢率与儿童青少年体质标准"
+                            subtitle = "用于评估体质指数与推荐能量"
                         )
 
                         // Gender Selection: Male, Female, Neutral (supports unselecting both)
@@ -1900,7 +1980,7 @@ internal fun SettingsDialog(
                                 }
 
                                 Text(
-                                    "依据《WS/T 578-2017 学龄儿童营养素参考摄入量》，已根据体质推荐适宜能量平衡目标。",
+                                    "已根据体质指数与日常运动消耗，推荐适宜的能量平衡目标。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                 )
