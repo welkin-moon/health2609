@@ -236,7 +236,7 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(customApiBaseUrl, selectedSchoolId) {
                     ApiFactory.customBaseUrl = customApiBaseUrl
-                    viewModel.refresh(resetContext = true)
+                    viewModel.configureContext("${ApiFactory.currentBaseUrl}|$selectedSchoolId")
                 }
 
                 val prettyDate = remember(state.date) {

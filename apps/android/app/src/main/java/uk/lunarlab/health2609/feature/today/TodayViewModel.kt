@@ -83,6 +83,13 @@ class TodayViewModel(
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
     private var refreshJob: Job? = null
+    private var contextKey: String? = null
+
+    fun configureContext(key: String) {
+        if (contextKey == key) return
+        contextKey = key
+        refresh(resetContext = true)
+    }
 
     init {
         refresh()

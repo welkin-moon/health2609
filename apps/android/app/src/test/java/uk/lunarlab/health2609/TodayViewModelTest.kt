@@ -139,6 +139,20 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun recreatingScreenWithSameServerPreservesPhotosAndUnsavedFood() = runTest(testDispatcher) {
+        viewModel.configureContext("test-server|test-school")
+        advanceUntilIdle()
+        viewModel.analyzeHomeMeal("fake-image".toByteArray(), "image/jpeg")
+        advanceUntilIdle()
+        viewModel.setHomeMealName(0, "已编辑的菜名")
+        val before = viewModel.uiState.value
+        viewModel.configureContext("test-server|test-school")
+        advanceUntilIdle()
+        assertEquals(before.stagedMealImages, viewModel.uiState.value.stagedMealImages)
+        assertEquals(before.homeMealDraft, viewModel.uiState.value.homeMealDraft)
+    }
+
+    @Test
     fun testManualActivityControls() = runTest(testDispatcher) {
         viewModel.setManualActivityMinutes(45)
         assertEquals(45, viewModel.uiState.value.manualActivityMinutes)
