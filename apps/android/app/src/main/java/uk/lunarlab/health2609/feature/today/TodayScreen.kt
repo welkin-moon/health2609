@@ -1930,7 +1930,7 @@ internal fun SettingsDialog(
                         SettingsItemRow(
                             icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                             title = "按需填写",
-                            subtitle = "估算每日能量"
+                            subtitle = "保存在这台手机"
                         )
 
                         // Keep all profile edits local until the user saves.
