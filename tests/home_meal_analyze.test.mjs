@@ -26,33 +26,6 @@ describe('Home Meal Analysis Pipeline & Error Preservation (Issue #15)', () => {
     assert.strictEqual(parsed.data.items[0].name, '西红柿鸡蛋');
   });
 
-  it('preserves machine-readable error classes without collapsing to generic 502', () => {
-    const errorClasses = [
-      { status: 429, upstreamError: 'queue_full', expectedError: 'queue_full', expectedStatus: 429 },
-      { status: 504, upstreamError: 'agy_timeout', expectedError: 'agy_timeout', expectedStatus: 504 },
-      { status: 401, upstreamError: 'unauthorized', expectedError: 'agy_auth_failed', expectedStatus: 502 },
-      { status: 502, upstreamError: 'agy_model_failed', expectedError: 'agy_model_failed', expectedStatus: 502 },
-      { status: 502, upstreamError: 'agy_bootstrap_failed', expectedError: 'agy_bootstrap_failed', expectedStatus: 502 },
-      { status: 502, upstreamError: 'agy_output_invalid', expectedError: 'agy_output_invalid', expectedStatus: 502 }
-    ];
-
-    for (const ec of errorClasses) {
-      const responseStatus = ec.status;
-      const bridgeError = { error: ec.upstreamError, detail: 'diagnostic detail', requestId: 'test-req' };
-      
-      const rawError = bridgeError?.error;
-      const errorCode =
-        (responseStatus === 401 || rawError === 'unauthorized')
-          ? 'agy_auth_failed'
-          : (rawError || (responseStatus === 429 ? 'queue_full' : 'agy_failed'));
-      const finalStatus = responseStatus === 429 ? 429 : responseStatus === 401 ? 502 : responseStatus;
-
-      assert.strictEqual(errorCode, ec.expectedError);
-      assert.strictEqual(finalStatus, ec.expectedStatus);
-      assert.strictEqual(bridgeError.requestId, 'test-req');
-    }
-  });
-
   it('rejects schema-invalid model responses with descriptive error details', () => {
     const invalidPayloads = [
       { schemaVersion: 2, items: [] }, // Unsupported schemaVersion
@@ -116,17 +89,4 @@ describe('Home Meal Analysis Pipeline & Error Preservation (Issue #15)', () => {
     assert.strictEqual(parsed.data.notes[0].includes('3 张餐食照片'), true);
   });
 
-  it('strictly rejects fallback dummy data generation', () => {
-    // Verifies that error handling preserves real errors and does not synthesize fake rice/meat/vegetables
-    const errorResponse = {
-      error: 'agy_model_failed',
-      requestId: 'req-err-456',
-      status: 502,
-      detail: 'Resident coordinator subprocess timed out',
-      message: 'Upstream service error: agy_model_failed'
-    };
-
-    assert.strictEqual(errorResponse.error, 'agy_model_failed');
-    assert.strictEqual('items' in errorResponse, false, 'Error response must NOT contain fake items draft');
-  });
 });

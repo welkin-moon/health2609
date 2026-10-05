@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import uk.lunarlab.health2609.core.network.ConfirmedHomeMealItemRequest
 import uk.lunarlab.health2609.core.network.DailySummaryDto
 import uk.lunarlab.health2609.core.network.NutritionDto
@@ -68,6 +70,7 @@ data class TodayUiState(
     val homeMealSlot: String = "dinner",
     val stagedMealImages: List<StagedMealImage> = emptyList(),
     val homeMealDraft: List<HomeMealDraftItem> = emptyList(),
+    val homeMealDrafts: Map<String, List<HomeMealDraftItem>> = emptyMap(),
     val homeMealNotes: List<String> = emptyList(),
     val syncedSteps: Long? = null,
     val message: String? = null
@@ -79,16 +82,25 @@ class TodayViewModel(
     private val _uiState = MutableStateFlow(TodayUiState())
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
+    private var refreshJob: Job? = null
+
     init {
         refresh()
     }
 
-    fun refresh() {
+    fun refresh(resetContext: Boolean = false) {
+        refreshJob?.cancel()
+        if (resetContext) _uiState.update { TodayUiState(date = it.date) }
         val date = _uiState.value.date
-        viewModelScope.launch {
+        refreshJob = viewModelScope.launch {
             _uiState.update { it.copy(loading = true, message = null) }
             runCatching { repository.load(date) }
                 .onSuccess { data ->
+                    val restored = data.homeMeals.meals.associate { meal ->
+                        meal.mealSlot to meal.items.map { item ->
+                            HomeMealDraftItem(item.name, item.grams, item.grams, 1.0, item.nutrition, emptyList())
+                        }
+                    }
                     _uiState.update { current ->
                         current.copy(
                             loading = false,
@@ -96,6 +108,8 @@ class TodayViewModel(
                             summary = data.summary,
                             schoolActivity = data.schoolActivity,
                             schools = data.schools,
+                            homeMealDrafts = restored + current.homeMealDrafts,
+                            homeMealDraft = current.homeMealDraft.ifEmpty { restored[current.homeMealSlot].orEmpty() },
                             energyReferenceInput =
                                 data.summary.energy.dailyEnergyReferenceKcal
                                     ?.toString()
@@ -104,8 +118,10 @@ class TodayViewModel(
                                 dish.id to (
                                     current.amounts[dish.id]
                                         ?: DishAmount(
-                                            servingMultiplier = 0.0,
-                                            consumedGrams = 0.0
+                                            servingMultiplier = dish.savedServingMultiplier ?: 0.0,
+                                            consumedGrams = dish.savedConsumedGrams
+                                                ?: dish.standardServingGrams?.times(dish.savedServingMultiplier ?: 0.0)
+                                                ?: 0.0
                                         )
                                     )
                             }
@@ -113,6 +129,7 @@ class TodayViewModel(
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     _uiState.update {
                         it.copy(
                             loading = false,
@@ -214,14 +231,13 @@ class TodayViewModel(
         }
         if (_uiState.value.analyzingHomeMeal) return
 
+        _uiState.update {
+            it.copy(
+                analyzingHomeMeal = true,
+                message = if (images.size > 1) "正在多图综合识别这顿饭（共 ${images.size} 张）…" else "正在识别这顿饭…"
+            )
+        }
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    analyzingHomeMeal = true,
-                    message = if (images.size > 1) "正在多图综合识别这顿饭（共 ${images.size} 张）…" else "正在识别这顿饭…"
-                )
-            }
-
             runCatching {
                 repository.analyzeHomeMeals(
                     images.map { img ->
@@ -261,6 +277,7 @@ class TodayViewModel(
                     )
                 }
             }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 val friendly = ApiFactory.formatErrorMessage(error)
                 _uiState.update {
                     it.copy(
@@ -283,11 +300,16 @@ class TodayViewModel(
     }
 
     fun setHomeMealSlot(slot: String) {
+        if (_uiState.value.analyzingHomeMeal || _uiState.value.savingHomeMeal) return
         if (slot !in setOf("breakfast", "lunch", "dinner")) return
-        _uiState.update { it.copy(homeMealSlot = slot) }
+        _uiState.update {
+            val drafts = it.homeMealDrafts + (it.homeMealSlot to it.homeMealDraft)
+            it.copy(homeMealSlot = slot, homeMealDrafts = drafts, homeMealDraft = drafts[slot].orEmpty(), homeMealNotes = emptyList())
+        }
     }
 
     fun setHomeMealName(index: Int, name: String) {
+        if (_uiState.value.analyzingHomeMeal || _uiState.value.savingHomeMeal) return
         _uiState.update { state ->
             state.copy(
                 homeMealDraft = state.homeMealDraft.mapIndexed { i, item ->
@@ -298,6 +320,7 @@ class TodayViewModel(
     }
 
     fun setHomeMealGrams(index: Int, grams: Double?) {
+        if (_uiState.value.analyzingHomeMeal || _uiState.value.savingHomeMeal) return
         _uiState.update { state ->
             state.copy(
                 homeMealDraft = state.homeMealDraft.mapIndexed { i, item ->
@@ -312,6 +335,7 @@ class TodayViewModel(
     }
 
     fun removeHomeMealItem(index: Int) {
+        if (_uiState.value.analyzingHomeMeal || _uiState.value.savingHomeMeal) return
         _uiState.update { state ->
             state.copy(
                 homeMealDraft = state.homeMealDraft.filterIndexed { i, _ ->
@@ -350,11 +374,8 @@ class TodayViewModel(
             return
         }
 
+        _uiState.update { it.copy(savingHomeMeal = true, message = null) }
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(savingHomeMeal = true, message = null)
-            }
-
             runCatching {
                 repository.saveHomeMeal(
                     date = state.date,
@@ -366,12 +387,13 @@ class TodayViewModel(
                     it.copy(
                         savingHomeMeal = false,
                         stagedMealImages = emptyList(),
-                        homeMealDraft = emptyList(),
+                        homeMealDrafts = it.homeMealDrafts + (state.homeMealSlot to state.homeMealDraft),
                         homeMealNotes = emptyList()
                     )
                 }
-                refreshSummary("这顿饭已加入今天的记录")
+                refreshSummary("这顿饭已保存，可以继续补充菜品")
             }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         savingHomeMeal = false,
@@ -391,6 +413,7 @@ class TodayViewModel(
     }
 
     fun addManualHomeMealItem(name: String = "", grams: Double = 150.0) {
+        if (_uiState.value.analyzingHomeMeal || _uiState.value.savingHomeMeal) return
         val newItem = HomeMealDraftItem(
             name = name,
             sourceGrams = grams,
@@ -413,6 +436,10 @@ class TodayViewModel(
         }
     }
 
+    fun healthRequestFinished() {
+        _uiState.update { it.copy(syncingPhoneActivity = false, syncingSchoolActivity = false, message = null) }
+    }
+
     fun phoneActivitySyncFinished(
         message: String = "手机运动数据已更新",
         syncedSteps: Long? = null
@@ -431,6 +458,7 @@ class TodayViewModel(
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     _uiState.update {
                         it.copy(
                             syncingPhoneActivity = false,
@@ -473,6 +501,7 @@ class TodayViewModel(
                     )
                 }
             }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         syncingSchoolActivity = false,
@@ -501,16 +530,18 @@ class TodayViewModel(
         val state = _uiState.value
         if (state.menu == null || state.savingMeal) return
 
+        _uiState.update { it.copy(savingMeal = true, message = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(savingMeal = true, message = null) }
             runCatching {
                 repository.saveMeal(
                     date = state.date,
                     amounts = state.amounts
                 )
             }.onSuccess {
+                _uiState.update { it.copy(savingMeal = false) }
                 refreshSummary("今天的午餐已记录")
             }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         savingMeal = false,
@@ -527,8 +558,8 @@ class TodayViewModel(
 
         val activityType = type.ifBlank { state.manualActivityType.ifBlank { "自主运动" } }
 
+        _uiState.update { it.copy(savingActivity = true, message = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(savingActivity = true, message = null) }
             runCatching {
                 repository.saveManualActivity(
                     date = state.date,
@@ -537,8 +568,10 @@ class TodayViewModel(
                     intensity = state.manualActivityIntensity
                 )
             }.onSuccess {
+                _uiState.update { it.copy(savingActivity = false) }
                 refreshSummary("运动记录已加入今天")
             }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         savingActivity = false,
@@ -561,15 +594,15 @@ class TodayViewModel(
             return
         }
 
+        _uiState.update { it.copy(savingEnergyReference = true, message = null) }
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(savingEnergyReference = true, message = null)
-            }
             runCatching {
                 repository.saveEnergyReference(kcal)
             }.onSuccess {
+                _uiState.update { it.copy(savingEnergyReference = false) }
                 refreshSummary("参考能量已更新")
             }.onFailure { error ->
+                    if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         savingEnergyReference = false,
@@ -588,19 +621,14 @@ class TodayViewModel(
                     _uiState.update {
                         it.copy(
                             summary = summary,
-                            savingMeal = false,
-                            savingActivity = false,
-                            savingEnergyReference = false,
                             message = successMessage
                         )
                     }
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
                     _uiState.update {
                         it.copy(
-                            savingMeal = false,
-                            savingActivity = false,
-                            savingEnergyReference = false,
                             message = "$successMessage，汇总暂时未能刷新。请稍后刷新页面。"
                         )
                     }

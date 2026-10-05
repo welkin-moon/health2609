@@ -16,13 +16,6 @@ if ($running) {
 }
 
 Write-Host "[Health2609] Launching AGY Bridge Tray Service..." -ForegroundColor Cyan
-$cmd = "`"$trayExe`""
-$res = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
-
-if ($res.ReturnValue -eq 0) {
-    Write-Host "[Health2609] Tray service launched successfully (PID: $($res.ProcessId))." -ForegroundColor Green
-    Write-Host "[Health2609] Check the system tray icon at the bottom-right corner of your taskbar." -ForegroundColor Green
-} else {
-    Write-Host "[Health2609] Failed to launch tray service via WMI. Falling back to Start-Process..." -ForegroundColor Yellow
-    Start-Process -FilePath $trayExe -WorkingDirectory "$repoRoot\tools\agy-tray\publish"
-}
+$env:HEALTH2609_REPO_ROOT = [string]$repoRoot
+Start-Process -FilePath $trayExe -WorkingDirectory ([string]$repoRoot) -WindowStyle Hidden
+Write-Host "[Health2609] Tray started. Verify http://127.0.0.1:18788/healthz before using photo recognition."

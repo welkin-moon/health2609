@@ -6,6 +6,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -65,6 +67,25 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun persistedLunchPortionIsRestoredOnFirstLoad() = runTest(testDispatcher) {
+        fakeApi.menuToReturn = fakeApi.menuToReturn.copy(dishes = fakeApi.menuToReturn.dishes.map {
+            if (it.id == "dish-1") it.copy(savedServingMultiplier = 0.75, savedConsumedGrams = 112.5) else it
+        })
+        advanceUntilIdle()
+        assertEquals(DishAmount(0.75, 112.5), viewModel.uiState.value.amounts["dish-1"])
+    }
+
+    @Test
+    fun repeatedTapBeforeDispatchSavesManualActivityOnlyOnce() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        viewModel.saveManualActivity("跑步")
+        viewModel.saveManualActivity("跑步")
+        advanceUntilIdle()
+        assertEquals(1, fakeApi.manualSaveCount)
+        assertFalse(viewModel.uiState.value.savingActivity)
+    }
+
+    @Test
     fun testSetConsumedGrams_updatesMultiplierAndGrams() = runTest(testDispatcher) {
         advanceUntilIdle()
 
@@ -74,6 +95,47 @@ class TodayViewModelTest {
         assertNotNull(amount)
         assertEquals(0.5, amount?.servingMultiplier ?: 0.0, 0.001)
         assertEquals(60.0, amount?.consumedGrams ?: 0.0, 0.001)
+    }
+
+    @Test
+    fun lunchSummaryCannotUnlockAnUnfinishedActivitySave() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        fakeApi.summaryGate = CompletableDeferred()
+        viewModel.saveMeal()
+        runCurrent()
+        fakeApi.manualSaveGate = CompletableDeferred()
+        viewModel.saveManualActivity("跑步")
+        runCurrent()
+        assertTrue(viewModel.uiState.value.savingActivity)
+        fakeApi.summaryGate!!.complete(Unit)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.savingActivity)
+        viewModel.saveManualActivity("跑步")
+        assertEquals(1, fakeApi.manualSaveCount)
+        fakeApi.manualSaveGate!!.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.savingActivity)
+    }
+
+    @Test
+    fun savedDinnerRestoresAndAddingFoodPreservesItsEarlierItems() = runTest(testDispatcher) {
+        fakeApi.savedHomeMeals = uk.lunarlab.health2609.core.network.HomeMealsDto("2026-09-30", listOf(
+            uk.lunarlab.health2609.core.network.SavedHomeMealDto("dinner", listOf(
+                uk.lunarlab.health2609.core.network.ConfirmedHomeMealItemRequest("炒饭", 180.0,
+                    uk.lunarlab.health2609.core.network.NutritionDto(energyKcal = 300.0))
+            ))
+        ))
+        advanceUntilIdle()
+        assertEquals("炒饭", viewModel.uiState.value.homeMealDraft.single().name)
+        viewModel.addManualHomeMealItem("苹果", 100.0)
+        viewModel.setHomeMealSlot("breakfast")
+        assertTrue(viewModel.uiState.value.homeMealDraft.isEmpty())
+        viewModel.setHomeMealSlot("dinner")
+        assertEquals(2, viewModel.uiState.value.homeMealDraft.size)
+        viewModel.saveHomeMeal()
+        advanceUntilIdle()
+        assertEquals(listOf("炒饭", "苹果"), fakeApi.lastSavedHomeMealRequest!!.items.map { it.name })
+        assertEquals(300.0, fakeApi.lastSavedHomeMealRequest!!.items.first().nutrition!!.energyKcal!!, 0.001)
     }
 
     @Test
@@ -136,7 +198,7 @@ class TodayViewModelTest {
         assertNotNull(fakeApi.lastSavedHomeMealRequest)
         assertEquals("清炖牛肉", fakeApi.lastSavedHomeMealRequest?.items?.get(0)?.name)
         assertEquals(180.0, fakeApi.lastSavedHomeMealRequest?.items?.get(0)?.grams ?: 0.0, 0.001)
-        assertTrue(viewModel.uiState.value.homeMealDraft.isEmpty())
+        assertEquals("清炖牛肉", viewModel.uiState.value.homeMealDraft.single().name)
     }
 
     @Test

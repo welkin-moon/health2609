@@ -7,6 +7,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import readline from "node:readline";
 import { safeParseJson, stripCodeFences } from "./parser.mjs";
+import { modelConfig, resolveAgyBin, classifyAgyError, errorStatus } from "./runtime.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(
@@ -15,7 +16,8 @@ const repoRoot = path.resolve(
 const schemaPath = path.join(here, "home-meal.schema.json");
 const host = process.env.HEALTH2609_AGY_HOST || "127.0.0.1";
 const port = Number(process.env.HEALTH2609_AGY_PORT || "18788");
-const agyBin = process.env.AGY_BIN || "agy";
+const agyBin = resolveAgyBin();
+const { model, effort } = modelConfig();
 const bearerToken = process.env.HEALTH2609_AGY_TOKEN || "";
 const maxQueued = Number(process.env.HEALTH2609_AGY_MAX_QUEUE || "4");
 const maxBodyBytes = 40 * 1024 * 1024;
@@ -27,6 +29,8 @@ let startPromise = null;
 let pendingResult = null;
 let queueDepth = 0;
 let serial = Promise.resolve();
+let lastError = null;
+let shuttingDown = false;
 
 const bootstrapPrompt = [
   "You are the resident AGY coordinator for the health2609 student health project.",
@@ -62,9 +66,12 @@ function stopAgy(reason) {
 }
 
 function spawnAgy() {
+  const prefixArgs = JSON.parse(process.env.AGY_BIN_PREFIX_ARGS || '[]');
+  if (!Array.isArray(prefixArgs) || prefixArgs.some((x) => typeof x !== 'string')) throw new Error('agy_config_invalid');
   const args = [
-    "--model", process.env.HEALTH2609_AGY_MODEL || "gemini-3.8-flash-low",
-    "--effort", process.env.HEALTH2609_AGY_EFFORT || "low",
+    ...prefixArgs,
+    "--model", model,
+    "--effort", effort,
     "--print=",
     "--input-format", "stream-json",
     "--output-format", "stream-json",
@@ -89,7 +96,7 @@ function spawnAgy() {
     } catch {
       return;
     }
-    if (event?.event !== "result" || !pendingResult) return;
+    if (agyProcess !== child || pendingResult?.child !== child || event?.event !== "result") return;
     const pending = pendingResult;
     pendingResult = null;
     clearTimeout(pending.timer);
@@ -110,7 +117,7 @@ function spawnAgy() {
       agyProcess = null;
       agyReady = false;
     }
-    if (pendingResult) {
+    if (wasCurrent && pendingResult?.child === child) {
       const pending = pendingResult;
       pendingResult = null;
       clearTimeout(pending.timer);
@@ -120,6 +127,7 @@ function spawnAgy() {
 
   child.on("error", (error) => {
     log(`AGY spawn error: ${error.message}`);
+    if (agyProcess === child) stopAgy("spawn_failed");
   });
 }
 
@@ -131,20 +139,20 @@ function sendRaw(prompt, timeoutMs) {
     return Promise.reject(new Error("agy_turn_already_active"));
   }
 
+  const child = agyProcess;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      if (pendingResult) pendingResult = null;
+      if (pendingResult?.child !== child) return;
+      pendingResult = null;
       log(`turn timeout (${timeoutMs}ms) exceeded; stopping AGY and triggering background recovery`);
       stopAgy("turn_timeout");
-      // Resilient background recovery so agyReady recovers to true rather than staying false
-      ensureAgy().catch((err) => {
-        log(`background recovery after turn_timeout failed: ${err.message}`);
-      });
       reject(new Error("agy_timeout"));
     }, timeoutMs);
-    pendingResult = { resolve, reject, timer };
+    pendingResult = { resolve, reject, timer, child };
     const message = { event: "user", message: { content: prompt } };
-    agyProcess.stdin.write(`${JSON.stringify(message)}\n`);
+    child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
+      if (error && pendingResult?.child === child) stopAgy("stdin_failed");
+    });
   });
 }
 
@@ -162,12 +170,14 @@ async function ensureAgy(maxRetries = 2) {
           throw new Error("agy_bootstrap_invalid");
         }
         agyReady = true;
+        lastError = null;
         log(`resident AGY ready; conversation=${result.conversation_id || "unknown"}`);
         return;
       } catch (error) {
+        lastError = classifyAgyError(error.message);
         log(`bootstrap attempt ${attempt}/${maxRetries} failed: ${error.message}`);
         stopAgy(`bootstrap_attempt_${attempt}_failed`);
-        if (attempt === maxRetries) {
+        if (attempt === maxRetries || ['agy_auth_failed', 'agy_model_unavailable', 'agy_config_invalid'].includes(lastError)) {
           throw error;
         }
         await new Promise((r) => setTimeout(r, 1000));
@@ -257,7 +267,7 @@ const server = createServer(async (req, res) => {
   res.setHeader("X-Request-Id", requestId);
 
   if (req.method === "GET" && req.url === "/healthz") {
-    json(res, agyReady ? 200 : 503, { ok: agyReady, agyReady, queueDepth, port, requestId });
+    json(res, agyReady ? 200 : 503, { ok: agyReady, agyReady, queueDepth, port, model, effort, error: lastError, requestId });
     return;
   }
 
@@ -338,18 +348,9 @@ const server = createServer(async (req, res) => {
       json(res, 429, { error: "queue_full", requestId, detail: message });
     } else if (message === "request_too_large") {
       json(res, 413, { error: "request_too_large", requestId, detail: message });
-    } else if (message === "agy_timeout") {
-      json(res, 504, { error: "agy_timeout", requestId, detail: message });
-    } else if (message.startsWith("agy_exit:") || message.startsWith("agy_status:")) {
-      json(res, 502, { error: "agy_model_failed", requestId, detail: message });
-    } else if (message === "agy_bootstrap_invalid") {
-      json(res, 502, { error: "agy_bootstrap_failed", requestId, detail: message });
-    } else if (message === "agy_output_invalid") {
-      json(res, 502, { error: "agy_output_invalid", requestId, detail: message });
-    } else if (message === "agy_not_running" || message === "agy_turn_already_active") {
-      json(res, 502, { error: "agy_bridge_busy", requestId, detail: message });
     } else {
-      json(res, 502, { error: "agy_bridge_failed", requestId, detail: message });
+      const code = classifyAgyError(message);
+      json(res, errorStatus(code), { error: code, requestId });
     }
   } finally {
     if (imagePaths.length > 0) {
@@ -369,11 +370,21 @@ server.listen(port, host, async () => {
 });
 
 process.on("SIGINT", () => {
-  if (agyProcess) agyProcess.kill();
+  shuttingDown = true;
+  stopAgy("shutdown");
   server.close(() => process.exit(0));
 });
 
 process.on("SIGTERM", () => {
-  if (agyProcess) agyProcess.kill();
+  shuttingDown = true;
+  stopAgy("shutdown");
   server.close(() => process.exit(0));
 });
+
+// Retry only when no request/bootstrap is active. Never recursively bootstrap
+// from a bootstrap timeout or accept events from a terminated generation.
+setInterval(() => {
+  if (!shuttingDown && !agyReady && !startPromise && !pendingResult && queueDepth === 0) {
+    ensureAgy().catch((error) => log(`readiness retry failed: ${classifyAgyError(error.message)}`));
+  }
+}, 30000).unref();

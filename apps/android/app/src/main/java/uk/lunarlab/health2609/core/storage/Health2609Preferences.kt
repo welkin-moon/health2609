@@ -53,14 +53,7 @@ data class UserProfile(
     val recommendedEnergyKcal: Int
         get() {
             val tdee = bmr * 1.35
-            val adjusted = when {
-                bmi >= 28.0 -> tdee - 400.0
-                bmi >= 24.0 -> tdee - 250.0
-                bmi < 16.5 -> tdee + 200.0
-                bmi < 18.5 -> tdee + 100.0
-                else -> tdee
-            }
-            return kotlin.math.round(adjusted).toInt().coerceIn(1200, 3800)
+            return kotlin.math.round(tdee).toInt().coerceIn(1200, 3800)
         }
 
     val bmrStatusText: String
@@ -70,17 +63,11 @@ data class UserProfile(
                 "female" -> "女生"
                 else -> "通用"
             }
-            return "BMR基础代谢 ${bmr.toInt()} kcal/天 ($genderText · Mifflin-St Jeor)"
+            return if (age < 18) "成长阶段不自动估算能量需求" else "基础代谢约 ${bmr.toInt()} 千卡/天（$genderText）"
         }
 
     val bmiStatusText: String
-        get() = when {
-            bmi >= 28.0 -> "BMI $bmi · 肥胖，建议控制饮食并增加日常活动"
-            bmi >= 24.0 -> "BMI $bmi · 超重/偏高，建议制造能量缺口"
-            bmi >= 22.0 -> "BMI $bmi · 轻度偏高，建议适度控制总热量"
-            bmi < 16.5 -> "BMI $bmi · 体重偏轻，建议适当补充热量与优质蛋白"
-            else -> "BMI $bmi · 体重正常，建议维持健康平衡摄入"
-        }
+        get() = "BMI $bmi · 仅展示计算值，不作体重评价"
 }
 
 class Health2609Preferences(context: Context) {

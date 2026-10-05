@@ -102,8 +102,8 @@ object ImageCompressor {
         if (origWidth in 1..maxDimension && origHeight in 1..maxDimension && bytes.size <= maxSizeBytes) {
             return CompressedImageResult(
                 bytes = bytes,
-                mimeType = "image/jpeg",
-                fileName = "meal.jpg",
+                mimeType = boundsOptions.outMimeType ?: "image/jpeg",
+                fileName = if (boundsOptions.outMimeType == "image/png") "meal.png" else "meal.jpg",
                 width = origWidth,
                 height = origHeight
             )

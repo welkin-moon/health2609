@@ -16,6 +16,7 @@ import {
   todayMenuSchema
 } from "@health2609/contracts";
 import { HOME_MEAL_AGY_PROMPT } from "./integrations/agy/homeMealPrompt";
+import { upstreamError } from "./integrations/agy/errors";
 
 type Bindings = {
   DB: D1Database;
@@ -27,6 +28,7 @@ type Variables = {
   schoolId: string;
   participantId: string;
   role: "student" | "admin";
+  requestId: string;
 };
 
 type AppEnv = {
@@ -51,12 +53,18 @@ app.use("/v1/*", cors({
     "Authorization",
     "x-demo-school",
     "x-demo-participant",
-    "x-demo-role"
+    "x-demo-role",
+    "x-request-id"
   ],
+  exposeHeaders: ["X-Request-Id"],
   allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }));
 
 app.use("/v1/*", async (c, next) => {
+  const supplied = c.req.header("x-request-id");
+  const requestId = supplied && /^[A-Za-z0-9_-]{1,100}$/.test(supplied) ? supplied : crypto.randomUUID();
+  c.set("requestId", requestId);
+  c.header("X-Request-Id", requestId);
   // Intentionally small competition-demo auth shell.
   const schoolId = c.req.header("x-demo-school") ?? "demo-school";
   const participantId = c.req.header("x-demo-participant") ?? "demo-student";
@@ -66,6 +74,14 @@ app.use("/v1/*", async (c, next) => {
   c.set("role", role);
   await next();
 });
+
+// Preserve the existing ciphertext until issue #17 has real authentication,
+// enrollment, recovery and record merging. A heartbeat is not a record backup.
+app.use("/v1/sync/*", async (c) => c.json({
+  error: "sync_not_available",
+  message: "跨设备同步尚未开放，已有云端数据保留。",
+  requestId: c.get("requestId")
+}, 503));
 
 const requireAdmin = (role: string) => role === "admin";
 
@@ -261,13 +277,18 @@ app.get("/v1/today/menu", async (c) => {
   if (!date) return c.json({ error: "date_required" }, 400);
 
   const rows = await c.env.DB.prepare(
-    `SELECT d.id, d.name, d.standard_serving_grams, d.nutrition_per_serving_json
+    `SELECT d.id, d.name, d.standard_serving_grams, d.nutrition_per_serving_json,
+            mc.serving_multiplier, mc.consumed_grams
        FROM menus m
        JOIN dishes d ON d.menu_id = m.id
+       LEFT JOIN meal_consumption mc ON mc.dish_id = d.id
+         AND mc.student_membership_id = (
+           SELECT id FROM student_memberships WHERE school_id = ? AND participant_id = ? LIMIT 1
+         )
       WHERE m.school_id = ? AND m.date = ? AND m.meal_slot = ?
         AND d.active = 1
       ORDER BY d.sort_order, d.name`
-  ).bind(c.get("schoolId"), date, mealSlot).all();
+  ).bind(c.get("schoolId"), c.get("participantId"), c.get("schoolId"), date, mealSlot).all();
 
   const payload = todayMenuSchema.parse({
     date,
@@ -281,11 +302,28 @@ app.get("/v1/today/menu", async (c) => {
           : Number(row.standard_serving_grams),
       nutritionPerServing: row.nutrition_per_serving_json
         ? JSON.parse(String(row.nutrition_per_serving_json))
-        : null
+        : null,
+      savedServingMultiplier: row.serving_multiplier == null ? null : Number(row.serving_multiplier),
+      savedConsumedGrams: row.consumed_grams == null ? null : Number(row.consumed_grams)
     }))
   });
 
   return c.json(payload);
+});
+
+app.get("/v1/home-meals", async (c) => {
+  const query = confirmedHomeMealSchema.pick({ date: true }).safeParse({ date: c.req.query("date") });
+  if (!query.success) return c.json({ error: "date_invalid", requestId: c.get("requestId") }, 400);
+  const membership = await membershipFor(c.env.DB, c.get("schoolId"), c.get("participantId"));
+  if (!membership) return c.json({ error: "membership_not_found" }, 404);
+  const rows = await c.env.DB.prepare(
+    `SELECT meal_slot, confirmed_items_json FROM home_meals WHERE student_membership_id = ? AND date = ? ORDER BY meal_slot`
+  ).bind(membership.id, query.data.date).all();
+  const meals = rows.results.map(row => {
+    const meal = confirmedHomeMealSchema.parse({ date: query.data.date, mealSlot: row.meal_slot, items: JSON.parse(String(row.confirmed_items_json)) });
+    return { mealSlot: meal.mealSlot, items: meal.items };
+  });
+  return c.json({ date: query.data.date, meals });
 });
 
 app.post(
@@ -811,6 +849,7 @@ app.post(
 );
 
 app.post("/v1/home-meals/analyze", async (c) => {
+  const requestId = c.get("requestId");
   const membership = await membershipFor(
     c.env.DB,
     c.get("schoolId"),
@@ -823,7 +862,12 @@ app.post("/v1/home-meals/analyze", async (c) => {
     return c.json({ error: "multipart_required" }, 415);
   }
 
-  const form = await c.req.raw.formData();
+  let form: FormData;
+  try {
+    form = await c.req.raw.formData();
+  } catch {
+    return c.json({ error: "multipart_invalid", requestId, message: "照片未能上传，请重新选择。" }, 400);
+  }
   const rawImages = [
     ...form.getAll("images"),
     ...form.getAll("image")
@@ -846,9 +890,6 @@ app.post("/v1/home-meals/analyze", async (c) => {
       return c.json({ error: "invalid_image_type", message: "仅支持图片格式文件" }, 415);
     }
   }
-
-  const requestId = c.req.header("x-request-id") || c.req.header("cf-ray") || crypto.randomUUID();
-  c.header("X-Request-Id", requestId);
 
   const outbound = new FormData();
   images.forEach((img, idx) => {
@@ -878,7 +919,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
         {
           error: "agy_timeout",
           requestId,
-          message: "云端视觉分析超时（135秒），请重试或检查本地网桥"
+          message: "照片识别超时，请重试或手动记录。"
         },
         504
       );
@@ -887,9 +928,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
       {
         error: "agy_unreachable",
         requestId,
-        message: err.message || "未能连接至云端视觉分析服务"
+        message: "识别服务暂时无法连接，请稍后重试。"
       },
-      502
+      503
     );
   }
 
@@ -899,23 +940,16 @@ app.post("/v1/home-meals/analyze", async (c) => {
       bridgeError = await response.json();
     } catch {}
 
-    const rawError = bridgeError?.error;
-    const errorCode =
-      (response.status === 401 || rawError === "unauthorized")
-        ? "agy_auth_failed"
-        : (rawError || (response.status === 429 ? "queue_full" : "agy_failed"));
-    const detail = bridgeError?.detail || bridgeError?.message;
-    const status = response.status === 429 ? 429 : response.status === 401 ? 502 : response.status;
+    const mapped = upstreamError(response.status, bridgeError);
 
     return c.json(
       {
-        error: errorCode,
+        error: mapped.error,
         requestId,
         status: response.status,
-        detail,
-        message: detail ? `视觉分析失败: ${detail}` : `视觉服务异常 (${response.status})`
+        message: "照片识别未完成，可以稍后重试或手动记录。"
       },
-      status >= 400 && status <= 599 ? (status as any) : 502
+      mapped.status
     );
   }
 
@@ -1773,238 +1807,6 @@ app.get("/v1/admin/stats/overview", async (c) => {
   });
 });
 
-/* -------------------------------------------------------------------------- */
-/*           Multi-device End-to-End Encrypted (E2EE) Sync with D1             */
-/* -------------------------------------------------------------------------- */
-
-app.post("/v1/sync/auth/register", async (c) => {
-  const body = await c.req.json<{
-    username: string;
-    passwordSalt: string;
-    passwordHash: string;
-    masterKeyEnc: string;
-    deviceFingerprint?: string;
-    deviceName?: string;
-    publicKeyJwk?: string;
-  }>();
-
-  if (!body.username || !body.passwordSalt || !body.passwordHash || !body.masterKeyEnc) {
-    return c.json({ error: "missing_required_fields" }, 400);
-  }
-
-  const existing = await c.env.DB.prepare(
-    "SELECT id FROM sync_users WHERE username = ? LIMIT 1"
-  ).bind(body.username.trim().toLowerCase()).first();
-
-  if (existing) {
-    return c.json({ error: "username_already_exists" }, 409);
-  }
-
-  const userId = crypto.randomUUID();
-  const deviceId = crypto.randomUUID();
-  const deviceFingerprint = body.deviceFingerprint || crypto.randomUUID();
-  const deviceName = body.deviceName || "Default Device";
-
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO sync_users (id, username, password_salt, password_hash, master_key_enc)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(
-      userId,
-      body.username.trim().toLowerCase(),
-      body.passwordSalt,
-      body.passwordHash,
-      body.masterKeyEnc
-    ),
-    c.env.DB.prepare(
-      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(
-      deviceId,
-      userId,
-      deviceFingerprint,
-      deviceName,
-      body.publicKeyJwk || null
-    )
-  ]);
-
-  return c.json({
-    ok: true,
-    userId,
-    deviceId,
-    token: `sync_${userId}_${deviceId}`
-  });
-});
-
-app.post("/v1/sync/auth/login", async (c) => {
-  const body = await c.req.json<{
-    username: string;
-    passwordHash: string;
-    deviceFingerprint?: string;
-    deviceName?: string;
-    publicKeyJwk?: string;
-  }>();
-
-  if (!body.username || !body.passwordHash) {
-    return c.json({ error: "missing_credentials" }, 400);
-  }
-
-  const user = await c.env.DB.prepare(
-    `SELECT id, username, password_salt, password_hash, master_key_enc
-       FROM sync_users
-      WHERE username = ?
-      LIMIT 1`
-  ).bind(body.username.trim().toLowerCase()).first<{
-    id: string;
-    username: string;
-    password_salt: string;
-    password_hash: string;
-    master_key_enc: string;
-  }>();
-
-  if (!user || user.password_hash !== body.passwordHash) {
-    return c.json({ error: "invalid_credentials" }, 401);
-  }
-
-  const deviceFingerprint = body.deviceFingerprint || "unknown-device";
-  const deviceName = body.deviceName || "Sync Client";
-  const existingDevice = await c.env.DB.prepare(
-    "SELECT id FROM sync_devices WHERE user_id = ? AND device_fingerprint = ? LIMIT 1"
-  ).bind(user.id, deviceFingerprint).first<{ id: string }>();
-
-  let deviceId = existingDevice?.id;
-  if (!deviceId) {
-    deviceId = crypto.randomUUID();
-    await c.env.DB.prepare(
-      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(deviceId, user.id, deviceFingerprint, deviceName, body.publicKeyJwk || null).run();
-  } else {
-    await c.env.DB.prepare(
-      `UPDATE sync_devices SET device_name = ?, public_key_jwk = coalesce(?, public_key_jwk), last_seen_at = datetime('now') WHERE id = ?`
-    ).bind(deviceName, body.publicKeyJwk || null, deviceId).run();
-  }
-
-  return c.json({
-    ok: true,
-    userId: user.id,
-    deviceId,
-    passwordSalt: user.password_salt,
-    masterKeyEnc: user.master_key_enc,
-    token: `sync_${user.id}_${deviceId}`
-  });
-});
-
-app.post("/v1/sync/push", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const body = await c.req.json<{
-    records: Array<{
-      entityType: string;
-      entityId: string;
-      encryptedPayload: string;
-      payloadNonce: string;
-      recordVersion?: number;
-      deleted?: boolean | number;
-      clientUpdatedAt?: string;
-    }>;
-  }>();
-
-  if (!Array.isArray(body.records)) {
-    return c.json({ error: "invalid_records_array" }, 400);
-  }
-
-  const statements = body.records.map((r) => {
-    const id = `${userId}_${r.entityType}_${r.entityId}`;
-    const version = Number(r.recordVersion || 1);
-    const deleted = r.deleted ? 1 : 0;
-    const clientUpdatedAt = r.clientUpdatedAt || new Date().toISOString();
-
-    return c.env.DB.prepare(
-      `INSERT INTO sync_records
-         (id, user_id, entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(user_id, entity_type, entity_id)
-       DO UPDATE SET
-         encrypted_payload = excluded.encrypted_payload,
-         payload_nonce = excluded.payload_nonce,
-         record_version = excluded.record_version,
-         deleted = excluded.deleted,
-         client_updated_at = excluded.client_updated_at,
-         server_received_at = datetime('now')
-       WHERE excluded.record_version >= sync_records.record_version`
-    ).bind(
-      id,
-      userId,
-      r.entityType,
-      r.entityId,
-      r.encryptedPayload,
-      r.payloadNonce,
-      version,
-      deleted,
-      clientUpdatedAt
-    );
-  });
-
-  if (statements.length > 0) {
-    await c.env.DB.batch(statements);
-  }
-
-  return c.json({
-    ok: true,
-    processedCount: body.records.length,
-    serverTimestamp: new Date().toISOString()
-  });
-});
-
-app.get("/v1/sync/pull", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const sinceTimestamp = c.req.query("since") || "1970-01-01T00:00:00Z";
-  const rows = await c.env.DB.prepare(
-    `SELECT entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at
-       FROM sync_records
-      WHERE user_id = ? AND server_received_at > ?
-      ORDER BY server_received_at ASC`
-  ).bind(userId, sinceTimestamp).all();
-
-  return c.json({
-    ok: true,
-    records: rows.results.map((r) => ({
-      entityType: String(r.entity_type),
-      entityId: String(r.entity_id),
-      encryptedPayload: String(r.encrypted_payload),
-      payloadNonce: String(r.payload_nonce),
-      recordVersion: Number(r.record_version),
-      deleted: Boolean(r.deleted),
-      clientUpdatedAt: String(r.client_updated_at),
-      serverReceivedAt: String(r.server_received_at)
-    })),
-    serverTimestamp: new Date().toISOString()
-  });
-});
-
-app.get("/v1/sync/devices", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const rows = await c.env.DB.prepare(
-    `SELECT id, device_fingerprint, device_name, last_seen_at
-       FROM sync_devices
-      WHERE user_id = ?
-      ORDER BY last_seen_at DESC`
-  ).bind(userId).all();
-
-  return c.json({
-    devices: rows.results.map((r) => ({
-      id: String(r.id),
-      deviceFingerprint: String(r.device_fingerprint),
-      deviceName: String(r.device_name),
-      lastSeenAt: String(r.last_seen_at)
-    }))
-  });
-});
+// Sync remains unavailable until authenticated sessions and real record restore exist.
 
 export default app;

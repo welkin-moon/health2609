@@ -15,7 +15,9 @@ data class DishDto(
     val id: String,
     val name: String,
     val standardServingGrams: Double?,
-    val nutritionPerServing: NutritionDto?
+    val nutritionPerServing: NutritionDto?,
+    val savedServingMultiplier: Double? = null,
+    val savedConsumedGrams: Double? = null
 )
 
 data class TodayMenuDto(
@@ -179,6 +181,9 @@ data class ConfirmedHomeMealItemRequest(
     val grams: Double?,
     val nutrition: NutritionDto?
 )
+
+data class SavedHomeMealDto(val mealSlot: String, val items: List<ConfirmedHomeMealItemRequest>)
+data class HomeMealsDto(val date: String, val meals: List<SavedHomeMealDto> = emptyList())
 
 data class ConfirmedHomeMealRequest(
     val date: String,

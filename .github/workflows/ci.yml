@@ -25,6 +25,7 @@ jobs:
           node-version: 22
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm check
+      - run: pnpm test
       - run: node --check tools/agy-bridge/server.mjs
       - run: pnpm --filter @health2609/admin-web build
       - run: pnpm --filter @health2609/api exec wrangler deploy --dry-run --outdir dist
@@ -84,7 +85,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
-      - run: gradle -p apps/android assembleDebug
+      - run: gradle -p apps/android assembleDebug testDebugUnitTest lintDebug
       - uses: actions/upload-artifact@v4
         with:
           name: health2609-debug-apk

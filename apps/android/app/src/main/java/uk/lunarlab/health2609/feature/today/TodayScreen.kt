@@ -140,7 +140,8 @@ fun TodayScreen(
     onAddManualHomeMealItem: () -> Unit = {},
     userProfile: UserProfile = UserProfile(),
     onUserProfileChange: (UserProfile) -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onNavigate: (String) -> Unit = {}
 ) {
     val lunchPreview = remember(state.menu, state.amounts) {
         val dishes = state.menu?.dishes.orEmpty()
@@ -173,7 +174,7 @@ fun TodayScreen(
             LoadingIndicator()
             Spacer(Modifier.height(12.dp))
             Text(
-                "正在同步今天的数据",
+                "正在读取今天的记录",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -191,6 +192,18 @@ fun TodayScreen(
         modifier = Modifier.fillMaxSize()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (destination == "today") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = { onNavigate("meals") }, modifier = Modifier.weight(1f)) { Text("记录餐食") }
+                        FilledTonalButton(onClick = { onNavigate("activity") }, modifier = Modifier.weight(1f)) { Text("记录运动") }
+                    }
+                    Text("当前为共享试用空间，请勿记录敏感内容。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             AnimatedVisibility(
                 visible = state.message != null,
                 enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
@@ -344,7 +357,7 @@ private fun WideScreenContent(
                         item {
                             EmptyState(
                                 title = "今天的午餐还没发布",
-                                body = "学校录入后会自动出现在这里。"
+                                body = "学校还未发布今日午餐。你可以在下方拍照或手动记录。"
                             )
                         }
                     } else {
@@ -593,7 +606,7 @@ private fun CompactScreenContent(
                     item {
                         EmptyState(
                             title = "今天的午餐还没发布",
-                            body = "学校录入后会自动出现在这里。"
+                            body = "学校发布后可在这里选择，也可以在下方手动记录午餐。"
                         )
                     }
                 } else {
@@ -760,7 +773,7 @@ private fun EnergyBalanceCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                if (reference != null && gap != null) {
+                if (reference != null && gap != null && intake > 0) {
                     val gapText = if (gap >= 0) {
                         "比参考少 " + gap.roundToInt() + " 千卡"
                     } else {
@@ -793,7 +806,7 @@ private fun EnergyBalanceCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        intake.toString() + " 千卡",
+                        if (intake > 0) intake.toString() + " 千卡" else "待记录",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -841,7 +854,7 @@ private fun MoeExerciseProgressCard(
     val moderateMinutes = intensity.moderate
     val lightMinutes = intensity.light
     val activeKcal = activity?.activeEnergyKcal?.roundToInt()
-        ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
+        ?: activity?.manuallyEstimatedActiveEnergyKcal?.takeIf { it > 0 }?.roundToInt()
 
     val intensityStatus = if (totalMinutes > 0) "已记录" else "还未记录"
 
@@ -1125,7 +1138,7 @@ private fun DailyEnergyReferenceSettingCard(
             }
 
             // Profile recommendation banner
-            if (userProfile.recommendedEnergyKcal > 0) {
+            if (userProfile.age >= 18 && userProfile.gender != "neutral") {
                 Surface(
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
@@ -1139,7 +1152,7 @@ private fun DailyEnergyReferenceSettingCard(
                     ) {
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                "按身体信息估算：" + userProfile.recommendedEnergyKcal + " 千卡",
+                                "粗略估算：" + userProfile.recommendedEnergyKcal + " 千卡",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
@@ -1173,8 +1186,9 @@ private fun DailyEnergyReferenceSettingCard(
             }
 
             val presets = remember(userProfile.recommendedEnergyKcal) {
-                val defaultList = listOf(1800, 2000, 2200, 2400)
-                (defaultList + userProfile.recommendedEnergyKcal).distinct().sorted().map { it.toString() }
+                val values = if (userProfile.age >= 18 && userProfile.gender != "neutral")
+                    listOf(1800, 2000, 2200, 2400, userProfile.recommendedEnergyKcal) else emptyList()
+                values.distinct().sorted().map { it.toString() }
             }
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -1321,7 +1335,7 @@ private fun ActivityTimelineFeed(
             val outsideMinutes = summary?.activity?.outsideMinutes ?: 0
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                val timeSpan = schoolWindows.joinToString("、") { it.startTime + "–" + it.endTime }.ifBlank { "08:00–17:00" }
+                val timeSpan = schoolWindows.joinToString("、") { it.startTime + "–" + it.endTime }.ifBlank { "未提供" }
                 TimelineItemRow(
                     time = timeSpan,
                     title = "在校时段",
@@ -1352,9 +1366,9 @@ private fun ActivityTimelineFeed(
                 )
 
                 val sourceText = if (schoolActivity?.selectedSource == "health_connect") {
-                    "智能手环 (Health Connect)"
+                    "手机运动健康记录"
                 } else {
-                    "学校排课与日常考勤"
+                    "学校提供的体育记录"
                 }
                 TimelineItemRow(
                     time = "数据源",
@@ -1410,7 +1424,7 @@ private fun SchoolEntryCard(
     selectedSchoolId: String,
     modifier: Modifier = Modifier
 ) {
-    val currentSchoolName = schools.firstOrNull { it.id == selectedSchoolId }?.name ?: "默认示范学校"
+    val currentSchoolName = schools.firstOrNull { it.id == selectedSchoolId }?.name ?: "未选择学校"
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -1457,7 +1471,7 @@ private fun ActivityStatsCard(
     val totalMinutes = activity?.totalMinutes ?: 0
     val steps = activity?.steps ?: syncedSteps ?: 0L
     val activeEnergy = activity?.activeEnergyKcal?.roundToInt()
-        ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
+        ?: activity?.manuallyEstimatedActiveEnergyKcal?.takeIf { it > 0 }?.roundToInt()
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -2047,7 +2061,7 @@ internal fun SettingsDialog(
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                     Text(
-                                        "${userProfile.recommendedEnergyKcal} 千卡/天",
+                                        if (userProfile.age >= 18 && userProfile.gender != "neutral") "约 ${userProfile.recommendedEnergyKcal} 千卡/天" else "能量参考请自行填写",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = MaterialTheme.colorScheme.primary
@@ -2062,7 +2076,7 @@ internal fun SettingsDialog(
                                 )
 
                                 Text(
-                                    "已根据临床 Mifflin-St Jeor 基础代谢公式与轻中度活动系数，结合体质指数推荐每日能量基准。",
+                                    "身体信息仅用于展示计算值。未成年人不使用成人体重分类，也不自动设置减重目标。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                 )
@@ -2073,7 +2087,7 @@ internal fun SettingsDialog(
                                         testFeedback = "已使用估算值基准：${userProfile.recommendedEnergyKcal} 千卡"
                                         testSuccess = true
                                     },
-                                    enabled = !savingProfile && draftProfile != null && !profileChanged,
+                                    enabled = !savingProfile && draftProfile != null && !profileChanged && userProfile.age >= 18 && userProfile.gender != "neutral",
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text("使用此能量参考值")
@@ -2295,166 +2309,17 @@ internal fun SettingsDialog(
                     }
                 }
 
-                // 3. School Group
-                SettingsGroupCard(title = "学校关联") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
-                            title = "就读学校",
-                            subtitle = "关联食堂菜谱与体育课程安排"
-                        )
-
-                        if (schools.isEmpty()) {
-                            Text(
-                                "暂无可选学校，正在使用默认学校。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 48.dp)
-                            )
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 48.dp)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                schools.forEach { school ->
-                                    FilterChip(
-                                        selected = selectedSchoolId == school.id,
-                                        onClick = { onSchoolChange(school.id) },
-                                        label = { Text(school.name) }
-                                    )
-                                }
-                            }
-                        }
+                SettingsGroupCard(title = "账号与跨设备同步") {
+                    Text("跨设备同步尚未完成，当前版本不提供个人记录的加密备份。",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("餐食与运动仍使用试用服务保存，身体信息和外观保存在这台手机。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = onOpenSyncDialog, modifier = Modifier.fillMaxWidth()) {
+                        Text("查看同步说明")
                     }
                 }
 
-                // 4. E2EE Sync Group
-                SettingsGroupCard(title = "学校账号与端对端加密云同步") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SettingsItemRow(
-                            icon = {
-                                Icon(
-                                    if (syncState?.isEnabled == true) Icons.Rounded.CloudDone else Icons.Rounded.CloudSync,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            title = if (syncState?.isEnabled == true) "端对端加密云同步已就绪" else "学校账号云同步",
-                            subtitle = if (syncState?.isEnabled == true) {
-                                "学号: ${syncState.username} · ${syncState.deviceCount} 台设备 · 上次: ${syncState.lastSyncTimestamp ?: "刚刚"}"
-                            } else {
-                                "保护个人隐私 · 跨设备端对端加密多端同步"
-                            }
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (syncState?.isEnabled == true) {
-                                FilledTonalButton(
-                                    onClick = onTriggerSync,
-                                    enabled = !isSyncing,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(if (isSyncing) "同步中…" else "立即同步")
-                                }
-                                OutlinedButton(
-                                    onClick = onOpenSyncDialog,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("账号设置")
-                                }
-                            } else {
-                                Button(
-                                    onClick = onOpenSyncDialog,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("登录学校账号并配置加密同步")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 4. Appearance Group
-                SettingsGroupCard(title = "外观与色彩") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "主题深浅",
-                            subtitle = "切换浅色、深色或随系统切换"
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(
-                                AppearanceMode.SYSTEM to "跟随系统",
-                                AppearanceMode.LIGHT to "浅色",
-                                AppearanceMode.DARK to "深色"
-                            ).forEach { (mode, label) ->
-                                FilterChip(
-                                    selected = appearanceMode == mode,
-                                    onClick = { onAppearanceModeChange(mode) },
-                                    label = { Text(label) }
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                        SettingsItemRow(
-                            icon = {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer
-                                ) {
-                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                                        Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    }
-                                }
-                            },
-                            title = "Monet 动态色彩自适应",
-                            subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
-                            trailing = {
-                                Switch(
-                                    checked = dynamicColor,
-                                    onCheckedChange = onDynamicColorChange
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // 5. Health & Permissions Group
-                SettingsGroupCard(title = "运动健康服务") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "Health Connect 权限",
-                            subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
-                        )
-
-                        OutlinedButton(
-                            onClick = onOpenHealthSettings,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                        ) {
-                            Text("打开系统运动健康设置")
-                        }
-                    }
-                }
             }
         }
     }
@@ -3154,7 +3019,7 @@ private fun HomeMealPanel(
                 }
             }
             Text(
-                "确认菜名和分量后保存，才会计入今天的记录。",
+                "保存后会替换当天同一餐次的记录。手动添加的菜品没有营养估算，暂不计入营养汇总。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
