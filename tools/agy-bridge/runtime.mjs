@@ -23,6 +23,20 @@ export function resolveAgyBin(env = process.env) {
   }
 }
 
+// Native Windows spawning bypasses agy.cmd. Preserve the existing proxy
+// configuration for clients that read lower-case or ALL_PROXY variables.
+export function agyEnvironment(env = process.env) {
+  const result = { ...env };
+  for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY']) {
+    if (result[name] && !result[name.toLowerCase()]) result[name.toLowerCase()] = result[name];
+  }
+  if (!result.ALL_PROXY && !result.all_proxy) {
+    const proxy = result.HTTPS_PROXY || result.https_proxy || result.HTTP_PROXY || result.http_proxy;
+    if (proxy) result.ALL_PROXY = result.all_proxy = proxy;
+  }
+  return result;
+}
+
 export function classifyAgyError(message) {
   if (/agy_config_invalid|invalid model selection/i.test(message)) return 'agy_config_invalid';
   if (/location.*not supported|FAILED_PRECONDITION|model.*not (available|found)|RESOURCE_EXHAUSTED/i.test(message)) return 'agy_model_unavailable';

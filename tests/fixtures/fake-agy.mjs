@@ -7,7 +7,7 @@ lines.on('line', (line) => {
   const input = JSON.parse(line);
   if (!input.message.content) return;
   turn += 1;
-  if (process.env.FAKE_AGY_SCENARIO === 'location') {
+  if (process.env.FAKE_AGY_SCENARIO === 'location' || (turn > 1 && process.env.FAKE_AGY_SCENARIO === 'runtime-location')) {
     console.log(JSON.stringify({ event: 'result', result: { status: 'ERROR', error: 'FAILED_PRECONDITION: User location is not supported for the API use.' } }));
     return;
   }

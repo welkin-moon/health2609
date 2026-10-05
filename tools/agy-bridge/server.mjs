@@ -7,7 +7,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import readline from "node:readline";
 import { safeParseJson, stripCodeFences } from "./parser.mjs";
-import { modelConfig, resolveAgyBin, classifyAgyError, errorStatus } from "./runtime.mjs";
+import { modelConfig, resolveAgyBin, agyEnvironment, classifyAgyError, errorStatus } from "./runtime.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(
@@ -82,7 +82,7 @@ function spawnAgy() {
 
   const child = spawn(agyBin, args, {
     cwd: repoRoot,
-    env: process.env,
+    env: agyEnvironment(),
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true
   });
@@ -225,7 +225,15 @@ async function analyzeImages(imagePaths, suppliedPrompt, schemaVersion) {
     "Never carry food identity, quantity, or confidence assumptions from another request."
   ].join("\n");
 
-  const result = await sendRaw(prompt, taskTimeoutMs);
+  let result;
+  try {
+    result = await sendRaw(prompt, taskTimeoutMs);
+  } catch (error) {
+    lastError = classifyAgyError(error.message);
+    // A bootstrap success does not mean the provider remains available.
+    stopAgy(lastError);
+    throw error;
+  }
   const output = result.structured_output || safeParseJson(result.response);
   if (!output || output.schemaVersion !== 1 || !Array.isArray(output.items) || !Array.isArray(output.notes)) {
     throw new Error("agy_output_invalid");

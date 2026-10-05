@@ -67,6 +67,16 @@ test('actual bridge classifies provider regional rejection and reports not-ready
   assert.equal((await result.json()).error, 'agy_model_unavailable');
 });
 
+test('provider failure after bootstrap clears readiness and preserves its error', async (t) => {
+  const url = await start(t, 'runtime-location');
+  assert.equal((await fetch(`${url}/healthz`)).status, 200);
+  const response = await upload(url);
+  assert.equal(response.status, 503);
+  const health = await fetch(`${url}/healthz`);
+  assert.equal(health.status, 503);
+  assert.equal((await health.json()).error, 'agy_model_unavailable');
+});
+
 test('actual bridge preserves output-invalid and timeout classes', async (t) => {
   for (const [scenario, status, code] of [['invalid', 502, 'agy_output_invalid'], ['timeout', 504, 'agy_timeout']]) {
     const url = await start(t, scenario);
