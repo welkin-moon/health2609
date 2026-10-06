@@ -517,7 +517,7 @@ export function App() {
         </article>
 
         <article className="surface dish-stats-surface">
-          <span className="eyebrow">午餐菜品</span>
+          <span className="eyebrow">当天校园餐菜品 · 含所有餐次</span>
           <h2>逐菜平均完成度</h2>
           <p>按学生确认的克数优先换算；没有克数时使用份量倍率。</p>
 
