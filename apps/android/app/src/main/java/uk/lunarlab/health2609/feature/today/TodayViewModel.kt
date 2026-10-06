@@ -77,9 +77,10 @@ data class TodayUiState(
 )
 
 class TodayViewModel(
-    private val repository: TodayRepository
+    private val repository: TodayRepository,
+    private val currentDate: () -> LocalDate = { LocalDate.now() }
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(TodayUiState())
+    private val _uiState = MutableStateFlow(TodayUiState(date = currentDate().toString()))
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
 
     private var refreshJob: Job? = null
@@ -97,7 +98,9 @@ class TodayViewModel(
 
     fun refresh(resetContext: Boolean = false) {
         refreshJob?.cancel()
-        if (resetContext) _uiState.update { TodayUiState(date = it.date) }
+        val today = currentDate().toString()
+        val changedDay = _uiState.value.date != today
+        if (resetContext || changedDay) _uiState.update { TodayUiState(date = today) }
         val date = _uiState.value.date
         refreshJob = viewModelScope.launch {
             _uiState.update { it.copy(loading = true, message = null) }
@@ -145,6 +148,14 @@ class TodayViewModel(
                     }
                 }
         }
+    }
+
+    fun checkCurrentDate() {
+        val state = _uiState.value
+        if (state.date == currentDate().toString()) return
+        if (state.savingMeal || state.savingActivity || state.savingHomeMeal || state.analyzingHomeMeal ||
+            state.syncingPhoneActivity || state.syncingSchoolActivity || state.savingEnergyReference) return
+        refresh(resetContext = true)
     }
 
     fun setPortion(dishId: String, portion: Double) {

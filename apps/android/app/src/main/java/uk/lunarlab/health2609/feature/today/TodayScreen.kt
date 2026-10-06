@@ -773,7 +773,7 @@ private fun EnergyBalanceCard(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
-                if (reference != null && gap != null && intake > 0) {
+                if (reference != null && gap != null && intake > 0 && (summary?.nutrition?.unknownEnergyItems ?: 0) == 0) {
                     val gapText = if (gap >= 0) {
                         "比参考少 " + gap.roundToInt() + " 千卡"
                     } else {
@@ -806,7 +806,12 @@ private fun EnergyBalanceCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        if (intake > 0) intake.toString() + " 千卡" else "待记录",
+                        when {
+                            intake > 0 -> intake.toString() + " 千卡"
+                            (summary?.nutrition?.unknownEnergyItems ?: 0) > 0 -> "营养待补"
+                            (summary?.nutrition?.recordedFoodItems ?: 0) > 0 -> "0 千卡"
+                            else -> "待记录"
+                        },
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -825,7 +830,12 @@ private fun EnergyBalanceCard(
                 }
             }
 
-            if (reference != null && reference > 0) {
+            if ((summary?.nutrition?.unknownEnergyItems ?: 0) > 0) {
+                Text("餐食已保存；部分食物暂无能量数据，这里只合计已知部分。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (reference != null && reference > 0 && (summary?.nutrition?.unknownEnergyItems ?: 0) == 0) {
                 val ratio = (intake.toFloat() / reference).coerceIn(0f, 1.5f)
                 LinearProgressIndicator(
                     progress = { ratio.coerceAtMost(1f) },

@@ -114,6 +114,8 @@ data class MacroCompositionDto(
 )
 
 data class NutritionSummaryDto(
+    val recordedFoodItems: Int = 0,
+    val unknownEnergyItems: Int = 0,
     val energyKcal: Double = 0.0,
     val proteinG: Double = 0.0,
     val fatG: Double = 0.0,

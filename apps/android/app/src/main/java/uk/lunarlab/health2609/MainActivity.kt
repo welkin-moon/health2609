@@ -120,6 +120,12 @@ class MainActivity : ComponentActivity() {
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) { syncRepository.removeLegacyPassword() }
+                LaunchedEffect(viewModel) {
+                    while (true) {
+                        kotlinx.coroutines.delay(60_000)
+                        viewModel.checkCurrentDate()
+                    }
+                }
                 var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
                 var pendingCameraFile by remember { mutableStateOf<File?>(null) }
                 var pendingHealthAction by rememberSaveable { mutableStateOf<String?>(null) }
@@ -187,8 +193,9 @@ class MainActivity : ComponentActivity() {
                 val latestFinishHealthRequest by rememberUpdatedState(finishHealthRequest)
                 DisposableEffect(lifecycle) {
                     val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME && pendingHealthAction != null) {
-                            lifecycleScope.launch { latestFinishHealthRequest() }
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            viewModel.checkCurrentDate()
+                            if (pendingHealthAction != null) lifecycleScope.launch { latestFinishHealthRequest() }
                         }
                     }
                     lifecycle.addObserver(observer)

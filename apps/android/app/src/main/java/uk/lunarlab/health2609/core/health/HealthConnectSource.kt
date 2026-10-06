@@ -37,11 +37,6 @@ sealed interface HealthPermissionState {
     data object SdkUpdateRequired : HealthPermissionState
 }
 
-private data class InstantRange(
-    val start: Instant,
-    val end: Instant
-)
-
 class HealthConnectSource(
     context: Context
 ) {
@@ -190,7 +185,7 @@ class HealthConnectSource(
             val start = date.atTime(startTime).atZone(zoneId).toInstant()
             val end = date.atTime(endTime).atZone(zoneId).toInstant()
             if (start.isBefore(end)) InstantRange(start, end) else null
-        }
+        }.mergeActivityRanges()
 
         var exerciseDuration = Duration.ZERO
         var steps = 0L
@@ -253,23 +248,7 @@ class HealthConnectSource(
                     )
                 }
             }
-            .filter { it.start.isBefore(it.end) }
-            .sortedBy { it.start }
-            .fold(mutableListOf<InstantRange>()) { merged, next ->
-                val previous = merged.lastOrNull()
-                if (
-                    previous != null &&
-                    !next.start.isAfter(previous.end)
-                ) {
-                    merged[merged.lastIndex] = InstantRange(
-                        start = previous.start,
-                        end = maxOf(previous.end, next.end)
-                    )
-                } else {
-                    merged += next
-                }
-                merged
-            }
+            .mergeActivityRanges()
 
         if (schoolRanges.isEmpty()) {
             return listOf(InstantRange(dayStart, dayEnd))

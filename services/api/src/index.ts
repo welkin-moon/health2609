@@ -9,6 +9,8 @@ import {
   confirmedHomeMealSchema,
   energyReferenceSchema,
   homeMealAnalysisResultSchema,
+  isoDateSchema,
+  mealSlotSchema,
   manualActivitySchema,
   outsideActivitySchema,
   schoolActivityOverrideSchema,
@@ -72,6 +74,14 @@ app.use("/v1/*", async (c, next) => {
   c.set("schoolId", schoolId);
   c.set("participantId", participantId);
   c.set("role", role);
+  const queryDate = c.req.query("date");
+  if (queryDate !== undefined && !isoDateSchema.safeParse(queryDate).success) {
+    return c.json({ error: "date_invalid", requestId }, 400);
+  }
+  const querySlot = c.req.query("mealSlot");
+  if (querySlot !== undefined && !mealSlotSchema.safeParse(querySlot).success) {
+    return c.json({ error: "meal_slot_invalid", requestId }, 400);
+  }
   await next();
 });
 
@@ -86,6 +96,7 @@ app.use("/v1/sync/*", async (c) => c.json({
 const requireAdmin = (role: string) => role === "admin";
 
 function weekdayFromDate(date: string): number | null {
+  if (!isoDateSchema.safeParse(date).success) return null;
   const parsed = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return null;
   const day = parsed.getUTCDay();
@@ -610,6 +621,8 @@ app.get("/v1/today/summary", async (c) => {
   const [nutrition, homeMeals, pe, health, manual, preference, school, schoolActivityOverride] = await Promise.all([
     c.env.DB.prepare(
       `SELECT
+          COUNT(CASE WHEN mc.serving_multiplier > 0 THEN 1 END) AS recorded_food_items,
+          COUNT(CASE WHEN mc.serving_multiplier > 0 AND json_extract(d.nutrition_per_serving_json, '$.energyKcal') IS NULL THEN 1 END) AS unknown_energy_items,
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.energyKcal'), 0) * mc.serving_multiplier), 0) AS energy_kcal,
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.proteinG'), 0) * mc.serving_multiplier), 0) AS protein_g,
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.fatG'), 0) * mc.serving_multiplier), 0) AS fat_g,
@@ -681,13 +694,17 @@ app.get("/v1/today/summary", async (c) => {
     saturatedFatG: 0
   };
 
+  let recordedFoodItems = Number((nutrition as any)?.recorded_food_items ?? 0);
+  let unknownEnergyItems = Number((nutrition as any)?.unknown_energy_items ?? 0);
   for (const row of (homeMeals as D1Result<Record<string, unknown>>).results) {
     try {
       const items = JSON.parse(String(row.confirmed_items_json)) as Array<{
         nutrition?: Record<string, number> | null;
       }>;
       for (const item of items) {
+        recordedFoodItems += 1;
         const n = item.nutrition;
+        if (n?.energyKcal == null) unknownEnergyItems += 1;
         if (!n) continue;
         homeNutrition.energyKcal += Number(n.energyKcal ?? 0);
         homeNutrition.proteinG += Number(n.proteinG ?? 0);
@@ -754,6 +771,8 @@ app.get("/v1/today/summary", async (c) => {
   return c.json({
     date,
     nutrition: {
+      recordedFoodItems,
+      unknownEnergyItems,
       energyKcal,
       proteinG,
       fatG,
@@ -1311,16 +1330,24 @@ app.put(
 
     const body = c.req.valid("json");
     const timetable = await c.env.DB.prepare(
-      `SELECT pt.id, pt.weekday
+      `SELECT pt.id, pt.weekday, pt.start_time, pt.end_time
          FROM pe_timetable pt
         WHERE pt.id = ? AND pt.school_id = ?
         LIMIT 1`
     ).bind(
       body.timetableId,
       c.get("schoolId")
-    ).first<{ id: string; weekday: number }>();
+    ).first<{ id: string; weekday: number; start_time: string; end_time: string }>();
 
     if (!timetable) return c.json({ error: "timetable_not_found" }, 404);
+
+    const minutesOfDay = (time: string) => {
+      const [hours, minutes] = time.split(":").map(Number);
+      return hours * 60 + minutes;
+    };
+    if (body.actualActivityMinutes > minutesOfDay(timetable.end_time) - minutesOfDay(timetable.start_time)) {
+      return c.json({ error: "pe_minutes_exceed_lesson", message: "实际活动时间不能超过这节课的时长" }, 400);
+    }
 
     if (weekdayFromDate(body.date) !== timetable.weekday) {
       return c.json(
@@ -1530,7 +1557,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
                     COALESCE(phone.phone_minutes, 0),
                     COALESCE(manual.manual_minutes, 0)
                   ) AS outside_minutes,
-                  COALESCE(pe.pe_minutes, 0) +
+                  CASE WHEN override.source = 'health_connect' AND override.exercise_minutes IS NOT NULL
+                    THEN override.exercise_minutes ELSE COALESCE(pe.pe_minutes, 0) END +
                     MAX(
                       COALESCE(phone.phone_minutes, 0),
                       COALESCE(manual.manual_minutes, 0)
@@ -1543,6 +1571,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
                ON manual.student_membership_id = sm.id
              LEFT JOIN phone_by_student phone
                ON phone.student_membership_id = sm.id
+             LEFT JOIN student_school_activity_overrides override
+               ON override.student_membership_id = sm.id AND override.date = ?
             WHERE sm.school_id = ?
               AND (? IS NULL OR sm.class_group_id = ?)
          )
@@ -1556,6 +1586,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).bind(
       date,
       schoolId,
+      date,
       date,
       date,
       schoolId,
@@ -1672,7 +1703,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
          SELECT days.day AS date,
                 members.id,
                 members.target_minutes,
-                COALESCE(pe.pe_minutes, 0) +
+                CASE WHEN override.source = 'health_connect' AND override.exercise_minutes IS NOT NULL
+                  THEN override.exercise_minutes ELSE COALESCE(pe.pe_minutes, 0) END +
                   MAX(
                     COALESCE(phone.phone_minutes, 0),
                     COALESCE(manual.manual_minutes, 0)
@@ -1688,6 +1720,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
            LEFT JOIN phone_by_student phone
              ON phone.date = days.day
             AND phone.student_membership_id = members.id
+           LEFT JOIN student_school_activity_overrides override
+             ON override.date = days.day AND override.student_membership_id = members.id
        )
        SELECT date,
               AVG(total_minutes) AS avg_total_minutes,

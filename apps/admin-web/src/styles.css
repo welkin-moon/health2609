@@ -41,6 +41,13 @@ select,
   padding: 54px 0 80px;
 }
 
+.status-banner {
+  padding: 12px 18px;
+  background: #e8e2f7;
+  border-radius: 18px;
+  color: #302548;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;

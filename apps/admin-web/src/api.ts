@@ -113,7 +113,16 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+    const payload = await response.json().catch(() => null);
+    const messages: Record<string, string> = {
+      date_invalid: "请选择有效日期", timetable_not_found: "这节课已不存在，请刷新页面",
+      pe_minutes_exceed_lesson: "实际活动时间不能超过这节课的时长",
+      pe_date_weekday_mismatch: "课程星期与日期不一致，请刷新后重试",
+      forbidden: "当前无管理权限", class_not_found: "班级不存在，请重新选择"
+    };
+    throw new Error(messages[payload?.error] ?? (response.status >= 500
+      ? "服务暂时无法处理，请稍后重试；未保存的输入仍保留"
+      : "内容尚未保存，请检查日期、份量和必填项"));
   }
 
   return response.json() as Promise<T>;
@@ -191,13 +200,13 @@ export const api = {
     });
   },
 
-  peSessions(date: string, classGroupId: string) {
+  peSessions(date: string, classGroupId: string, signal?: AbortSignal) {
     return json<{
       date: string;
       classGroupId: string;
       items: PeSessionItem[];
     }>(
-      `/v1/admin/pe/sessions?date=${encodeURIComponent(date)}&classGroupId=${encodeURIComponent(classGroupId)}`
+      `/v1/admin/pe/sessions?date=${encodeURIComponent(date)}&classGroupId=${encodeURIComponent(classGroupId)}`, { signal }
     );
   },
 

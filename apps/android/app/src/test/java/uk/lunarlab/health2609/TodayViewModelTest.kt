@@ -43,6 +43,19 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun refreshMovesToTheCurrentDayAndDoesNotCarrySavedLunchAmounts() = runTest(testDispatcher) {
+        var day = java.time.LocalDate.of(2026, 10, 5)
+        val model = TodayViewModel(repository) { day }
+        advanceUntilIdle()
+        model.setPortion("dish-1", 1.5)
+        day = day.plusDays(1)
+        model.checkCurrentDate()
+        advanceUntilIdle()
+        assertEquals("2026-10-06", model.uiState.value.date)
+        assertEquals(DishAmount(0.0, 0.0), model.uiState.value.amounts["dish-1"])
+    }
+
+    @Test
     fun testInitialLoad_populatesDishesAndDefaults() = runTest(testDispatcher) {
         advanceUntilIdle()
 
