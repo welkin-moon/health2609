@@ -768,9 +768,9 @@ private fun MoeExerciseProgressCard(
 ) {
     val activity = summary?.activity
     val totalMinutes = activity?.totalMinutes ?: 0
+    val targetMinutes = activity?.targetMinutes?.takeIf { it > 0 } ?: 120
     val steps = activity?.steps ?: syncedSteps ?: 0L
     val intensity = activity?.intensityMinutes ?: IntensityMinutesDto()
-    val mvpaMinutes = intensity.moderate + intensity.vigorous
     val vigorousMinutes = intensity.vigorous
     val moderateMinutes = intensity.moderate
     val lightMinutes = intensity.light
@@ -826,12 +826,12 @@ private fun MoeExerciseProgressCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        if (mvpaMinutes > 0) mvpaMinutes.toString() + " 分钟" else totalMinutes.toString() + " 分钟",
+                        totalMinutes.toString() + " 分钟",
                         style = MaterialTheme.typography.displaySmall,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (mvpaMinutes > 0) "中高强度运动" else "累计运动时间",
+                        "累计运动时间",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -869,51 +869,20 @@ private fun MoeExerciseProgressCard(
                 }
             }
 
-            // Multi-segment intensity distribution bar
-            val totalRecorded = (vigorousMinutes + moderateMinutes + lightMinutes).toFloat()
-            Box(
+            LinearProgressIndicator(
+                progress = { (totalMinutes.toFloat() / targetMinutes).coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f))
-            ) {
-                if (totalRecorded > 0f) {
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        if (vigorousMinutes > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(vigorousMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.error)
-                            )
-                        }
-                        if (moderateMinutes > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(moderateMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                        if (lightMinutes > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(lightMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f))
-                            )
-                        }
-                    }
-                } else if (totalMinutes > 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((totalMinutes.toFloat() / 60f).coerceIn(0.1f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
+                    .clip(RoundedCornerShape(5.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
+            )
+            Text(
+                "累计运动 $totalMinutes / 当日目标 $targetMinutes 分钟",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
+            )
 
             // Intensity breakdown metrics
             Row(
