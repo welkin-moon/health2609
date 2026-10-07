@@ -1886,7 +1886,7 @@ internal fun SettingsDialog(
                             style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(
                             value = expenditureText,
-                            onValueChange = { expenditureText = it.filter(Char::isDigit).take(4); energyFeedback = null },
+                            onValueChange = { expenditureText = it.filter(Char::isDigit); energyFeedback = null },
                             label = { Text("全天消耗估算（千卡）") },
                             supportingText = { Text(userProfile.estimatedDailyExpenditureKcal?.let {
                                 "留空使用成人粗略估算：$it 千卡/天（轻活动系数 1.4）"
@@ -1897,7 +1897,7 @@ internal fun SettingsDialog(
                         )
                         OutlinedTextField(
                             value = targetText,
-                            onValueChange = { targetText = it.filter(Char::isDigit).take(4); energyFeedback = null },
+                            onValueChange = { targetText = it.filter(Char::isDigit); energyFeedback = null },
                             label = { Text("每日摄入目标（可选，千卡）") },
                             supportingText = { Text("留空并保存可移除目标；目标不参与消耗估算") },
                             singleLine = true, enabled = !savingEnergySettings,
