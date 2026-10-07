@@ -241,6 +241,9 @@ class MainActivity : ComponentActivity() {
                 val userProfile by preferences.userProfile
                     .collectAsStateWithLifecycle(initialValue = UserProfile())
 
+                val expenditureOverrideKcal by preferences.dailyExpenditureOverrideKcal
+                    .collectAsStateWithLifecycle(initialValue = null)
+
                 LaunchedEffect(customApiBaseUrl, selectedSchoolId) {
                     ApiFactory.customBaseUrl = customApiBaseUrl
                     viewModel.configureContext("${ApiFactory.currentBaseUrl}|$selectedSchoolId")
@@ -360,10 +363,6 @@ class MainActivity : ComponentActivity() {
                     onUseWearableSchoolActivity = { requestHealthAction("school") },
                     onRequestHealthPermissions = { requestHealthAction("permissions") },
                     onSyncPhoneActivity = { requestHealthAction("phone") },
-                    onEnergyReferenceChange =
-                        viewModel::setEnergyReferenceInput,
-                    onSaveEnergyReference =
-                        viewModel::saveEnergyReference,
                     customApiBaseUrl = customApiBaseUrl,
                     onCustomApiBaseUrlChange = { url ->
                         lifecycleScope.launch {
@@ -375,11 +374,7 @@ class MainActivity : ComponentActivity() {
                     onClearMessage = viewModel::clearMessage,
                     onAddManualHomeMealItem = viewModel::addManualHomeMealItem,
                     userProfile = userProfile,
-                    onUserProfileChange = { profile ->
-                        lifecycleScope.launch {
-                            preferences.setUserProfile(profile)
-                        }
-                    },
+                    expenditureOverrideKcal = expenditureOverrideKcal,
                     onOpenSettings = { showSettingsDialog = true },
                     onNavigate = { route -> currentDestination = route }
                     )
@@ -387,7 +382,7 @@ class MainActivity : ComponentActivity() {
 
                 if (showSettingsDialog) {
                     Dialog(
-                        onDismissRequest = { showSettingsDialog = false },
+                        onDismissRequest = { if (!state.savingEnergyReference) showSettingsDialog = false },
                         properties = DialogProperties(usePlatformDefaultWidth = false)
                     ) {
                         SettingsDialog(
@@ -424,9 +419,14 @@ class MainActivity : ComponentActivity() {
                             onUserProfileChange = { profile ->
                                 preferences.setUserProfile(profile)
                             },
-                            onApplyRecommendedEnergy = { kcal ->
-                                viewModel.setEnergyReferenceInput(kcal.toString())
-                                viewModel.saveEnergyReference()
+                            currentEnergyTargetKcal = state.summary?.energy?.dailyEnergyReferenceKcal,
+                            energyTargetLoaded = state.summary != null,
+                            expenditureOverrideKcal = expenditureOverrideKcal,
+                            savingEnergySettings = state.savingEnergyReference,
+                            onSaveEnergySettings = { target, expenditure ->
+                                viewModel.saveEnergySettings(target) {
+                                    preferences.setDailyExpenditureOverrideKcal(expenditure)
+                                }
                             },
                             syncState = syncState,
                             onOpenSyncDialog = { showLoginSyncDialog = true },

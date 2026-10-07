@@ -80,6 +80,7 @@ class FakeHealthApi : HealthApi {
     var manualSaveCount: Int = 0
     var lastSavedOutsideSchoolRequest: OutsideSchoolActivityRequest? = null
     var lastSavedEnergyReferenceRequest: EnergyReferenceRequest? = null
+    var energySaveFailure: Exception? = null
     var lastSavedHomeMealRequest: ConfirmedHomeMealRequest? = null
 
     override suspend fun todayMenu(date: String, mealSlot: String): TodayMenuDto = menuToReturn
@@ -139,6 +140,7 @@ class FakeHealthApi : HealthApi {
     }
 
     override suspend fun saveEnergyReference(request: EnergyReferenceRequest): ApiWriteResult {
+        energySaveFailure?.let { throw it }
         lastSavedEnergyReferenceRequest = request
         return ApiWriteResult(ok = true)
     }

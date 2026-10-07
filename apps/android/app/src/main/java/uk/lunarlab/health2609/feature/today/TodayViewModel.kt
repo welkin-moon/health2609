@@ -66,7 +66,6 @@ data class TodayUiState(
     val manualActivityType: String = "自主运动",
     val manualActivityMinutes: Int = 30,
     val manualActivityIntensity: String = "moderate",
-    val energyReferenceInput: String = "",
     val homeMealSlot: String = "dinner",
     val stagedMealImages: List<StagedMealImage> = emptyList(),
     val homeMealDraft: List<HomeMealDraftItem> = emptyList(),
@@ -120,10 +119,6 @@ class TodayViewModel(
                             schools = data.schools,
                             homeMealDrafts = restored + current.homeMealDrafts,
                             homeMealDraft = current.homeMealDraft.ifEmpty { restored[current.homeMealSlot].orEmpty() },
-                            energyReferenceInput =
-                                data.summary.energy.dailyEnergyReferenceKcal
-                                    ?.toString()
-                                    ?: current.energyReferenceInput,
                             amounts = data.menu.dishes.associate { dish ->
                                 dish.id to (
                                     current.amounts[dish.id]
@@ -536,14 +531,6 @@ class TodayViewModel(
         }
     }
 
-    fun setEnergyReferenceInput(value: String) {
-        _uiState.update {
-            it.copy(
-                energyReferenceInput = value.filter(Char::isDigit).take(4)
-            )
-        }
-    }
-
     fun saveMeal() {
         val state = _uiState.value
         if (state.menu == null || state.savingMeal) return
@@ -600,34 +587,29 @@ class TodayViewModel(
         }
     }
 
-    fun saveEnergyReference() {
-        val state = _uiState.value
-        if (state.savingEnergyReference) return
-
-        val kcal = state.energyReferenceInput.toIntOrNull()
-        if (kcal != null && kcal !in 500..6000) {
-            _uiState.update {
-                it.copy(message = "请输入 500–6000 千卡的参考值")
-            }
-            return
-        }
-
+    suspend fun saveEnergySettings(kcal: Int?, persistExpenditure: suspend () -> Unit): Result<Unit> {
+        if (_uiState.value.savingEnergyReference) return Result.failure(IllegalStateException("正在保存能量设置"))
+        if (kcal != null && kcal !in 500..6000) return Result.failure(IllegalArgumentException("请输入 500–6000 千卡，或留空"))
         _uiState.update { it.copy(savingEnergyReference = true, message = null) }
-        viewModelScope.launch {
-            runCatching {
+        var targetSaved = false
+        return try {
+            if (kcal != _uiState.value.summary?.energy?.dailyEnergyReferenceKcal) {
                 repository.saveEnergyReference(kcal)
-            }.onSuccess {
-                _uiState.update { it.copy(savingEnergyReference = false) }
-                refreshSummary("参考能量已更新")
-            }.onFailure { error ->
-                    if (error is CancellationException) throw error
-                _uiState.update {
-                    it.copy(
-                        savingEnergyReference = false,
-                        message = ApiFactory.formatErrorMessage(error)
-                    )
-                }
+                targetSaved = true
             }
+            _uiState.update { state ->
+                state.copy(summary = state.summary?.let {
+                    it.copy(energy = it.energy.copy(dailyEnergyReferenceKcal = kcal,
+                        referenceGapKcal = kcal?.minus(it.nutrition.energyKcal)))
+                })
+            }
+            persistExpenditure()
+            Result.success(Unit)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            Result.failure(if (targetSaved) EnergySettingsSaveException("摄入目标已保存，但本机消耗估算未保存，请重试。", error) else error)
+        } finally {
+            _uiState.update { it.copy(savingEnergyReference = false) }
         }
     }
 

@@ -189,12 +189,48 @@ class TodayViewModelTest {
     }
 
     @Test
-    fun testEnergyReferenceInput_filtersNonDigitsAndClampsLength() {
-        viewModel.setEnergyReferenceInput("2200kcal")
-        assertEquals("2200", viewModel.uiState.value.energyReferenceInput)
+    fun energySettingsSaveAndClearTargetImmediately() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        var persisted = 0
+        assertTrue(viewModel.saveEnergySettings(1800) { persisted++ }.isSuccess)
+        assertEquals(1800, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertTrue(viewModel.saveEnergySettings(null) { persisted++ }.isSuccess)
+        assertEquals(null, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertEquals(null, fakeApi.lastSavedEnergyReferenceRequest?.dailyEnergyReferenceKcal)
+        assertEquals(2, persisted)
+        assertFalse(viewModel.uiState.value.savingEnergyReference)
+    }
 
-        viewModel.setEnergyReferenceInput("123456")
-        assertEquals("1234", viewModel.uiState.value.energyReferenceInput)
+    @Test
+    fun failedTargetSaveDoesNotPersistExpenditureAndReleasesBusyState() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        fakeApi.energySaveFailure = java.io.IOException("offline")
+        var persisted = false
+        assertTrue(viewModel.saveEnergySettings(1800) { persisted = true }.isFailure)
+        assertFalse(persisted)
+        assertEquals(null, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertFalse(viewModel.uiState.value.savingEnergyReference)
+        assertTrue(viewModel.saveEnergySettings(null) { persisted = true }.isSuccess)
+        assertTrue(persisted)
+    }
+
+    @Test
+    fun localFailureAfterRemoteSaveReportsPartialSuccess() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val result = viewModel.saveEnergySettings(1800) { throw java.io.IOException("disk full") }
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("摄入目标已保存"))
+        assertEquals(1800, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertFalse(viewModel.uiState.value.savingEnergyReference)
+    }
+
+    @Test
+    fun invalidTargetIsRejectedBeforeAnyPersistence() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        var persisted = false
+        assertTrue(viewModel.saveEnergySettings(20) { persisted = true }.isFailure)
+        assertFalse(persisted)
+        assertEquals(null, fakeApi.lastSavedEnergyReferenceRequest)
     }
 
     @Test

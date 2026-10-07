@@ -50,11 +50,12 @@ data class UserProfile(
             return kotlin.math.round(result * 10.0) / 10.0
         }
 
-    val recommendedEnergyKcal: Int
-        get() {
-            val tdee = bmr * 1.35
-            return kotlin.math.round(tdee).toInt().coerceIn(1200, 3800)
-        }
+    // Adult resting-energy equation with a light-activity PAL assumption.
+    // No automatic estimate for growing users or an unspecified sex.
+    val estimatedDailyExpenditureKcal: Int?
+        get() = if (age >= 19 && gender.lowercase() in setOf("male", "female")) {
+            kotlin.math.round(bmr * 1.4).toInt()
+        } else null
 
     val bmrStatusText: String
         get() {
@@ -103,6 +104,18 @@ class Health2609Preferences(context: Context) {
             heightCm = preferences[USER_HEIGHT_CM] ?: 165.0,
             weightKg = preferences[USER_WEIGHT_KG] ?: 55.0
         )
+    }
+
+    val dailyExpenditureOverrideKcal: Flow<Int?> = dataStore.data.map { preferences ->
+        preferences[DAILY_EXPENDITURE_OVERRIDE_KCAL]
+    }
+
+    suspend fun setDailyExpenditureOverrideKcal(kcal: Int?) {
+        require(kcal == null || kcal in 500..6000)
+        dataStore.edit { preferences ->
+            if (kcal == null) preferences.remove(DAILY_EXPENDITURE_OVERRIDE_KCAL)
+            else preferences[DAILY_EXPENDITURE_OVERRIDE_KCAL] = kcal
+        }
     }
 
     suspend fun setUserProfile(profile: UserProfile) {
@@ -166,6 +179,7 @@ class Health2609Preferences(context: Context) {
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val CUSTOM_API_BASE_URL = stringPreferencesKey("custom_api_base_url")
         val USER_AGE = intPreferencesKey("user_age")
+        val DAILY_EXPENDITURE_OVERRIDE_KCAL = intPreferencesKey("daily_expenditure_override_kcal")
         val USER_GENDER = stringPreferencesKey("user_gender")
         val USER_HEIGHT_CM = doublePreferencesKey("user_height_cm")
         val USER_WEIGHT_KG = doublePreferencesKey("user_weight_kg")
