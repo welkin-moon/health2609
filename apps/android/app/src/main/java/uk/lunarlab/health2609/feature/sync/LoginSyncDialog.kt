@@ -246,6 +246,130 @@ fun LoginSyncDialog(
                                     InfoRow(label = "登录学号", value = syncState.username ?: "已绑定")
                                     InfoRow(label = "同步设备", value = "${syncState.deviceCount} 台在线设备")
                                     InfoRow(label = "上次同步", value = syncState.lastSyncTimestamp ?: "刚刚")
+                                    InfoRow(label = "密钥 epoch", value = syncState.currentKeyEpoch.toString())
+                                }
+
+                                if (syncState.keyRefreshRequired) {
+                                    Text(
+                                        "另一台设备已经轮换账号密钥。请退出后用密码重新登录，以获取新的密钥 epoch。",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+
+                                if (devices.isNotEmpty()) {
+                                    Text(
+                                        "已授权设备",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    devices.forEach { device ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    device.name + if (device.current) "（本机）" else "",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = if (device.current) FontWeight.SemiBold else FontWeight.Normal
+                                                )
+                                                Text(
+                                                    if (device.revokedAt != null) "已吊销" else "最近在线：" + device.lastSeenAt,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (!device.current && device.revokedAt == null) {
+                                                TextButton(
+                                                    onClick = {
+                                                        isProcessing = true
+                                                        coroutineScope.launch {
+                                                            syncRepository.revokeDevice(device.id)
+                                                                .onSuccess { message ->
+                                                                    statusMessage = message
+                                                                    isSuccessMessage = true
+                                                                    syncRepository.devices().onSuccess { devices = it }
+                                                                }
+                                                                .onFailure { error ->
+                                                                    statusMessage = error.message ?: "吊销设备失败"
+                                                                    isSuccessMessage = false
+                                                                }
+                                                            isProcessing = false
+                                                        }
+                                                    },
+                                                    enabled = !isProcessing
+                                                ) {
+                                                    Text("吊销")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (syncState.rotationRequired) {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.errorContainer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                "设备已被吊销，需要轮换账号加密密钥",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                            Text(
+                                                "吊销会阻止该设备继续访问服务器；完成密钥轮换后，它也无法解密之后产生的新记录。",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                            OutlinedTextField(
+                                                value = rotationPasswordInput,
+                                                onValueChange = { rotationPasswordInput = it },
+                                                label = { Text("当前密码") },
+                                                visualTransformation = PasswordVisualTransformation(),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true
+                                            )
+                                            OutlinedTextField(
+                                                value = rotationRecoveryInput,
+                                                onValueChange = { rotationRecoveryInput = it },
+                                                label = { Text("恢复短语") },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    isProcessing = true
+                                                    coroutineScope.launch {
+                                                        syncRepository.rotateAccountKey(
+                                                            passkey = rotationPasswordInput,
+                                                            recoveryPhrase = rotationRecoveryInput
+                                                        ).onSuccess { message ->
+                                                            statusMessage = message
+                                                            isSuccessMessage = true
+                                                            rotationPasswordInput = ""
+                                                            rotationRecoveryInput = ""
+                                                        }.onFailure { error ->
+                                                            statusMessage = error.message ?: "密钥轮换失败"
+                                                            isSuccessMessage = false
+                                                        }
+                                                        isProcessing = false
+                                                    }
+                                                },
+                                                enabled = !isProcessing &&
+                                                    rotationPasswordInput.length >= 8 &&
+                                                    rotationRecoveryInput.isNotBlank()
+                                            ) {
+                                                Text("立即轮换未来记录密钥")
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Row(
@@ -306,6 +430,26 @@ fun LoginSyncDialog(
                                         Text("退出账号")
                                     }
                                 }
+
+                                TextButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            syncRepository.logout(removeLocalKeyMaterial = true)
+                                            statusMessage = "已退出，并清除本机账号密钥；本机私密记录仍保留为设备加密状态。"
+                                            isSuccessMessage = true
+                                            devices = emptyList()
+                                        }
+                                    },
+                                    enabled = !isProcessing,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("退出并清除本机账号密钥")
+                                }
+                                Text(
+                                    "警告：如果没有其他已授权设备或恢复短语，清除本机密钥后将无法恢复云端历史密文。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     } else {
