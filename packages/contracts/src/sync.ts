@@ -50,13 +50,16 @@ export const syncPushSchema = z.object({
 });
 
 export const syncRotateKeySchema = syncKeyEpochEnvelopeSchema.extend({
-  newEpoch: z.number().int().min(2).max(1_000_000)
+  newEpoch: z.number().int().min(2).max(1_000_000),
+  passwordVerifier: verifierSchema,
+  recoveryVerifier: verifierSchema
 }).refine((value) => value.newEpoch === value.epoch, {
   message: "newEpoch must match envelope epoch",
   path: ["newEpoch"]
 });
 
 export const syncChangePasswordSchema = z.object({
+  currentPasswordVerifier: verifierSchema,
   passwordSalt: opaqueBase64Schema,
   passwordVerifier: verifierSchema,
   keyEnvelopes: z.array(z.object({
