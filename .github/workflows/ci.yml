@@ -25,6 +25,8 @@ jobs:
           node-version: 22
       - run: pnpm install --frozen-lockfile=false
       - run: pnpm check
+      - run: pnpm test
+      - run: pnpm verify:multiplatform
       - run: node --check tools/agy-bridge/server.mjs
       - run: pnpm --filter @health2609/admin-web build
       - run: pnpm --filter @health2609/api exec wrangler deploy --dry-run --outdir dist
@@ -85,8 +87,29 @@ jobs:
         with:
           gradle-version: "9.3.1"
       - run: gradle -p apps/android assembleDebug
+      - run: node tools/verify-multiplatform.mjs android
       - uses: actions/upload-artifact@v4
         with:
           name: health2609-debug-apk
           path: apps/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 3
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build --package-path apps/ios
+      - run: node tools/verify-multiplatform.mjs ios
+
+  ark-platforms:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [harmony, openharmony]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/verify-multiplatform.mjs ${{ matrix.platform }}
