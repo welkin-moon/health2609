@@ -2107,6 +2107,16 @@ app.post("/v1/sync/auth/change-password", async (c) => {
   if (!parsed.success) return c.json({ error: "invalid_password_change_payload" }, 400);
   const body = parsed.data;
 
+  const account = await c.env.DB.prepare(
+    "SELECT password_verifier FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ password_verifier: string }>();
+  if (
+    !account ||
+    account.password_verifier !== await sha256Base64(body.currentPasswordVerifier)
+  ) {
+    return c.json({ error: "invalid_current_password" }, 401);
+  }
+
   const currentEpochs = await c.env.DB.prepare(
     "SELECT epoch FROM sync_key_epochs_v2 WHERE user_id = ? ORDER BY epoch"
   ).bind(auth.userId).all();
@@ -2161,11 +2171,23 @@ app.post("/v1/sync/keys/rotate", async (c) => {
   const body = parsed.data;
 
   const account = await c.env.DB.prepare(
-    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
-  ).bind(auth.userId).first<{ current_key_epoch: number }>();
+    `SELECT current_key_epoch, password_verifier, recovery_verifier
+       FROM sync_accounts_v2 WHERE id = ?`
+  ).bind(auth.userId).first<{
+    current_key_epoch: number;
+    password_verifier: string;
+    recovery_verifier: string;
+  }>();
   const currentEpoch = Number(account?.current_key_epoch ?? 0);
   if (body.newEpoch !== currentEpoch + 1) {
     return c.json({ error: "invalid_next_key_epoch", currentKeyEpoch: currentEpoch }, 409);
+  }
+  if (
+    !account ||
+    account.password_verifier !== await sha256Base64(body.passwordVerifier) ||
+    account.recovery_verifier !== await sha256Base64(body.recoveryVerifier)
+  ) {
+    return c.json({ error: "invalid_rotation_credentials" }, 401);
   }
 
   await c.env.DB.batch([
