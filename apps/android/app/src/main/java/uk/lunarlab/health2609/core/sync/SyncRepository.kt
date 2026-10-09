@@ -93,9 +93,10 @@ class SyncRepository(private val context: Context) {
     )
 
     private fun serverUsername(schoolId: String, username: String): String {
-        val cleanUser = username.trim().lowercase()
-        val cleanSchool = schoolId.trim().ifBlank { "demo-school" }
-        return if (cleanUser.contains(":")) cleanUser else "$cleanSchool:$cleanUser"
+        // Deliberately do not encode school membership into the sync account.
+        // schoolId is retained in the local app context only.
+        schoolId.trim()
+        return username.trim().lowercase()
     }
 
     private fun localUsername(serverUsername: String): String =
