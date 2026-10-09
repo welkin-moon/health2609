@@ -72,6 +72,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        lifecycleScope.launch {
+            syncRepository.removeLegacyPassword()
+        }
 
         setContent {
             val appearance by preferences.appearance.collectAsStateWithLifecycle(
