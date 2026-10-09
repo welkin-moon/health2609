@@ -274,7 +274,7 @@ fun LoginSyncDialog(
 
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     InfoRow(label = "就读学校", value = syncState.schoolId ?: currentSchoolId)
-                                    InfoRow(label = "登录学号", value = syncState.username ?: "已绑定")
+                                    InfoRow(label = "同步账号", value = syncState.username ?: "已绑定")
                                     InfoRow(label = "同步设备", value = "${syncState.deviceCount} 台在线设备")
                                     InfoRow(label = "上次同步", value = syncState.lastSyncTimestamp ?: "刚刚")
                                     InfoRow(label = "密钥 epoch", value = syncState.currentKeyEpoch.toString())
@@ -515,8 +515,8 @@ fun LoginSyncDialog(
                                 OutlinedTextField(
                                     value = usernameInput,
                                     onValueChange = { usernameInput = it },
-                                    label = { Text("学生账号 / 学号") },
-                                    placeholder = { Text("demo-student") },
+                                    label = { Text("同步账号（与学校学号分离）") },
+                                    placeholder = { Text("例如 shishi-sync") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     leadingIcon = {
