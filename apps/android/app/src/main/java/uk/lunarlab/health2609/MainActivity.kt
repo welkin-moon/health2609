@@ -53,8 +53,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private val syncRepository by lazy {
+        SyncRepository(this)
+    }
+
     private val repository by lazy {
-        TodayRepository(ApiFactory.create())
+        TodayRepository(ApiFactory.create(), syncRepository)
     }
 
     private val healthConnectSource by lazy {
@@ -63,10 +67,6 @@ class MainActivity : ComponentActivity() {
 
     private val preferences by lazy {
         Health2609Preferences(this)
-    }
-
-    private val syncRepository by lazy {
-        SyncRepository(this)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
