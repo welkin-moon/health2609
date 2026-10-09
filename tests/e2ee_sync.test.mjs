@@ -82,7 +82,9 @@ describe("E2EE sync v2 contracts", () => {
       passwordWrappedKey: b64("password-wrapped-new-key"),
       passwordNonce: b64("123456789012"),
       recoveryWrappedKey: b64("recovery-wrapped-new-key"),
-      recoveryNonce: b64("ABCDEFGHIJKL")
+      recoveryNonce: b64("ABCDEFGHIJKL"),
+      passwordVerifier: b64("password-verifier-012345678901234567890123456789"),
+      recoveryVerifier: b64("recovery-verifier-012345678901234567890123456789")
     };
     assert.equal(syncRotateKeySchema.safeParse(payload).success, true);
     assert.equal(syncRotateKeySchema.safeParse({ ...payload, newEpoch: 3 }).success, false);
