@@ -120,27 +120,27 @@ public final class TodayViewModel: ObservableObject {
 
         if totalExercise == 0 && intakeKcal == 0 {
             return NextActionTip(
-                title = "开始今天的记录",
-                message = "记录午餐和下午运动后，系统将依据《中国学龄儿童膳食指南》为你量身定制个性化行动建议。",
-                iconName = "sparkles",
-                tag = "指南建议"
+                title: "开始今天的记录",
+                message: "记录午餐和下午运动后，系统将依据《中国学龄儿童膳食指南》为你量身定制个性化行动建议。",
+                iconName: "sparkles",
+                tag: "指南建议"
             )
         }
 
         if totalExercise < target {
             let remaining = target - totalExercise
             return NextActionTip(
-                title = "运动冲刺建议",
+                title: "运动冲刺建议",
                 message: "距离每日 120 分钟运动目标还差 \(remaining) 分钟。建议放学后进行 15 分钟跳绳或 20 分钟快走，保持活力！",
-                iconName = "figure.run",
-                tag = "运动目标"
+                iconName: "figure.run",
+                tag: "运动目标"
             )
         } else {
             return NextActionTip(
-                title = "运动达标与能量补给",
+                title: "运动达标与能量补给",
                 message: "太棒了！今日已达成 120 分钟运动目标（累计 \(totalExercise) 分钟）。晚餐建议搭配清淡鱼虾或豆制品，补充优质蛋白并充分饮水。",
-                iconName = "checkmark.seal.fill",
-                tag = "均衡达标"
+                iconName: "checkmark.seal.fill",
+                tag: "均衡达标"
             )
         }
     }
@@ -215,7 +215,7 @@ public final class TodayViewModel: ObservableObject {
 
         let items: [MealItemRequest] = amounts.map { (dishId, amount) in
             MealItemRequest(
-                dishId = dishId,
+                dishId: dishId,
                 servingMultiplier: amount.servingMultiplier,
                 consumedGrams: amount.consumedGrams
             )
