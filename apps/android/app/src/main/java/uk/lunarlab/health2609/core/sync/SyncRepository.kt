@@ -779,6 +779,14 @@ class SyncRepository(private val context: Context) {
                 .put("passwordNonce", passwordWrapped.nonceBase64)
                 .put("recoveryWrappedKey", recoveryWrapped.ciphertextBase64)
                 .put("recoveryNonce", recoveryWrapped.nonceBase64)
+                .put(
+                    "passwordVerifier",
+                    E2eeCrypto.deriveAuthVerifier(passkey, passwordSalt, "password")
+                )
+                .put(
+                    "recoveryVerifier",
+                    E2eeCrypto.deriveAuthVerifier(normalizedRecovery, recoverySalt, "recovery")
+                )
 
             val request = authenticatedRequestBuilder(prefs)
                 .url("$baseUrl/v1/sync/keys/rotate")
@@ -800,8 +808,12 @@ class SyncRepository(private val context: Context) {
         }
     }
 
-    suspend fun changePassword(newPassword: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun changePassword(
+        currentPassword: String,
+        newPassword: String
+    ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
+            require(currentPassword.length >= 8) { "请输入当前密码" }
             require(newPassword.length >= 8) { "新密码至少需要 8 个字符" }
             val prefs = dataStore.data.first()
             val epochKeys = openEpochKeys(prefs[KEY_EPOCH_KEYS_JSON])
@@ -824,7 +836,14 @@ class SyncRepository(private val context: Context) {
                         .put("passwordNonce", wrapped.nonceBase64)
                 )
             }
+            val oldSalt = E2eeCrypto.unbase64(
+                prefs[KEY_PASSWORD_SALT] ?: throw IllegalStateException("当前密码盐缺失")
+            )
             val payload = JSONObject()
+                .put(
+                    "currentPasswordVerifier",
+                    E2eeCrypto.deriveAuthVerifier(currentPassword, oldSalt, "password")
+                )
                 .put("passwordSalt", E2eeCrypto.base64(newSalt))
                 .put("passwordVerifier", E2eeCrypto.deriveAuthVerifier(newPassword, newSalt, "password"))
                 .put("keyEnvelopes", envelopes)
