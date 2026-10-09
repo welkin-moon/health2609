@@ -26,4 +26,10 @@ class ApiErrorMessageTest {
         assertFalse(message.contains("internal diagnostic"))
         assertFalse(ApiFactory.formatErrorMessage(java.net.UnknownHostException()).contains("本地模式"))
     }
+
+    @Test
+    fun unavailablePhotoServiceOffersManualEntryAndPreservesProblemId() {
+        assertEquals("照片识别暂时不可用，可以先手动记录。\n问题编号：photo-test-1",
+            ApiFactory.formatErrorMessage(error(503, "{\"error\":\"agy_model_unavailable\",\"requestId\":\"photo-test-1\"}")))
+    }
 }

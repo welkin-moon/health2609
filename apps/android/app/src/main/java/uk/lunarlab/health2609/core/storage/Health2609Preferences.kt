@@ -50,18 +50,12 @@ data class UserProfile(
             return kotlin.math.round(result * 10.0) / 10.0
         }
 
-    val recommendedEnergyKcal: Int
-        get() {
-            val tdee = bmr * 1.35
-            val adjusted = when {
-                bmi >= 28.0 -> tdee - 400.0
-                bmi >= 24.0 -> tdee - 250.0
-                bmi < 16.5 -> tdee + 200.0
-                bmi < 18.5 -> tdee + 100.0
-                else -> tdee
-            }
-            return kotlin.math.round(adjusted).toInt().coerceIn(1200, 3800)
-        }
+    // Adult resting-energy equation with a light-activity PAL assumption.
+    // No automatic estimate for growing users or an unspecified sex.
+    val estimatedDailyExpenditureKcal: Int?
+        get() = if (age >= 19 && gender.lowercase() in setOf("male", "female")) {
+            kotlin.math.round(bmr * 1.4).toInt()
+        } else null
 
     val bmrStatusText: String
         get() {
@@ -70,17 +64,11 @@ data class UserProfile(
                 "female" -> "女生"
                 else -> "通用"
             }
-            return "BMR基础代谢 ${bmr.toInt()} kcal/天 ($genderText · Mifflin-St Jeor)"
+            return if (age < 18) "成长阶段不自动估算能量需求" else "基础代谢约 ${bmr.toInt()} 千卡/天（$genderText）"
         }
 
     val bmiStatusText: String
-        get() = when {
-            bmi >= 28.0 -> "BMI $bmi · 肥胖，建议控制饮食并增加日常活动"
-            bmi >= 24.0 -> "BMI $bmi · 超重/偏高，建议制造能量缺口"
-            bmi >= 22.0 -> "BMI $bmi · 轻度偏高，建议适度控制总热量"
-            bmi < 16.5 -> "BMI $bmi · 体重偏轻，建议适当补充热量与优质蛋白"
-            else -> "BMI $bmi · 体重正常，建议维持健康平衡摄入"
-        }
+        get() = "BMI $bmi · 仅展示计算值，不作体重评价"
 }
 
 class Health2609Preferences(context: Context) {
@@ -116,6 +104,18 @@ class Health2609Preferences(context: Context) {
             heightCm = preferences[USER_HEIGHT_CM] ?: 165.0,
             weightKg = preferences[USER_WEIGHT_KG] ?: 55.0
         )
+    }
+
+    val dailyExpenditureOverrideKcal: Flow<Int?> = dataStore.data.map { preferences ->
+        preferences[DAILY_EXPENDITURE_OVERRIDE_KCAL]
+    }
+
+    suspend fun setDailyExpenditureOverrideKcal(kcal: Int?) {
+        require(kcal == null || kcal in 500..6000)
+        dataStore.edit { preferences ->
+            if (kcal == null) preferences.remove(DAILY_EXPENDITURE_OVERRIDE_KCAL)
+            else preferences[DAILY_EXPENDITURE_OVERRIDE_KCAL] = kcal
+        }
     }
 
     suspend fun setUserProfile(profile: UserProfile) {
@@ -179,6 +179,7 @@ class Health2609Preferences(context: Context) {
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val CUSTOM_API_BASE_URL = stringPreferencesKey("custom_api_base_url")
         val USER_AGE = intPreferencesKey("user_age")
+        val DAILY_EXPENDITURE_OVERRIDE_KCAL = intPreferencesKey("daily_expenditure_override_kcal")
         val USER_GENDER = stringPreferencesKey("user_gender")
         val USER_HEIGHT_CM = doublePreferencesKey("user_height_cm")
         val USER_WEIGHT_KG = doublePreferencesKey("user_weight_kg")

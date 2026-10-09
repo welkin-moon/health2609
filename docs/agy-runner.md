@@ -9,12 +9,14 @@ Android photo upload
   -> Worker /v1/home-meals/analyze
   -> AGY_TASK_URL through Cloudflare Tunnel / local ingress
   -> resident AGY CLI
-  -> fresh child agent for this image
+  -> one direct visual-analysis turn (no nested agents)
   -> JSON result validated by Worker
   -> student confirmation UI
 ```
 
-On MSDT, `tools/agy-bridge/server.mjs` starts one resident AGY stream session before the demo. The bridge listens only on `127.0.0.1:18787`; Cloudflare Tunnel publishes it as `https://h2609-agy.lunarlab.uk/`. Port 8787 is intentionally left to the existing PC agent.\n\nThe resident AGY session reads:
+On MSDT, `tools/agy-bridge/server.mjs` starts one resident AGY stream session before the demo. The bridge listens only on `127.0.0.1:18788`; Cloudflare Tunnel publishes it as `https://h2609-agy.lunarlab.uk/`. Port 8787 is intentionally left to the existing PC agent.
+
+The resident AGY session reads:
 
 - `docs/submission.md`
 - `docs/architecture.md`
@@ -82,7 +84,7 @@ Do not include markdown fences, prose outside JSON, medical conclusions, or unco
 Production Worker binding names:
 
 - `AGY_TASK_URL`: required for photo analysis; should point to the Cloudflare Tunnel / ingress that can reach the resident AGY CLI.
-- `AGY_TASK_TOKEN`: optional shared bearer token for the bridge.
+- `AGY_TASK_TOKEN`: required shared bearer token for the bridge. Never put it in source.
 
 These values must stay server-side. Android and Pages never receive the tunnel secret or AGY token.
 
@@ -99,10 +101,18 @@ From the health2609 repository on MSDT:
 powershell -ExecutionPolicy Bypass -File .\tools\agy-bridge\start.ps1
 ```
 
-The bridge uses AGY CLI's persistent stream-json mode and the repository JSON schema. It serializes requests so one resident coordinator handles the queue, but each meal request explicitly requires a fresh child/subagent for visual analysis. If AGY exits or a turn times out, the bridge discards that process and bootstraps a fresh resident session on the next request.
+The bridge uses AGY CLI's persistent stream-json mode and the repository JSON schema. It serializes requests so one resident coordinator handles the queue, and each meal request performs direct visual analysis without nested delegation. If AGY exits or a turn times out, the bridge discards that process and bootstraps a fresh resident session on the next request.
 
 Local health check:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:18787/healthz
+Invoke-RestMethod http://127.0.0.1:18788/healthz
 ```
+
+## Android 0.3.1 repair verification (2026-10-05)
+
+The default model is `gemini-3.8-flash-low`; effort follows its suffix unless explicitly configured. Conflicting settings fail clearly. Windows starts the native AGY executable and preserves the configured process proxy environment. The tray reads the user environment credential, supervises the bridge, and must be rebuilt after updating its source.
+
+`/healthz` returns 503 when bootstrap or a later provider request fails. HTTP 200 readiness alone does not prove a meal upload works. Run `node tools/agy-bridge/smoke.mjs <meal-photo.jpg>` to verify the full production multipart path. Keep request IDs when investigating failures.
+
+Real meal uploads succeeded repeatedly during this repair, but the provider later returned `FAILED_PRECONDITION: User location is not supported`. Android preserves photos and offers manual entry. Photo recognition remains externally blocked when that rejection persists; do not describe it as continuously available. Physical-device Health Connect and real camera hardware still require acceptance.

@@ -1,5 +1,7 @@
 .idea/
 .gradle/
+.kotlin/
+/work/
 build/
 local.properties
 node_modules/

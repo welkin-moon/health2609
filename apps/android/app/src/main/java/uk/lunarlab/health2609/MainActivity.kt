@@ -12,6 +12,12 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,13 +54,14 @@ import uk.lunarlab.health2609.ui.StudentAppShell
 import uk.lunarlab.health2609.ui.theme.Health2609Theme
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.window.DialogProperties
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private val repository by lazy {
-        TodayRepository(ApiFactory.create())
+        TodayRepository(ApiFactory.create(), syncRepository)
     }
 
     private val healthConnectSource by lazy {
@@ -74,11 +81,28 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
+            val startupSettings by produceState<Result<Pair<String?, String>>?>(initialValue = null) {
+                value = runCatching { preferences.customApiBaseUrl.first() to preferences.selectedSchoolId.first() }
+            }
+            val startup = startupSettings
+            if (startup == null || startup.isFailure) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(if (startup == null) "正在读取本机设置…" else "暂时无法读取本机设置，请重新打开应用。")
+                }
+                return@setContent
+            }
+            val savedSettings = startup.getOrThrow()
+            val customApiBaseUrl by preferences.customApiBaseUrl
+                .collectAsStateWithLifecycle(initialValue = savedSettings.first)
+            ApiFactory.customBaseUrl = customApiBaseUrl
             val appearance by preferences.appearance.collectAsStateWithLifecycle(
                 initialValue = AppearancePreferences()
             )
             val selectedSchoolId by preferences.selectedSchoolId
-                .collectAsStateWithLifecycle(initialValue = "demo-school")
+                .collectAsStateWithLifecycle(initialValue = savedSettings.second)
             DemoIdentity.schoolId = selectedSchoolId
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (appearance.mode) {
@@ -95,9 +119,17 @@ class MainActivity : ComponentActivity() {
                     factory = TodayViewModelFactory(repository)
                 )
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) { syncRepository.removeLegacyPassword() }
+                LaunchedEffect(viewModel) {
+                    while (true) {
+                        kotlinx.coroutines.delay(60_000)
+                        viewModel.checkCurrentDate()
+                    }
+                }
                 var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
                 var pendingCameraFile by remember { mutableStateOf<File?>(null) }
-                var pendingSchoolWearableSync by remember { mutableStateOf(false) }
+                var pendingHealthAction by rememberSaveable { mutableStateOf<String?>(null) }
+                var checkingHealthRequest by remember { mutableStateOf(false) }
 
                 val homeMealPicker =
                     rememberLauncherForActivityResult(
@@ -131,74 +163,90 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                val healthPermissionLauncher =
-                    rememberLauncherForActivityResult(
-                        PermissionController
-                            .createRequestPermissionResultContract()
-                    ) { _ ->
-                        lifecycleScope.launch {
-                            val permState = healthConnectSource.checkPermissionState()
-                            Log.i("HealthConnectQA", "Permission callback checked: ${healthConnectSource.getDiagnostics()}")
-                            when (permState) {
-                                is HealthPermissionState.AvailableAndGranted -> {
-                                    if (pendingSchoolWearableSync) {
-                                        pendingSchoolWearableSync = false
-                                        syncSchoolActivity(
-                                            date = state.date,
-                                            viewModel = viewModel
-                                        )
-                                    } else {
-                                        syncPhoneActivity(
-                                            date = state.date,
-                                            viewModel = viewModel
-                                        )
-                                    }
+                val finishHealthRequest: suspend () -> Unit = finish@{
+                    if (checkingHealthRequest) return@finish
+                    checkingHealthRequest = true
+                    val action = pendingHealthAction
+                    pendingHealthAction = null
+                    viewModel.healthRequestFinished()
+                    runCatching { healthConnectSource.checkPermissionState() }
+                        .onSuccess { permissionState ->
+                            if (uk.lunarlab.health2609.BuildConfig.DEBUG) Log.i("HealthConnectQA", "sdk=${healthConnectSource.sdkStatus()}; required=${HealthConnectSource.REQUIRED_PERMISSIONS}; result=$permissionState")
+                            when (permissionState) {
+                                is HealthPermissionState.AvailableAndGranted -> when (action) {
+                                    "school" -> syncSchoolActivity(state.date, viewModel)
+                                    "phone" -> syncPhoneActivity(state.date, viewModel)
+                                    else -> viewModel.showMessage("已允许读取运动记录")
                                 }
                                 is HealthPermissionState.MissingPermissions -> {
-                                    val wasSchoolSync = pendingSchoolWearableSync
-                                    pendingSchoolWearableSync = false
-                                    val missingText = permState.missingLabels.joinToString("、")
-                                    val msg = if (permState.granted.isEmpty()) {
-                                        "未获得运动健康授权；若系统未自动弹出授权窗口，请在系统设置中开启"
-                                    } else {
-                                        "仍缺少【$missingText】读取权限，请在系统设置中允许所有运动权限"
-                                    }
-                                    if (permState.granted.isEmpty()) {
-                                        runCatching {
-                                            startActivity(healthConnectSource.createSettingsIntent())
-                                        }
-                                    }
-                                    if (wasSchoolSync) {
-                                        viewModel.schoolActivitySyncFailed(msg)
-                                    } else {
-                                        viewModel.phoneActivitySyncFailed(msg)
-                                    }
+                                    val missing = permissionState.missingLabels.joinToString("、")
+                                    viewModel.showMessage(if (permissionState.granted.isEmpty())
+                                        "尚未允许读取运动记录。可到应用设置中打开系统运动健康设置。"
+                                        else "还需要允许读取：$missing。可在系统运动健康设置中调整。")
                                 }
-                                is HealthPermissionState.SdkUnavailable -> {
-                                    pendingSchoolWearableSync = false
-                                    val msg = "这台设备当前不支持或未安装运动健康服务"
-                                    viewModel.phoneActivitySyncFailed(msg)
-                                }
-                                is HealthPermissionState.SdkUpdateRequired -> {
-                                    pendingSchoolWearableSync = false
-                                    val msg = "系统运动健康服务需要更新后才能使用"
-                                    viewModel.phoneActivitySyncFailed(msg)
-                                }
+                                is HealthPermissionState.SdkUnavailable -> viewModel.showMessage("这台手机暂不支持运动健康服务，可以手动记录运动。")
+                                is HealthPermissionState.SdkUpdateRequired -> viewModel.showMessage("请先更新系统运动健康服务。")
                             }
+                        }.onFailure { viewModel.showMessage("暂时无法检查运动权限，请稍后重试。") }
+                    checkingHealthRequest = false
+                }
+                val latestFinishHealthRequest by rememberUpdatedState(finishHealthRequest)
+                DisposableEffect(lifecycle) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            viewModel.checkCurrentDate()
+                            if (pendingHealthAction != null) lifecycleScope.launch { latestFinishHealthRequest() }
                         }
                     }
+                    lifecycle.addObserver(observer)
+                    onDispose { lifecycle.removeObserver(observer) }
+                }
+                val healthSettingsLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult()
+                ) { lifecycleScope.launch { finishHealthRequest() } }
+                val healthPermissionLauncher = rememberLauncherForActivityResult(
+                    PermissionController.createRequestPermissionResultContract()
+                ) { granted ->
+                    if (uk.lunarlab.health2609.BuildConfig.DEBUG) Log.i("HealthConnectQA", "Permission contract returned: $granted")
+                    lifecycleScope.launch { finishHealthRequest() }
+                }
+                val requestHealthAction: (String) -> Unit = { action ->
+                    if (pendingHealthAction == null && !checkingHealthRequest) {
+                        pendingHealthAction = action
+                        lifecycleScope.launch {
+                            runCatching { healthConnectSource.checkPermissionState() }
+                                .onSuccess { permissionState ->
+                                    if (permissionState is HealthPermissionState.MissingPermissions) {
+                                        runCatching { healthPermissionLauncher.launch(HealthConnectSource.REQUIRED_PERMISSIONS) }
+                                            .onFailure {
+                                                runCatching { healthSettingsLauncher.launch(healthConnectSource.createSettingsIntent()) }
+                                                    .onFailure {
+                                                        pendingHealthAction = null
+                                                        viewModel.showMessage("无法打开授权窗口，请到系统设置中管理运动数据权限。")
+                                                    }
+                                            }
+                                    } else finishHealthRequest()
+                                }.onFailure {
+                                    pendingHealthAction = null
+                                    viewModel.showMessage("暂时无法检查运动权限，请稍后重试。")
+                                }
+                        }
+                    }
+                }
 
                 val savedStartDestination by preferences.startDestination
                     .collectAsStateWithLifecycle(initialValue = "today")
                 var currentDestination by rememberSaveable { mutableStateOf<String?>(null) }
                 val selectedDestination = currentDestination ?: savedStartDestination
-                val customApiBaseUrl by preferences.customApiBaseUrl
-                    .collectAsStateWithLifecycle(initialValue = null)
                 val userProfile by preferences.userProfile
                     .collectAsStateWithLifecycle(initialValue = UserProfile())
 
-                LaunchedEffect(customApiBaseUrl) {
+                val expenditureOverrideKcal by preferences.dailyExpenditureOverrideKcal
+                    .collectAsStateWithLifecycle(initialValue = null)
+
+                LaunchedEffect(customApiBaseUrl, selectedSchoolId) {
                     ApiFactory.customBaseUrl = customApiBaseUrl
+                    viewModel.configureContext("${ApiFactory.currentBaseUrl}|$selectedSchoolId")
                 }
 
                 val prettyDate = remember(state.date) {
@@ -223,7 +271,7 @@ class MainActivity : ComponentActivity() {
                     },
                     dateText = prettyDate,
                     onOpenSettings = { showSettingsDialog = true },
-                    onRefresh = viewModel::refresh,
+                    onRefresh = { viewModel.refresh() },
                     isRefreshing = state.loading
                 ) { destination, wideLayout, hasBottomDock ->
                     TodayScreen(
@@ -248,12 +296,11 @@ class MainActivity : ComponentActivity() {
                         DemoIdentity.schoolId = schoolId
                         lifecycleScope.launch {
                             preferences.setSelectedSchoolId(schoolId)
-                            viewModel.refresh()
                         }
                     },
                     onPortionChange = viewModel::setPortion,
                     onGramsChange = viewModel::setConsumedGrams,
-                    onRefresh = viewModel::refresh,
+                    onRefresh = { viewModel.refresh() },
                     onSaveMeal = viewModel::saveMeal,
                     onTakeHomeMealPhoto = {
                         runCatching {
@@ -313,106 +360,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     },
-                    onUseWearableSchoolActivity = {
-                        if (!healthConnectSource.isAvailable()) {
-                            viewModel.schoolActivitySyncFailed(
-                                "这台手机暂时无法读取手环运动数据"
-                            )
-                        } else {
-                            lifecycleScope.launch {
-                                if (healthConnectSource.hasRequiredPermissions()) {
-                                    syncSchoolActivity(
-                                        date = state.date,
-                                        viewModel = viewModel
-                                    )
-                                } else {
-                                    pendingSchoolWearableSync = true
-                                    viewModel.schoolActivitySyncStarted()
-                                    val launched = runCatching {
-                                        healthPermissionLauncher.launch(
-                                            HealthConnectSource.REQUIRED_PERMISSIONS
-                                        )
-                                    }.isSuccess
-                                    if (!launched) {
-                                        runCatching {
-                                            startActivity(healthConnectSource.createSettingsIntent())
-                                            viewModel.showMessage("正在打开系统设置，请开启运动健康权限后返回")
-                                        }.onFailure {
-                                            viewModel.schoolActivitySyncFailed("无法启动运动健康授权界面")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    onRequestHealthPermissions = {
-                        lifecycleScope.launch {
-                            when (val permState = healthConnectSource.checkPermissionState()) {
-                                is HealthPermissionState.AvailableAndGranted -> {
-                                    viewModel.showMessage("运动健康权限已全部授予")
-                                }
-                                is HealthPermissionState.SdkUnavailable -> {
-                                    viewModel.showMessage("这台设备当前不支持运动健康服务")
-                                }
-                                is HealthPermissionState.SdkUpdateRequired -> {
-                                    viewModel.showMessage("系统运动健康服务需要更新")
-                                }
-                                is HealthPermissionState.MissingPermissions -> {
-                                    val launched = runCatching {
-                                        healthPermissionLauncher.launch(
-                                            HealthConnectSource.REQUIRED_PERMISSIONS
-                                        )
-                                    }.isSuccess
-                                    if (!launched) {
-                                        runCatching {
-                                            startActivity(healthConnectSource.createSettingsIntent())
-                                            viewModel.showMessage("正在打开系统设置，请开启运动权限后返回")
-                                        }.onFailure {
-                                            viewModel.showMessage("无法打开系统设置")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    onSyncPhoneActivity = {
-                        if (!healthConnectSource.isAvailable()) {
-                            viewModel.phoneActivitySyncFailed(
-                                "这台手机暂时无法读取运动数据"
-                            )
-                        } else {
-                            lifecycleScope.launch {
-                                if (
-                                    healthConnectSource
-                                        .hasRequiredPermissions()
-                                ) {
-                                    syncPhoneActivity(
-                                        date = state.date,
-                                        viewModel = viewModel
-                                    )
-                                } else {
-                                    viewModel.phoneActivitySyncStarted()
-                                    val launched = runCatching {
-                                        healthPermissionLauncher.launch(
-                                            HealthConnectSource.REQUIRED_PERMISSIONS
-                                        )
-                                    }.isSuccess
-                                    if (!launched) {
-                                        runCatching {
-                                            startActivity(healthConnectSource.createSettingsIntent())
-                                            viewModel.showMessage("正在打开系统设置，请开启运动权限后返回")
-                                        }.onFailure {
-                                            viewModel.phoneActivitySyncFailed("无法启动系统设置")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    onEnergyReferenceChange =
-                        viewModel::setEnergyReferenceInput,
-                    onSaveEnergyReference =
-                        viewModel::saveEnergyReference,
+                    onUseWearableSchoolActivity = { requestHealthAction("school") },
+                    onRequestHealthPermissions = { requestHealthAction("permissions") },
+                    onSyncPhoneActivity = { requestHealthAction("phone") },
                     customApiBaseUrl = customApiBaseUrl,
                     onCustomApiBaseUrlChange = { url ->
                         lifecycleScope.launch {
@@ -424,18 +374,15 @@ class MainActivity : ComponentActivity() {
                     onClearMessage = viewModel::clearMessage,
                     onAddManualHomeMealItem = viewModel::addManualHomeMealItem,
                     userProfile = userProfile,
-                    onUserProfileChange = { profile ->
-                        lifecycleScope.launch {
-                            preferences.setUserProfile(profile)
-                        }
-                    },
-                    onOpenSettings = { showSettingsDialog = true }
+                    expenditureOverrideKcal = expenditureOverrideKcal,
+                    onOpenSettings = { showSettingsDialog = true },
+                    onNavigate = { route -> currentDestination = route }
                     )
                 }
 
                 if (showSettingsDialog) {
                     Dialog(
-                        onDismissRequest = { showSettingsDialog = false },
+                        onDismissRequest = { if (!state.savingEnergyReference) showSettingsDialog = false },
                         properties = DialogProperties(usePlatformDefaultWidth = false)
                     ) {
                         SettingsDialog(
@@ -470,15 +417,16 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onUserProfileChange = { profile ->
-                                lifecycleScope.launch {
-                                    preferences.setUserProfile(profile)
-                                    viewModel.setEnergyReferenceInput(profile.recommendedEnergyKcal.toString())
-                                    viewModel.saveEnergyReference()
-                                }
+                                preferences.setUserProfile(profile)
                             },
-                            onApplyRecommendedEnergy = { kcal ->
-                                viewModel.setEnergyReferenceInput(kcal.toString())
-                                viewModel.saveEnergyReference()
+                            currentEnergyTargetKcal = state.summary?.energy?.dailyEnergyReferenceKcal,
+                            energyTargetLoaded = state.summary != null,
+                            expenditureOverrideKcal = expenditureOverrideKcal,
+                            savingEnergySettings = state.savingEnergyReference,
+                            onSaveEnergySettings = { target, expenditure ->
+                                viewModel.saveEnergySettings(target) {
+                                    preferences.setDailyExpenditureOverrideKcal(expenditure)
+                                }
                             },
                             syncState = syncState,
                             onOpenSyncDialog = { showLoginSyncDialog = true },
@@ -501,10 +449,12 @@ class MainActivity : ComponentActivity() {
                             isSyncing = isSyncingNow,
                             onOpenHealthSettings = {
                                 lifecycleScope.launch {
+                                    pendingHealthAction = "permissions"
                                     runCatching {
-                                        startActivity(healthConnectSource.createSettingsIntent())
+                                        healthSettingsLauncher.launch(healthConnectSource.createSettingsIntent())
                                     }.onFailure {
-                                        viewModel.showMessage("无法打开系统健康设置")
+                                        pendingHealthAction = null
+                                        viewModel.showMessage("无法打开系统运动健康设置")
                                     }
                                 }
                             },

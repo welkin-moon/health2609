@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { zValidator } from "@hono/zod-validator";
 import {
@@ -9,13 +9,24 @@ import {
   confirmedHomeMealSchema,
   energyReferenceSchema,
   homeMealAnalysisResultSchema,
+  isoDateSchema,
+  mealSlotSchema,
   manualActivitySchema,
   outsideActivitySchema,
   schoolActivityOverrideSchema,
   recordMealSchema,
   todayMenuSchema
 } from "@health2609/contracts";
+import {
+  syncChangePasswordSchema,
+  syncLoginSchema,
+  syncPushSchema,
+  syncRecoveryResetPasswordSchema,
+  syncRegisterSchema,
+  syncRotateKeySchema
+} from "@health2609/contracts/sync";
 import { HOME_MEAL_AGY_PROMPT } from "./integrations/agy/homeMealPrompt";
+import { upstreamError } from "./integrations/agy/errors";
 
 type Bindings = {
   DB: D1Database;
@@ -27,6 +38,7 @@ type Variables = {
   schoolId: string;
   participantId: string;
   role: "student" | "admin";
+  requestId: string;
 };
 
 type AppEnv = {
@@ -51,12 +63,18 @@ app.use("/v1/*", cors({
     "Authorization",
     "x-demo-school",
     "x-demo-participant",
-    "x-demo-role"
+    "x-demo-role",
+    "x-request-id"
   ],
+  exposeHeaders: ["X-Request-Id"],
   allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 }));
 
 app.use("/v1/*", async (c, next) => {
+  const supplied = c.req.header("x-request-id");
+  const requestId = supplied && /^[A-Za-z0-9_-]{1,100}$/.test(supplied) ? supplied : crypto.randomUUID();
+  c.set("requestId", requestId);
+  c.header("X-Request-Id", requestId);
   // Intentionally small competition-demo auth shell.
   const schoolId = c.req.header("x-demo-school") ?? "demo-school";
   const participantId = c.req.header("x-demo-participant") ?? "demo-student";
@@ -64,12 +82,29 @@ app.use("/v1/*", async (c, next) => {
   c.set("schoolId", schoolId);
   c.set("participantId", participantId);
   c.set("role", role);
+  const queryDate = c.req.query("date");
+  if (queryDate !== undefined && !isoDateSchema.safeParse(queryDate).success) {
+    return c.json({ error: "date_invalid", requestId }, 400);
+  }
+  const querySlot = c.req.query("mealSlot");
+  if (querySlot !== undefined && !mealSlotSchema.safeParse(querySlot).success) {
+    return c.json({ error: "meal_slot_invalid", requestId }, 400);
+  }
   await next();
 });
+
+// Preserve the existing ciphertext until issue #17 has real authentication,
+// enrollment, recovery and record merging. A heartbeat is not a record backup.
+app.use("/v1/sync/*", async (c) => c.json({
+  error: "sync_not_available",
+  message: "跨设备同步尚未开放，已有云端数据保留。",
+  requestId: c.get("requestId")
+}, 503));
 
 const requireAdmin = (role: string) => role === "admin";
 
 function weekdayFromDate(date: string): number | null {
+  if (!isoDateSchema.safeParse(date).success) return null;
   const parsed = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return null;
   const day = parsed.getUTCDay();
@@ -261,13 +296,18 @@ app.get("/v1/today/menu", async (c) => {
   if (!date) return c.json({ error: "date_required" }, 400);
 
   const rows = await c.env.DB.prepare(
-    `SELECT d.id, d.name, d.standard_serving_grams, d.nutrition_per_serving_json
+    `SELECT d.id, d.name, d.standard_serving_grams, d.nutrition_per_serving_json,
+            mc.serving_multiplier, mc.consumed_grams
        FROM menus m
        JOIN dishes d ON d.menu_id = m.id
+       LEFT JOIN meal_consumption mc ON mc.dish_id = d.id
+         AND mc.student_membership_id = (
+           SELECT id FROM student_memberships WHERE school_id = ? AND participant_id = ? LIMIT 1
+         )
       WHERE m.school_id = ? AND m.date = ? AND m.meal_slot = ?
         AND d.active = 1
       ORDER BY d.sort_order, d.name`
-  ).bind(c.get("schoolId"), date, mealSlot).all();
+  ).bind(c.get("schoolId"), c.get("participantId"), c.get("schoolId"), date, mealSlot).all();
 
   const payload = todayMenuSchema.parse({
     date,
@@ -281,11 +321,28 @@ app.get("/v1/today/menu", async (c) => {
           : Number(row.standard_serving_grams),
       nutritionPerServing: row.nutrition_per_serving_json
         ? JSON.parse(String(row.nutrition_per_serving_json))
-        : null
+        : null,
+      savedServingMultiplier: row.serving_multiplier == null ? null : Number(row.serving_multiplier),
+      savedConsumedGrams: row.consumed_grams == null ? null : Number(row.consumed_grams)
     }))
   });
 
   return c.json(payload);
+});
+
+app.get("/v1/home-meals", async (c) => {
+  const query = confirmedHomeMealSchema.pick({ date: true }).safeParse({ date: c.req.query("date") });
+  if (!query.success) return c.json({ error: "date_invalid", requestId: c.get("requestId") }, 400);
+  const membership = await membershipFor(c.env.DB, c.get("schoolId"), c.get("participantId"));
+  if (!membership) return c.json({ error: "membership_not_found" }, 404);
+  const rows = await c.env.DB.prepare(
+    `SELECT meal_slot, confirmed_items_json FROM home_meals WHERE student_membership_id = ? AND date = ? ORDER BY meal_slot`
+  ).bind(membership.id, query.data.date).all();
+  const meals = rows.results.map(row => {
+    const meal = confirmedHomeMealSchema.parse({ date: query.data.date, mealSlot: row.meal_slot, items: JSON.parse(String(row.confirmed_items_json)) });
+    return { mealSlot: meal.mealSlot, items: meal.items };
+  });
+  return c.json({ date: query.data.date, meals });
 });
 
 app.post(
@@ -572,6 +629,8 @@ app.get("/v1/today/summary", async (c) => {
   const [nutrition, homeMeals, pe, health, manual, preference, school, schoolActivityOverride] = await Promise.all([
     c.env.DB.prepare(
       `SELECT
+          COUNT(CASE WHEN mc.serving_multiplier > 0 THEN 1 END) AS recorded_food_items,
+          COUNT(CASE WHEN mc.serving_multiplier > 0 AND json_extract(d.nutrition_per_serving_json, '$.energyKcal') IS NULL THEN 1 END) AS unknown_energy_items,
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.energyKcal'), 0) * mc.serving_multiplier), 0) AS energy_kcal,
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.proteinG'), 0) * mc.serving_multiplier), 0) AS protein_g,
           COALESCE(SUM(COALESCE(json_extract(d.nutrition_per_serving_json, '$.fatG'), 0) * mc.serving_multiplier), 0) AS fat_g,
@@ -643,13 +702,17 @@ app.get("/v1/today/summary", async (c) => {
     saturatedFatG: 0
   };
 
+  let recordedFoodItems = Number((nutrition as any)?.recorded_food_items ?? 0);
+  let unknownEnergyItems = Number((nutrition as any)?.unknown_energy_items ?? 0);
   for (const row of (homeMeals as D1Result<Record<string, unknown>>).results) {
     try {
       const items = JSON.parse(String(row.confirmed_items_json)) as Array<{
         nutrition?: Record<string, number> | null;
       }>;
       for (const item of items) {
+        recordedFoodItems += 1;
         const n = item.nutrition;
+        if (n?.energyKcal == null) unknownEnergyItems += 1;
         if (!n) continue;
         homeNutrition.energyKcal += Number(n.energyKcal ?? 0);
         homeNutrition.proteinG += Number(n.proteinG ?? 0);
@@ -716,6 +779,8 @@ app.get("/v1/today/summary", async (c) => {
   return c.json({
     date,
     nutrition: {
+      recordedFoodItems,
+      unknownEnergyItems,
       energyKcal,
       proteinG,
       fatG,
@@ -811,6 +876,7 @@ app.post(
 );
 
 app.post("/v1/home-meals/analyze", async (c) => {
+  const requestId = c.get("requestId");
   const membership = await membershipFor(
     c.env.DB,
     c.get("schoolId"),
@@ -823,7 +889,12 @@ app.post("/v1/home-meals/analyze", async (c) => {
     return c.json({ error: "multipart_required" }, 415);
   }
 
-  const form = await c.req.raw.formData();
+  let form: FormData;
+  try {
+    form = await c.req.raw.formData();
+  } catch {
+    return c.json({ error: "multipart_invalid", requestId, message: "照片未能上传，请重新选择。" }, 400);
+  }
   const rawImages = [
     ...form.getAll("images"),
     ...form.getAll("image")
@@ -846,9 +917,6 @@ app.post("/v1/home-meals/analyze", async (c) => {
       return c.json({ error: "invalid_image_type", message: "仅支持图片格式文件" }, 415);
     }
   }
-
-  const requestId = c.req.header("x-request-id") || c.req.header("cf-ray") || crypto.randomUUID();
-  c.header("X-Request-Id", requestId);
 
   const outbound = new FormData();
   images.forEach((img, idx) => {
@@ -878,7 +946,7 @@ app.post("/v1/home-meals/analyze", async (c) => {
         {
           error: "agy_timeout",
           requestId,
-          message: "云端视觉分析超时（135秒），请重试或检查本地网桥"
+          message: "照片识别超时，请重试或手动记录。"
         },
         504
       );
@@ -887,9 +955,9 @@ app.post("/v1/home-meals/analyze", async (c) => {
       {
         error: "agy_unreachable",
         requestId,
-        message: err.message || "未能连接至云端视觉分析服务"
+        message: "识别服务暂时无法连接，请稍后重试。"
       },
-      502
+      503
     );
   }
 
@@ -899,23 +967,16 @@ app.post("/v1/home-meals/analyze", async (c) => {
       bridgeError = await response.json();
     } catch {}
 
-    const rawError = bridgeError?.error;
-    const errorCode =
-      (response.status === 401 || rawError === "unauthorized")
-        ? "agy_auth_failed"
-        : (rawError || (response.status === 429 ? "queue_full" : "agy_failed"));
-    const detail = bridgeError?.detail || bridgeError?.message;
-    const status = response.status === 429 ? 429 : response.status === 401 ? 502 : response.status;
+    const mapped = upstreamError(response.status, bridgeError);
 
     return c.json(
       {
-        error: errorCode,
+        error: mapped.error,
         requestId,
         status: response.status,
-        detail,
-        message: detail ? `视觉分析失败: ${detail}` : `视觉服务异常 (${response.status})`
+        message: "照片识别未完成，可以稍后重试或手动记录。"
       },
-      status >= 400 && status <= 599 ? (status as any) : 502
+      mapped.status
     );
   }
 
@@ -1277,16 +1338,24 @@ app.put(
 
     const body = c.req.valid("json");
     const timetable = await c.env.DB.prepare(
-      `SELECT pt.id, pt.weekday
+      `SELECT pt.id, pt.weekday, pt.start_time, pt.end_time
          FROM pe_timetable pt
         WHERE pt.id = ? AND pt.school_id = ?
         LIMIT 1`
     ).bind(
       body.timetableId,
       c.get("schoolId")
-    ).first<{ id: string; weekday: number }>();
+    ).first<{ id: string; weekday: number; start_time: string; end_time: string }>();
 
     if (!timetable) return c.json({ error: "timetable_not_found" }, 404);
+
+    const minutesOfDay = (time: string) => {
+      const [hours, minutes] = time.split(":").map(Number);
+      return hours * 60 + minutes;
+    };
+    if (body.actualActivityMinutes > minutesOfDay(timetable.end_time) - minutesOfDay(timetable.start_time)) {
+      return c.json({ error: "pe_minutes_exceed_lesson", message: "实际活动时间不能超过这节课的时长" }, 400);
+    }
 
     if (weekdayFromDate(body.date) !== timetable.weekday) {
       return c.json(
@@ -1496,7 +1565,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
                     COALESCE(phone.phone_minutes, 0),
                     COALESCE(manual.manual_minutes, 0)
                   ) AS outside_minutes,
-                  COALESCE(pe.pe_minutes, 0) +
+                  CASE WHEN override.source = 'health_connect' AND override.exercise_minutes IS NOT NULL
+                    THEN override.exercise_minutes ELSE COALESCE(pe.pe_minutes, 0) END +
                     MAX(
                       COALESCE(phone.phone_minutes, 0),
                       COALESCE(manual.manual_minutes, 0)
@@ -1509,6 +1579,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
                ON manual.student_membership_id = sm.id
              LEFT JOIN phone_by_student phone
                ON phone.student_membership_id = sm.id
+             LEFT JOIN student_school_activity_overrides override
+               ON override.student_membership_id = sm.id AND override.date = ?
             WHERE sm.school_id = ?
               AND (? IS NULL OR sm.class_group_id = ?)
          )
@@ -1522,6 +1594,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
     ).bind(
       date,
       schoolId,
+      date,
       date,
       date,
       schoolId,
@@ -1638,7 +1711,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
          SELECT days.day AS date,
                 members.id,
                 members.target_minutes,
-                COALESCE(pe.pe_minutes, 0) +
+                CASE WHEN override.source = 'health_connect' AND override.exercise_minutes IS NOT NULL
+                  THEN override.exercise_minutes ELSE COALESCE(pe.pe_minutes, 0) END +
                   MAX(
                     COALESCE(phone.phone_minutes, 0),
                     COALESCE(manual.manual_minutes, 0)
@@ -1654,6 +1728,8 @@ app.get("/v1/admin/stats/overview", async (c) => {
            LEFT JOIN phone_by_student phone
              ON phone.date = days.day
             AND phone.student_membership_id = members.id
+           LEFT JOIN student_school_activity_overrides override
+             ON override.date = days.day AND override.student_membership_id = members.id
        )
        SELECT date,
               AVG(total_minutes) AS avg_total_minutes,
@@ -1774,57 +1850,161 @@ app.get("/v1/admin/stats/overview", async (c) => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*           Multi-device End-to-End Encrypted (E2EE) Sync with D1             */
+/*                Multi-device E2EE Sync v2 (authenticated D1)                 */
 /* -------------------------------------------------------------------------- */
 
-app.post("/v1/sync/auth/register", async (c) => {
-  const body = await c.req.json<{
-    username: string;
-    passwordSalt: string;
-    passwordHash: string;
-    masterKeyEnc: string;
-    deviceFingerprint?: string;
-    deviceName?: string;
-    publicKeyJwk?: string;
+type SyncAuth = {
+  userId: string;
+  deviceId: string;
+};
+
+function syncTokenFromRequest(c: Context<AppEnv>): string | null {
+  const authorization = c.req.header("Authorization") || "";
+  if (authorization.startsWith("Bearer ")) {
+    return authorization.slice(7).trim() || null;
+  }
+  return c.req.header("x-sync-token") || null;
+}
+
+async function sha256Base64(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  const bytes = new Uint8Array(digest);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function randomSyncToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+async function authenticateSync(c: Context<AppEnv>): Promise<SyncAuth | null> {
+  const token = syncTokenFromRequest(c);
+  if (!token) return null;
+  const tokenHash = await sha256Base64(token);
+  const row = await c.env.DB.prepare(
+    `SELECT id, user_id
+       FROM sync_devices_v2
+      WHERE token_hash = ? AND revoked_at IS NULL
+      LIMIT 1`
+  ).bind(tokenHash).first<{ id: string; user_id: string }>();
+  if (!row) return null;
+
+  await c.env.DB.prepare(
+    "UPDATE sync_devices_v2 SET last_seen_at = datetime('now') WHERE id = ?"
+  ).bind(row.id).run();
+
+  return { userId: row.user_id, deviceId: row.id };
+}
+
+async function syncKeyEnvelopes(db: D1Database, userId: string, kind: "password" | "recovery") {
+  const rows = await db.prepare(
+    `SELECT epoch, password_wrapped_key, password_nonce,
+            recovery_wrapped_key, recovery_nonce
+       FROM sync_key_epochs_v2
+      WHERE user_id = ?
+      ORDER BY epoch ASC`
+  ).bind(userId).all();
+
+  return rows.results.map((row) => kind === "password"
+    ? {
+        epoch: Number(row.epoch),
+        wrappedKey: String(row.password_wrapped_key),
+        nonce: String(row.password_nonce)
+      }
+    : {
+        epoch: Number(row.epoch),
+        wrappedKey: String(row.recovery_wrapped_key),
+        nonce: String(row.recovery_nonce)
+      }
+  );
+}
+
+app.get("/v1/sync/auth/challenge", async (c) => {
+  const username = (c.req.query("username") || "").trim().toLowerCase();
+  if (!username) return c.json({ error: "missing_username" }, 400);
+
+  const account = await c.env.DB.prepare(
+    `SELECT password_salt, recovery_salt, current_key_epoch
+       FROM sync_accounts_v2
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(username).first<{
+    password_salt: string;
+    recovery_salt: string;
+    current_key_epoch: number;
   }>();
 
-  if (!body.username || !body.passwordSalt || !body.passwordHash || !body.masterKeyEnc) {
-    return c.json({ error: "missing_required_fields" }, 400);
-  }
+  if (!account) return c.json({ error: "account_not_found" }, 404);
+  return c.json({
+    passwordSalt: account.password_salt,
+    recoverySalt: account.recovery_salt,
+    currentKeyEpoch: Number(account.current_key_epoch)
+  });
+});
+
+app.post("/v1/sync/auth/register", async (c) => {
+  const parsed = syncRegisterSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_register_payload" }, 400);
+  const body = parsed.data;
+  const username = body.username.trim().toLowerCase();
 
   const existing = await c.env.DB.prepare(
-    "SELECT id FROM sync_users WHERE username = ? LIMIT 1"
-  ).bind(body.username.trim().toLowerCase()).first();
-
-  if (existing) {
-    return c.json({ error: "username_already_exists" }, 409);
-  }
+    "SELECT id FROM sync_accounts_v2 WHERE username = ? LIMIT 1"
+  ).bind(username).first();
+  if (existing) return c.json({ error: "username_already_exists" }, 409);
 
   const userId = crypto.randomUUID();
   const deviceId = crypto.randomUUID();
-  const deviceFingerprint = body.deviceFingerprint || crypto.randomUUID();
-  const deviceName = body.deviceName || "Default Device";
+  const token = randomSyncToken();
+  const tokenHash = await sha256Base64(token);
 
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO sync_users (id, username, password_salt, password_hash, master_key_enc)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO sync_accounts_v2
+         (id, username, password_salt, password_verifier, recovery_salt,
+          recovery_verifier, current_key_epoch)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`
     ).bind(
       userId,
-      body.username.trim().toLowerCase(),
+      username,
       body.passwordSalt,
-      body.passwordHash,
-      body.masterKeyEnc
+      await sha256Base64(body.passwordVerifier),
+      body.recoverySalt,
+      await sha256Base64(body.recoveryVerifier)
     ),
     c.env.DB.prepare(
-      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+      `INSERT INTO sync_devices_v2
+         (id, user_id, device_fingerprint, device_name, token_hash)
+       VALUES (?, ?, ?, ?, ?)`
     ).bind(
       deviceId,
       userId,
-      deviceFingerprint,
-      deviceName,
-      body.publicKeyJwk || null
+      body.deviceFingerprint,
+      body.deviceName,
+      tokenHash
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO sync_key_epochs_v2
+         (user_id, epoch, password_wrapped_key, password_nonce,
+          recovery_wrapped_key, recovery_nonce)
+       VALUES (?, 1, ?, ?, ?, ?)`
+    ).bind(
+      userId,
+      body.keyEnvelope.passwordWrappedKey,
+      body.keyEnvelope.passwordNonce,
+      body.keyEnvelope.recoveryWrappedKey,
+      body.keyEnvelope.recoveryNonce
     )
   ]);
 
@@ -1832,178 +2012,451 @@ app.post("/v1/sync/auth/register", async (c) => {
     ok: true,
     userId,
     deviceId,
-    token: `sync_${userId}_${deviceId}`
-  });
+    token,
+    currentKeyEpoch: 1
+  }, 201);
 });
 
 app.post("/v1/sync/auth/login", async (c) => {
-  const body = await c.req.json<{
-    username: string;
-    passwordHash: string;
-    deviceFingerprint?: string;
-    deviceName?: string;
-    publicKeyJwk?: string;
-  }>();
+  const parsed = syncLoginSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_login_payload" }, 400);
+  const body = parsed.data;
+  const username = body.username.trim().toLowerCase();
 
-  if (!body.username || !body.passwordHash) {
-    return c.json({ error: "missing_credentials" }, 400);
-  }
-
-  const user = await c.env.DB.prepare(
-    `SELECT id, username, password_salt, password_hash, master_key_enc
-       FROM sync_users
+  const account = await c.env.DB.prepare(
+    `SELECT id, password_verifier, recovery_verifier, current_key_epoch
+       FROM sync_accounts_v2
       WHERE username = ?
       LIMIT 1`
-  ).bind(body.username.trim().toLowerCase()).first<{
+  ).bind(username).first<{
     id: string;
-    username: string;
-    password_salt: string;
-    password_hash: string;
-    master_key_enc: string;
+    password_verifier: string;
+    recovery_verifier: string;
+    current_key_epoch: number;
   }>();
 
-  if (!user || user.password_hash !== body.passwordHash) {
+  const passwordVerifierHash = await sha256Base64(body.passwordVerifier);
+  if (!account || account.password_verifier !== passwordVerifierHash) {
     return c.json({ error: "invalid_credentials" }, 401);
   }
 
-  const deviceFingerprint = body.deviceFingerprint || "unknown-device";
-  const deviceName = body.deviceName || "Sync Client";
   const existingDevice = await c.env.DB.prepare(
-    "SELECT id FROM sync_devices WHERE user_id = ? AND device_fingerprint = ? LIMIT 1"
-  ).bind(user.id, deviceFingerprint).first<{ id: string }>();
+    `SELECT id, revoked_at
+       FROM sync_devices_v2
+      WHERE user_id = ? AND device_fingerprint = ?
+      LIMIT 1`
+  ).bind(account.id, body.deviceFingerprint).first<{
+    id: string;
+    revoked_at: string | null;
+  }>();
 
-  let deviceId = existingDevice?.id;
-  if (!deviceId) {
-    deviceId = crypto.randomUUID();
+  const isNewOrRevoked = !existingDevice || existingDevice.revoked_at != null;
+  const recoveryVerifierHash = body.recoveryVerifier
+    ? await sha256Base64(body.recoveryVerifier)
+    : null;
+  if (isNewOrRevoked && recoveryVerifierHash !== account.recovery_verifier) {
+    return c.json({ error: "device_enrollment_requires_recovery" }, 403);
+  }
+
+  const token = randomSyncToken();
+  const tokenHash = await sha256Base64(token);
+  let deviceId = existingDevice?.id || crypto.randomUUID();
+
+  if (existingDevice) {
     await c.env.DB.prepare(
-      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(deviceId, user.id, deviceFingerprint, deviceName, body.publicKeyJwk || null).run();
+      `UPDATE sync_devices_v2
+          SET device_name = ?, token_hash = ?, revoked_at = NULL,
+              last_seen_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.deviceName, tokenHash, deviceId).run();
   } else {
     await c.env.DB.prepare(
-      `UPDATE sync_devices SET device_name = ?, public_key_jwk = coalesce(?, public_key_jwk), last_seen_at = datetime('now') WHERE id = ?`
-    ).bind(deviceName, body.publicKeyJwk || null, deviceId).run();
+      `INSERT INTO sync_devices_v2
+         (id, user_id, device_fingerprint, device_name, token_hash)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(deviceId, account.id, body.deviceFingerprint, body.deviceName, tokenHash).run();
   }
 
   return c.json({
     ok: true,
-    userId: user.id,
+    userId: account.id,
     deviceId,
-    passwordSalt: user.password_salt,
-    masterKeyEnc: user.master_key_enc,
-    token: `sync_${user.id}_${deviceId}`
+    token,
+    currentKeyEpoch: Number(account.current_key_epoch),
+    keyEnvelopes: await syncKeyEnvelopes(c.env.DB, account.id, "password")
   });
 });
 
-app.post("/v1/sync/push", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const body = await c.req.json<{
-    records: Array<{
-      entityType: string;
-      entityId: string;
-      encryptedPayload: string;
-      payloadNonce: string;
-      recordVersion?: number;
-      deleted?: boolean | number;
-      clientUpdatedAt?: string;
-    }>;
-  }>();
-
-  if (!Array.isArray(body.records)) {
-    return c.json({ error: "invalid_records_array" }, 400);
+app.post("/v1/sync/auth/recovery", async (c) => {
+  const body = await c.req.json<{ username?: string; recoveryVerifier?: string }>().catch(() => ({} as { username?: string; recoveryVerifier?: string }));
+  const username = (body.username || "").trim().toLowerCase();
+  if (!username || !body.recoveryVerifier) {
+    return c.json({ error: "missing_recovery_credentials" }, 400);
   }
 
-  const statements = body.records.map((r) => {
-    const id = `${userId}_${r.entityType}_${r.entityId}`;
-    const version = Number(r.recordVersion || 1);
-    const deleted = r.deleted ? 1 : 0;
-    const clientUpdatedAt = r.clientUpdatedAt || new Date().toISOString();
+  const account = await c.env.DB.prepare(
+    `SELECT id, recovery_salt, recovery_verifier, current_key_epoch
+       FROM sync_accounts_v2
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(username).first<{
+    id: string;
+    recovery_salt: string;
+    recovery_verifier: string;
+    current_key_epoch: number;
+  }>();
 
-    return c.env.DB.prepare(
-      `INSERT INTO sync_records
-         (id, user_id, entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(user_id, entity_type, entity_id)
-       DO UPDATE SET
-         encrypted_payload = excluded.encrypted_payload,
-         payload_nonce = excluded.payload_nonce,
-         record_version = excluded.record_version,
-         deleted = excluded.deleted,
-         client_updated_at = excluded.client_updated_at,
-         server_received_at = datetime('now')
-       WHERE excluded.record_version >= sync_records.record_version`
-    ).bind(
-      id,
-      userId,
-      r.entityType,
-      r.entityId,
-      r.encryptedPayload,
-      r.payloadNonce,
-      version,
-      deleted,
-      clientUpdatedAt
-    );
-  });
-
-  if (statements.length > 0) {
-    await c.env.DB.batch(statements);
+  const recoveryVerifierHash = await sha256Base64(body.recoveryVerifier);
+  if (!account || account.recovery_verifier !== recoveryVerifierHash) {
+    return c.json({ error: "invalid_recovery_credentials" }, 401);
   }
 
   return c.json({
+    recoverySalt: account.recovery_salt,
+    currentKeyEpoch: Number(account.current_key_epoch),
+    keyEnvelopes: await syncKeyEnvelopes(c.env.DB, account.id, "recovery")
+  });
+});
+
+app.post("/v1/sync/auth/reset-password", async (c) => {
+  const parsed = syncRecoveryResetPasswordSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_password_reset_payload" }, 400);
+  const body = parsed.data;
+  const username = body.username.trim().toLowerCase();
+
+  const account = await c.env.DB.prepare(
+    `SELECT id, recovery_verifier
+       FROM sync_accounts_v2
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(username).first<{ id: string; recovery_verifier: string }>();
+
+  const recoveryVerifierHash = await sha256Base64(body.recoveryVerifier);
+  if (!account || account.recovery_verifier !== recoveryVerifierHash) {
+    return c.json({ error: "invalid_recovery_credentials" }, 401);
+  }
+
+  const currentEpochs = await c.env.DB.prepare(
+    "SELECT epoch FROM sync_key_epochs_v2 WHERE user_id = ? ORDER BY epoch"
+  ).bind(account.id).all();
+  const expected = currentEpochs.results.map((r) => Number(r.epoch));
+  const supplied = body.keyEnvelopes.map((r) => r.epoch).sort((a, b) => a - b);
+  if (JSON.stringify(expected) !== JSON.stringify(supplied)) {
+    return c.json({ error: "incomplete_key_epoch_set" }, 409);
+  }
+
+  const statements = [
+    c.env.DB.prepare(
+      `UPDATE sync_accounts_v2
+          SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.passwordSalt, await sha256Base64(body.passwordVerifier), account.id),
+    ...body.keyEnvelopes.map((envelope) =>
+      c.env.DB.prepare(
+        `UPDATE sync_key_epochs_v2
+            SET password_wrapped_key = ?, password_nonce = ?
+          WHERE user_id = ? AND epoch = ?`
+      ).bind(
+        envelope.passwordWrappedKey,
+        envelope.passwordNonce,
+        account.id,
+        envelope.epoch
+      )
+    )
+  ];
+  await c.env.DB.batch(statements);
+  return c.json({ ok: true });
+});
+
+app.post("/v1/sync/auth/change-password", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const parsed = syncChangePasswordSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_password_change_payload" }, 400);
+  const body = parsed.data;
+
+  const account = await c.env.DB.prepare(
+    "SELECT password_verifier FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ password_verifier: string }>();
+  if (
+    !account ||
+    account.password_verifier !== await sha256Base64(body.currentPasswordVerifier)
+  ) {
+    return c.json({ error: "invalid_current_password" }, 401);
+  }
+
+  const currentEpochs = await c.env.DB.prepare(
+    "SELECT epoch FROM sync_key_epochs_v2 WHERE user_id = ? ORDER BY epoch"
+  ).bind(auth.userId).all();
+  const expected = currentEpochs.results.map((r) => Number(r.epoch));
+  const supplied = body.keyEnvelopes.map((r) => r.epoch).sort((a, b) => a - b);
+  if (JSON.stringify(expected) !== JSON.stringify(supplied)) {
+    return c.json({ error: "incomplete_key_epoch_set" }, 409);
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE sync_accounts_v2
+          SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.passwordSalt, await sha256Base64(body.passwordVerifier), auth.userId),
+    ...body.keyEnvelopes.map((envelope) =>
+      c.env.DB.prepare(
+        `UPDATE sync_key_epochs_v2
+            SET password_wrapped_key = ?, password_nonce = ?
+          WHERE user_id = ? AND epoch = ?`
+      ).bind(
+        envelope.passwordWrappedKey,
+        envelope.passwordNonce,
+        auth.userId,
+        envelope.epoch
+      )
+    )
+  ]);
+  return c.json({ ok: true });
+});
+
+app.get("/v1/sync/keys", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+
+  const account = await c.env.DB.prepare(
+    "SELECT password_salt, current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ password_salt: string; current_key_epoch: number }>();
+
+  return c.json({
+    passwordSalt: account?.password_salt,
+    currentKeyEpoch: Number(account?.current_key_epoch ?? 1),
+    keyEnvelopes: await syncKeyEnvelopes(c.env.DB, auth.userId, "password")
+  });
+});
+
+app.post("/v1/sync/keys/rotate", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const parsed = syncRotateKeySchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_key_rotation_payload" }, 400);
+  const body = parsed.data;
+
+  const account = await c.env.DB.prepare(
+    `SELECT current_key_epoch, password_verifier, recovery_verifier
+       FROM sync_accounts_v2 WHERE id = ?`
+  ).bind(auth.userId).first<{
+    current_key_epoch: number;
+    password_verifier: string;
+    recovery_verifier: string;
+  }>();
+  const currentEpoch = Number(account?.current_key_epoch ?? 0);
+  if (body.newEpoch !== currentEpoch + 1) {
+    return c.json({ error: "invalid_next_key_epoch", currentKeyEpoch: currentEpoch }, 409);
+  }
+  if (
+    !account ||
+    account.password_verifier !== await sha256Base64(body.passwordVerifier) ||
+    account.recovery_verifier !== await sha256Base64(body.recoveryVerifier)
+  ) {
+    return c.json({ error: "invalid_rotation_credentials" }, 401);
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO sync_key_epochs_v2
+         (user_id, epoch, password_wrapped_key, password_nonce,
+          recovery_wrapped_key, recovery_nonce)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      auth.userId,
+      body.newEpoch,
+      body.passwordWrappedKey,
+      body.passwordNonce,
+      body.recoveryWrappedKey,
+      body.recoveryNonce
+    ),
+    c.env.DB.prepare(
+      `UPDATE sync_accounts_v2
+          SET current_key_epoch = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.newEpoch, auth.userId)
+  ]);
+
+  return c.json({ ok: true, currentKeyEpoch: body.newEpoch });
+});
+
+app.post("/v1/sync/push", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const parsed = syncPushSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_sync_payload" }, 400);
+  const body = parsed.data;
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
+  const currentKeyEpoch = Number(account?.current_key_epoch ?? 1);
+
+  if (body.records.some((r) => r.keyEpoch !== currentKeyEpoch)) {
+    return c.json({ error: "stale_key_epoch", currentKeyEpoch }, 409);
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  for (const r of body.records) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO sync_records_v2
+           (user_id, entity_type, entity_id, ciphertext, nonce, aad,
+            envelope_version, key_epoch, revision, deleted, client_updated_at,
+            source_device_id, server_received_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, entity_type, entity_id)
+         DO UPDATE SET
+           ciphertext = excluded.ciphertext,
+           nonce = excluded.nonce,
+           aad = excluded.aad,
+           envelope_version = excluded.envelope_version,
+           key_epoch = excluded.key_epoch,
+           revision = excluded.revision,
+           deleted = excluded.deleted,
+           client_updated_at = excluded.client_updated_at,
+           source_device_id = excluded.source_device_id,
+           server_received_at = datetime('now')
+         WHERE excluded.revision > sync_records_v2.revision
+            OR (excluded.revision = sync_records_v2.revision
+                AND excluded.client_updated_at > sync_records_v2.client_updated_at)
+            OR (excluded.revision = sync_records_v2.revision
+                AND excluded.client_updated_at = sync_records_v2.client_updated_at
+                AND excluded.source_device_id > sync_records_v2.source_device_id)`
+      ).bind(
+        auth.userId,
+        r.entityType,
+        r.entityId,
+        r.ciphertext,
+        r.nonce,
+        r.aad,
+        r.envelopeVersion,
+        r.keyEpoch,
+        r.revision,
+        r.deleted ? 1 : 0,
+        r.clientUpdatedAt,
+        auth.deviceId
+      ),
+      c.env.DB.prepare(
+        `INSERT INTO sync_changes_v2
+           (user_id, entity_type, entity_id)
+         VALUES (?, ?, ?)`
+      ).bind(auth.userId, r.entityType, r.entityId)
+    );
+  }
+
+  if (statements.length) await c.env.DB.batch(statements);
+  return c.json({
     ok: true,
-    processedCount: body.records.length,
-    serverTimestamp: new Date().toISOString()
+    acceptedCount: body.records.length,
+    currentKeyEpoch
   });
 });
 
 app.get("/v1/sync/pull", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
 
-  const sinceTimestamp = c.req.query("since") || "1970-01-01T00:00:00Z";
+  const cursor = Math.max(0, Number.parseInt(c.req.query("cursor") || "0", 10) || 0);
+  const limit = Math.min(500, Math.max(1, Number.parseInt(c.req.query("limit") || "200", 10) || 200));
+
   const rows = await c.env.DB.prepare(
-    `SELECT entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at
-       FROM sync_records
-      WHERE user_id = ? AND server_received_at > ?
-      ORDER BY server_received_at ASC`
-  ).bind(userId, sinceTimestamp).all();
+    `SELECT ch.change_id,
+            r.entity_type, r.entity_id, r.ciphertext, r.nonce, r.aad,
+            r.envelope_version, r.key_epoch, r.revision, r.deleted,
+            r.client_updated_at, r.source_device_id, r.server_received_at
+       FROM sync_changes_v2 ch
+       JOIN sync_records_v2 r
+         ON r.user_id = ch.user_id
+        AND r.entity_type = ch.entity_type
+        AND r.entity_id = ch.entity_id
+      WHERE ch.user_id = ? AND ch.change_id > ?
+      ORDER BY ch.change_id ASC
+      LIMIT ?`
+  ).bind(auth.userId, cursor, limit).all();
+
+  let nextCursor = cursor;
+  const records = rows.results.map((r) => {
+    nextCursor = Math.max(nextCursor, Number(r.change_id));
+    return {
+      entityType: String(r.entity_type),
+      entityId: String(r.entity_id),
+      ciphertext: String(r.ciphertext),
+      nonce: String(r.nonce),
+      aad: String(r.aad),
+      envelopeVersion: Number(r.envelope_version),
+      keyEpoch: Number(r.key_epoch),
+      revision: Number(r.revision),
+      deleted: Boolean(r.deleted),
+      clientUpdatedAt: String(r.client_updated_at),
+      sourceDeviceId: String(r.source_device_id),
+      serverReceivedAt: String(r.server_received_at)
+    };
+  });
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
 
   return c.json({
     ok: true,
-    records: rows.results.map((r) => ({
-      entityType: String(r.entity_type),
-      entityId: String(r.entity_id),
-      encryptedPayload: String(r.encrypted_payload),
-      payloadNonce: String(r.payload_nonce),
-      recordVersion: Number(r.record_version),
-      deleted: Boolean(r.deleted),
-      clientUpdatedAt: String(r.client_updated_at),
-      serverReceivedAt: String(r.server_received_at)
-    })),
-    serverTimestamp: new Date().toISOString()
+    records,
+    nextCursor,
+    hasMore: records.length === limit,
+    currentKeyEpoch: Number(account?.current_key_epoch ?? 1)
   });
 });
 
 app.get("/v1/sync/devices", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
 
   const rows = await c.env.DB.prepare(
-    `SELECT id, device_fingerprint, device_name, last_seen_at
-       FROM sync_devices
+    `SELECT id, device_fingerprint, device_name, created_at, last_seen_at, revoked_at
+       FROM sync_devices_v2
       WHERE user_id = ?
-      ORDER BY last_seen_at DESC`
-  ).bind(userId).all();
+      ORDER BY revoked_at IS NULL DESC, last_seen_at DESC`
+  ).bind(auth.userId).all();
 
   return c.json({
     devices: rows.results.map((r) => ({
       id: String(r.id),
       deviceFingerprint: String(r.device_fingerprint),
       deviceName: String(r.device_name),
-      lastSeenAt: String(r.last_seen_at)
+      createdAt: String(r.created_at),
+      lastSeenAt: String(r.last_seen_at),
+      revokedAt: r.revoked_at == null ? null : String(r.revoked_at),
+      current: String(r.id) === auth.deviceId
     }))
+  });
+});
+
+app.post("/v1/sync/devices/:deviceId/revoke", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const deviceId = c.req.param("deviceId");
+  if (deviceId === auth.deviceId) {
+    return c.json({ error: "cannot_revoke_current_device" }, 409);
+  }
+
+  const result = await c.env.DB.prepare(
+    `UPDATE sync_devices_v2
+        SET revoked_at = datetime('now'), token_hash = ''
+      WHERE id = ? AND user_id = ? AND revoked_at IS NULL`
+  ).bind(deviceId, auth.userId).run();
+
+  if (!result.meta.changes) return c.json({ error: "device_not_found" }, 404);
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
+
+  return c.json({
+    ok: true,
+    rotationRequired: true,
+    currentKeyEpoch: Number(account?.current_key_epoch ?? 1)
   });
 });
 

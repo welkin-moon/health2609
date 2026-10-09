@@ -37,11 +37,6 @@ sealed interface HealthPermissionState {
     data object SdkUpdateRequired : HealthPermissionState
 }
 
-private data class InstantRange(
-    val start: Instant,
-    val end: Instant
-)
-
 class HealthConnectSource(
     context: Context
 ) {
@@ -62,9 +57,7 @@ class HealthConnectSource(
             HealthConnectClient.SDK_UNAVAILABLE -> return HealthPermissionState.SdkUnavailable
             HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> return HealthPermissionState.SdkUpdateRequired
         }
-        val granted = runCatching {
-            client.permissionController.getGrantedPermissions()
-        }.getOrDefault(emptySet())
+        val granted = client.permissionController.getGrantedPermissions()
 
         val missing = REQUIRED_PERMISSIONS.filter { required ->
             !granted.contains(required)
@@ -86,11 +79,11 @@ class HealthConnectSource(
 
     fun createSettingsIntent(): Intent {
         val candidates = listOf(
-            Intent("android.settings.HEALTH_CONNECT_SETTINGS"),
-            Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS),
             Intent("android.health.connect.action.MANAGE_HEALTH_PERMISSIONS").apply {
                 putExtra(Intent.EXTRA_PACKAGE_NAME, appContext.packageName)
-            }
+            },
+            Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS),
+            Intent("android.settings.HEALTH_CONNECT_SETTINGS")
         )
 
         for (candidate in candidates) {
@@ -98,13 +91,12 @@ class HealthConnectSource(
                 candidate.resolveActivity(appContext.packageManager) != null
             }.getOrDefault(false)
             if (resolvable) {
-                return candidate.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                return candidate
             }
         }
 
         return Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", appContext.packageName, null)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
 
@@ -169,22 +161,11 @@ class HealthConnectSource(
         }
 
         val recordedMinutes = exerciseDuration.toMinutes().coerceAtMost(1440).toInt()
-        val estimatedMinutes = if (steps > 0L) {
-            (steps / 100L).coerceIn(1L, 1440L).toInt()
-        } else {
-            0
-        }
-        val effectiveMinutes = maxOf(recordedMinutes, estimatedMinutes)
-        val effectiveEnergyKcal = if (activeEnergyKcal <= 0.0 && steps > 0L) {
-            steps * 0.04
-        } else {
-            activeEnergyKcal
-        }
 
         return HealthConnectDayAggregate(
-            exerciseMinutes = effectiveMinutes,
+            exerciseMinutes = recordedMinutes,
             steps = steps.coerceIn(0L, 200_000L),
-            activeEnergyKcal = effectiveEnergyKcal.coerceIn(0.0, 20_000.0)
+            activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
         )
     }
 
@@ -204,7 +185,7 @@ class HealthConnectSource(
             val start = date.atTime(startTime).atZone(zoneId).toInstant()
             val end = date.atTime(endTime).atZone(zoneId).toInstant()
             if (start.isBefore(end)) InstantRange(start, end) else null
-        }
+        }.mergeActivityRanges()
 
         var exerciseDuration = Duration.ZERO
         var steps = 0L
@@ -230,22 +211,11 @@ class HealthConnectSource(
         }
 
         val recordedMinutes = exerciseDuration.toMinutes().coerceAtMost(1440).toInt()
-        val estimatedMinutes = if (steps > 0L) {
-            (steps / 100L).coerceIn(1L, 1440L).toInt()
-        } else {
-            0
-        }
-        val effectiveMinutes = maxOf(recordedMinutes, estimatedMinutes)
-        val effectiveEnergyKcal = if (activeEnergyKcal <= 0.0 && steps > 0L) {
-            steps * 0.04
-        } else {
-            activeEnergyKcal
-        }
 
         return HealthConnectDayAggregate(
-            exerciseMinutes = effectiveMinutes,
+            exerciseMinutes = recordedMinutes,
             steps = steps.coerceIn(0L, 200_000L),
-            activeEnergyKcal = effectiveEnergyKcal.coerceIn(0.0, 20_000.0)
+            activeEnergyKcal = activeEnergyKcal.coerceIn(0.0, 20_000.0)
         )
     }
 
@@ -278,23 +248,7 @@ class HealthConnectSource(
                     )
                 }
             }
-            .filter { it.start.isBefore(it.end) }
-            .sortedBy { it.start }
-            .fold(mutableListOf<InstantRange>()) { merged, next ->
-                val previous = merged.lastOrNull()
-                if (
-                    previous != null &&
-                    !next.start.isAfter(previous.end)
-                ) {
-                    merged[merged.lastIndex] = InstantRange(
-                        start = previous.start,
-                        end = maxOf(previous.end, next.end)
-                    )
-                } else {
-                    merged += next
-                }
-                merged
-            }
+            .mergeActivityRanges()
 
         if (schoolRanges.isEmpty()) {
             return listOf(InstantRange(dayStart, dayEnd))

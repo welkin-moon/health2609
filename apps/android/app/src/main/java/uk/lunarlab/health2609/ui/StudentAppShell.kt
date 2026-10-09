@@ -53,6 +53,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -99,6 +100,8 @@ fun StudentAppShell(
         pageCount = { destinations.size }
     )
     val coroutineScope = rememberCoroutineScope()
+    val latestDestination by rememberUpdatedState(selectedDestination)
+    val latestDestinationChange by rememberUpdatedState(onDestinationChange)
 
     // Sync external destination selection changes to pager
     LaunchedEffect(selectedDestination) {
@@ -118,8 +121,8 @@ fun StudentAppShell(
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { settledPage ->
             val route = destinations[settledPage].route
-            if (route != selectedDestination) {
-                onDestinationChange(route)
+            if (route != latestDestination) {
+                latestDestinationChange(route)
             }
         }
     }

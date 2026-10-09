@@ -79,6 +79,7 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [savingPe, setSavingPe] = useState(false);
   const [savingSchoolWindow, setSavingSchoolWindow] = useState(false);
+  const [refreshingStats, setRefreshingStats] = useState(false);
   const [peError, setPeError] = useState("");
 
   const studentCount =
@@ -101,15 +102,13 @@ export function App() {
 
   async function refresh(
     targetDate = date,
-    classGroupId = statsClassId,
     signal?: AbortSignal
   ) {
     setStatus("正在同步");
     try {
-      const [menuResult, stats, classResult, schoolWindowResult] =
+      const [menuResult, classResult, schoolWindowResult] =
         await Promise.all([
           api.menus(targetDate, signal),
-          api.overview(targetDate, classGroupId, signal),
           api.classes(signal),
           api.schoolDayWindows(signal)
         ]);
@@ -131,7 +130,6 @@ export function App() {
           : [emptyDish()]
       );
 
-      setOverview(stats);
       setClasses(classResult.classes);
       setSchoolWindows(schoolWindowResult.items);
       setSelectedClassId((current) =>
@@ -148,7 +146,8 @@ export function App() {
 
   async function refreshPe(
     targetDate = date,
-    classGroupId = selectedClassId
+    classGroupId = selectedClassId,
+    signal?: AbortSignal
   ) {
     if (!classGroupId) {
       setPeSessions([]);
@@ -156,7 +155,8 @@ export function App() {
     }
 
     try {
-      const result = await api.peSessions(targetDate, classGroupId);
+      const result = await api.peSessions(targetDate, classGroupId, signal);
+      if (signal?.aborted) return;
       setPeSessions(result.items);
       setPeActual(
         Object.fromEntries(
@@ -167,20 +167,33 @@ export function App() {
         )
       );
     } catch (error) {
+      if (signal?.aborted) return;
       setStatus(error instanceof Error ? error.message : "体育课载入失败");
     }
   }
 
   useEffect(() => {
     const controller = new AbortController();
-    void refresh(date, statsClassId, controller.signal);
+    void refresh(date, controller.signal);
     return () => {
       controller.abort();
     };
+  }, [date]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.overview(date, statsClassId, controller.signal).then((stats) => {
+      if (!controller.signal.aborted) setOverview(stats);
+    }).catch((error) => {
+      if (!controller.signal.aborted) setStatus(error instanceof Error ? error.message : "统计载入失败");
+    });
+    return () => controller.abort();
   }, [date, statsClassId]);
 
   useEffect(() => {
-    void refreshPe(date, selectedClassId);
+    const controller = new AbortController();
+    void refreshPe(date, selectedClassId, controller.signal);
+    return () => controller.abort();
   }, [date, selectedClassId]);
 
   function updateDish(index: number, patch: Partial<DishDraft>) {
@@ -224,6 +237,7 @@ export function App() {
     try {
       await api.saveMenu(date, "lunch", valid);
       await refresh(date);
+      setOverview(await api.overview(date, statsClassId));
       setStatus("午餐菜单已保存");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "菜单保存失败");
@@ -286,9 +300,16 @@ export function App() {
   const addPeSchedule = handleAddPe;
 
   async function savePeActual(item: PeSessionItem) {
-    const minutes = Number(peActual[item.timetableId]);
-    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 300) {
-      setStatus("体育课实际活动时间请输入 0–300 分钟");
+    const raw = peActual[item.timetableId]?.trim();
+    if (!raw) {
+      setStatus("请填写实际活动分钟；没有活动时填写 0");
+      return;
+    }
+    const toMinutes = (time: string) => { const [h, m] = time.split(":").map(Number); return h * 60 + m; };
+    const lessonMinutes = toMinutes(item.endTime) - toMinutes(item.startTime);
+    const minutes = Number(raw);
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > Math.min(300, lessonMinutes)) {
+      setStatus(`体育课实际活动时间请输入 0–${Math.min(300, lessonMinutes)} 的整数分钟`);
       return;
     }
 
@@ -299,7 +320,7 @@ export function App() {
         date,
         actualActivityMinutes: Math.round(minutes)
       });
-      await Promise.all([refreshPe(), refresh(date)]);
+      await Promise.all([refreshPe(), api.overview(date, statsClassId).then(setOverview)]);
       setStatus("体育课实际活动时间已记录");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "体育记录保存失败");
@@ -308,12 +329,25 @@ export function App() {
     }
   }
 
+  async function updateOverview() {
+    if (refreshingStats) return;
+    setRefreshingStats(true);
+    try {
+      setOverview(await api.overview(date, statsClassId));
+      setStatus("看板已更新，未保存的菜单仍保留");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "看板暂时无法更新");
+    } finally {
+      setRefreshingStats(false);
+    }
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
         <div>
-          <span className="eyebrow">health2609 · 学校管理台</span>
-          <span className="environment-badge">线上 Demo · h2609</span>
+          <span className="eyebrow">一餐一动 · 学校管理台</span>
+          <span className="environment-badge">{import.meta.env.DEV ? "本地测试空间" : "共享试用空间"}</span>
           <h1>今天的校园健康概览</h1>
           <p>
             菜单、营养构成和体育课实际活动统一录入，学生端只需要确认自己真正吃了多少。
@@ -324,6 +358,7 @@ export function App() {
           <label className="date-field">
             <span>日期</span>
             <input
+              disabled={saving || savingPe || savingSchoolWindow || refreshingStats}
               value={date}
               onChange={(event) => setDate(event.target.value)}
               type="date"
@@ -333,6 +368,7 @@ export function App() {
           <label className="date-field">
             <span>统计范围</span>
             <select
+              disabled={saving || savingPe || savingSchoolWindow || refreshingStats}
               value={statsClassId}
               onChange={(event) => setStatsClassId(event.target.value)}
             >
@@ -344,13 +380,20 @@ export function App() {
               ))}
             </select>
           </label>
+          <button type="button" className="tonal-button"
+            disabled={refreshingStats || saving || savingPe || savingSchoolWindow}
+            onClick={() => void updateOverview()}>
+            {refreshingStats ? "正在更新…" : "更新看板"}
+          </button>
         </div>
       </header>
+
+      <p className="status-banner" role="status" aria-live="polite">{status}</p>
 
       {isPrivacyMasked && (
         <aside className="privacy-notice" role="status" aria-live="polite">
           <span className="privacy-badge">隐私保护</span>
-          <span>已启用小样本隐私保护：当前班级样本过少，已脱敏个体精细营养均值</span>
+          <span>已启用小样本隐私保护：当前范围内的已记录人数不足，营养均值暂不展示。</span>
         </aside>
       )}
 
@@ -362,7 +405,7 @@ export function App() {
         </article>
 
         <article className="metric-card">
-          <span>平均记录能量</span>
+          <span>校园餐平均记录能量</span>
           <strong>
             {isPrivacyMasked
               ? "已脱敏"
@@ -474,7 +517,7 @@ export function App() {
         </article>
 
         <article className="surface dish-stats-surface">
-          <span className="eyebrow">午餐菜品</span>
+          <span className="eyebrow">当天校园餐菜品 · 含所有餐次</span>
           <h2>逐菜平均完成度</h2>
           <p>按学生确认的克数优先换算；没有克数时使用份量倍率。</p>
 
@@ -660,6 +703,7 @@ export function App() {
             <label className="stack-field">
               <span>班级</span>
               <select
+                disabled={savingPe}
                 value={selectedClassId}
                 onChange={(event) => setSelectedClassId(event.target.value)}
               >
@@ -712,11 +756,12 @@ export function App() {
                   <div className="pe-session" key={item.timetableId}>
                     <div>
                       <strong>{item.startTime}–{item.endTime}</strong>
-                      <small>今天实际活动分钟</small>
+                      <small>当天实际活动分钟</small>
                     </div>
                     <input
                       type="number"
                       min="0"
+                      aria-label={`${item.startTime} 体育课实际活动分钟`}
                       max="300"
                       value={peActual[item.timetableId] ?? ""}
                       onChange={(event) =>
@@ -742,9 +787,9 @@ export function App() {
 
           <aside className="surface note">
             <span className="eyebrow">统计口径</span>
-            <h2>学校只提供校内事实</h2>
+            <h2>活动来源有据可查</h2>
             <p>
-              体育课按课程表匹配，并由管理员填写当节实际活动时间；学生手机只负责校外运动。
+              体育课按课程表匹配，默认使用学校实际活动记录；学生也可选择手机中对应体育课时段的运动记录。校外运动取手机汇总与手动记录中较大的值，避免直接相加重复计数。
             </p>
             <div className="rule">
               <span>当天运动</span>

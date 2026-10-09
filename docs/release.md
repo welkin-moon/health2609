@@ -1,4 +1,4 @@
-# 青衡 Android 测试版构建与提交
+# 一餐一动 Android 测试版构建与提交
 
 ## 构建要求
 
@@ -6,7 +6,7 @@
 
 ## 比赛提交包
 
-本比赛 Demo 可以直接提交 Android debug 签名 APK，不需要额外准备 release keystore。
+本次交付使用可安装的 Android debug 签名 APK。若比赛章程另有签名或包格式要求，再按对应要求提供；目前不假定 debug 签名已获得主办方认可。
 
 本地构建：
 
@@ -48,7 +48,7 @@ gradle -p apps/android assembleDebug
 
 并上传 `health2609-debug-apk` artifact。普通提交不再需要 release 签名流程。
 
-`.github/workflows/release.yml` 负责青衡测试版发布：每个测试版必须在 `demo/screenshots/<tag>/` 放入本版演示 PNG，workflow 才会构建 debug APK，并把 PNG 与 APK 一起作为 GitHub prerelease 资产发布。演示图直接作为 Release assets，不再只打进 ZIP。
+`.github/workflows/release.yml` 负责一餐一动测试版发布：每个测试版必须在 `demo/screenshots/<tag>/` 放入本版演示 PNG，workflow 才会构建 debug APK，并把 PNG 与 APK 一起作为 GitHub prerelease 资产发布。演示图直接作为 Release assets，不再只打进 ZIP。
 
 ## 可选：release 签名
 

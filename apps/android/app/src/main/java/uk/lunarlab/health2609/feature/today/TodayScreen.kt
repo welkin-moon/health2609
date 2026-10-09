@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -132,15 +133,14 @@ fun TodayScreen(
     onUseWearableSchoolActivity: () -> Unit,
     onRequestHealthPermissions: () -> Unit,
     onSyncPhoneActivity: () -> Unit,
-    onEnergyReferenceChange: (String) -> Unit,
-    onSaveEnergyReference: () -> Unit,
     customApiBaseUrl: String? = null,
     onCustomApiBaseUrlChange: (String?) -> Unit = {},
     onClearMessage: () -> Unit = {},
     onAddManualHomeMealItem: () -> Unit = {},
     userProfile: UserProfile = UserProfile(),
-    onUserProfileChange: (UserProfile) -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    expenditureOverrideKcal: Int? = null,
+    onOpenSettings: () -> Unit = {},
+    onNavigate: (String) -> Unit = {}
 ) {
     val lunchPreview = remember(state.menu, state.amounts) {
         val dishes = state.menu?.dishes.orEmpty()
@@ -173,7 +173,7 @@ fun TodayScreen(
             LoadingIndicator()
             Spacer(Modifier.height(12.dp))
             Text(
-                "正在同步今天的数据",
+                "正在读取今天的记录",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -191,6 +191,18 @@ fun TodayScreen(
         modifier = Modifier.fillMaxSize()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            if (destination == "today") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = { onNavigate("meals") }, modifier = Modifier.weight(1f)) { Text("记录餐食") }
+                        FilledTonalButton(onClick = { onNavigate("activity") }, modifier = Modifier.weight(1f)) { Text("记录运动") }
+                    }
+                    Text("当前为共享试用空间，请勿记录敏感内容。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             AnimatedVisibility(
                 visible = state.message != null,
                 enter = fadeIn(animationSpec = tween(180, easing = FastOutSlowInEasing)) +
@@ -239,11 +251,10 @@ fun TodayScreen(
                             onUseWearableSchoolActivity = onUseWearableSchoolActivity,
                             onRequestHealthPermissions = onRequestHealthPermissions,
                             onSyncPhoneActivity = onSyncPhoneActivity,
-                            onEnergyReferenceChange = onEnergyReferenceChange,
-                            onSaveEnergyReference = onSaveEnergyReference,
                             onOpenSettings = onOpenSettings,
                             onAddManualHomeMealItem = onAddManualHomeMealItem,
-                            userProfile = userProfile
+                            userProfile = userProfile,
+                            expenditureOverrideKcal = expenditureOverrideKcal
                         )
                     } else {
                         CompactScreenContent(
@@ -272,11 +283,10 @@ fun TodayScreen(
                             onUseWearableSchoolActivity = onUseWearableSchoolActivity,
                             onRequestHealthPermissions = onRequestHealthPermissions,
                             onSyncPhoneActivity = onSyncPhoneActivity,
-                            onEnergyReferenceChange = onEnergyReferenceChange,
-                            onSaveEnergyReference = onSaveEnergyReference,
                             onOpenSettings = onOpenSettings,
                             onAddManualHomeMealItem = onAddManualHomeMealItem,
-                            userProfile = userProfile
+                            userProfile = userProfile,
+                            expenditureOverrideKcal = expenditureOverrideKcal
                         )
                     }
                 }
@@ -310,11 +320,10 @@ private fun WideScreenContent(
     onUseWearableSchoolActivity: () -> Unit,
     onRequestHealthPermissions: () -> Unit,
     onSyncPhoneActivity: () -> Unit,
-    onEnergyReferenceChange: (String) -> Unit,
-    onSaveEnergyReference: () -> Unit,
     onOpenSettings: () -> Unit,
     onAddManualHomeMealItem: () -> Unit = {},
-    userProfile: UserProfile = UserProfile()
+    userProfile: UserProfile = UserProfile(),
+    expenditureOverrideKcal: Int? = null
 ) {
     Row(
         modifier = Modifier
@@ -344,7 +353,7 @@ private fun WideScreenContent(
                         item {
                             EmptyState(
                                 title = "今天的午餐还没发布",
-                                body = "学校录入后会自动出现在这里。"
+                                body = "学校还未发布今日午餐。你可以在下方拍照或手动记录。"
                             )
                         }
                     } else {
@@ -477,7 +486,7 @@ private fun WideScreenContent(
                         )
                     }
                     item {
-                        EnergyBalanceCard(summary = state.summary)
+                        EnergyBalanceCard(summary = state.summary, userProfile = userProfile, expenditureOverrideKcal = expenditureOverrideKcal)
                     }
                     item {
                         MoeExerciseProgressCard(
@@ -487,16 +496,6 @@ private fun WideScreenContent(
                     }
                     item {
                         MacroNutrientCard(summary = state.summary)
-                    }
-                    item {
-                        DailyEnergyReferenceSettingCard(
-                            currentReference = state.summary?.energy?.dailyEnergyReferenceKcal,
-                            energyReferenceInput = state.energyReferenceInput,
-                            savingReference = state.savingEnergyReference,
-                            userProfile = userProfile,
-                            onEnergyReferenceChange = onEnergyReferenceChange,
-                            onSaveEnergyReference = onSaveEnergyReference
-                        )
                     }
                 }
 
@@ -562,11 +561,10 @@ private fun CompactScreenContent(
     onUseWearableSchoolActivity: () -> Unit,
     onRequestHealthPermissions: () -> Unit,
     onSyncPhoneActivity: () -> Unit,
-    onEnergyReferenceChange: (String) -> Unit,
-    onSaveEnergyReference: () -> Unit,
     onOpenSettings: () -> Unit,
     onAddManualHomeMealItem: () -> Unit = {},
-    userProfile: UserProfile = UserProfile()
+    userProfile: UserProfile = UserProfile(),
+    expenditureOverrideKcal: Int? = null
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -593,7 +591,7 @@ private fun CompactScreenContent(
                     item {
                         EmptyState(
                             title = "今天的午餐还没发布",
-                            body = "学校录入后会自动出现在这里。"
+                            body = "学校发布后可在这里选择，也可以在下方手动记录午餐。"
                         )
                     }
                 } else {
@@ -685,7 +683,7 @@ private fun CompactScreenContent(
 
             else -> {
                 item {
-                    EnergyBalanceCard(summary = state.summary)
+                    EnergyBalanceCard(summary = state.summary, userProfile = userProfile, expenditureOverrideKcal = expenditureOverrideKcal)
                 }
                 item {
                     MoeExerciseProgressCard(
@@ -695,16 +693,6 @@ private fun CompactScreenContent(
                 }
                 item {
                     MacroNutrientCard(summary = state.summary)
-                }
-                item {
-                    DailyEnergyReferenceSettingCard(
-                        currentReference = state.summary?.energy?.dailyEnergyReferenceKcal,
-                        energyReferenceInput = state.energyReferenceInput,
-                        savingReference = state.savingEnergyReference,
-                        userProfile = userProfile,
-                        onEnergyReferenceChange = onEnergyReferenceChange,
-                        onSaveEnergyReference = onSaveEnergyReference
-                    )
                 }
                 item {
                     NextActionCard(summary = state.summary)
@@ -732,96 +720,42 @@ private fun CompactScreenContent(
 @Composable
 private fun EnergyBalanceCard(
     summary: DailySummaryDto?,
+    userProfile: UserProfile,
+    expenditureOverrideKcal: Int?,
     modifier: Modifier = Modifier
 ) {
-    val nutrition = summary?.nutrition
-    val energy = summary?.energy
-    val intake = nutrition?.energyKcal?.roundToInt() ?: 0
-    val reference = energy?.dailyEnergyReferenceKcal
-    val gap = energy?.referenceGapKcal
-
+    val balance = energyBalance(summary, userProfile, expenditureOverrideKcal)
+    val hasFood = (summary?.nutrition?.recordedFoodItems ?: 0) > 0
+    val unknown = (summary?.nutrition?.unknownEnergyItems ?: 0) > 0
     Surface(
         shape = RoundedCornerShape(26.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "已记录能量",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (reference != null && gap != null) {
-                    val gapText = if (gap >= 0) {
-                        "比参考少 " + gap.roundToInt() + " 千卡"
-                    } else {
-                        "比参考多 " + abs(gap).roundToInt() + " 千卡"
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            gapText,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("能量平衡", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(balance.status, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("估算全天消耗", style = MaterialTheme.typography.labelMedium)
+                    Text(balance.expenditureKcal?.let { "$it 千卡" } ?: "待填写",
+                        style = MaterialTheme.typography.titleMedium)
+                }
+                Text("−", style = MaterialTheme.typography.titleLarge)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(if (unknown) "已知部分摄入" else "已记录摄入", style = MaterialTheme.typography.labelMedium)
+                    Text(if (hasFood) "${balance.knownIntakeKcal} 千卡" else "待记录",
+                        style = MaterialTheme.typography.titleMedium)
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        "已记录摄入",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        intake.toString() + " 千卡",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        "每日参考值",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        if (reference != null) reference.toString() + " 千卡" else "未设定",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+            Text(balance.explanation, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            summary?.energy?.dailyEnergyReferenceKcal?.let {
+                Text("每日摄入目标：$it 千卡 · 单独的计划值", style = MaterialTheme.typography.bodySmall)
             }
-
-            if (reference != null && reference > 0) {
-                val ratio = (intake.toFloat() / reference).coerceIn(0f, 1.5f)
-                LinearProgressIndicator(
-                    progress = { ratio.coerceAtMost(1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp),
-                    trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            }
+            Text("修改估算或目标：应用设置 → 能量设置", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -834,14 +768,14 @@ private fun MoeExerciseProgressCard(
 ) {
     val activity = summary?.activity
     val totalMinutes = activity?.totalMinutes ?: 0
+    val targetMinutes = activity?.targetMinutes?.takeIf { it > 0 } ?: 120
     val steps = activity?.steps ?: syncedSteps ?: 0L
     val intensity = activity?.intensityMinutes ?: IntensityMinutesDto()
-    val mvpaMinutes = intensity.moderate + intensity.vigorous
     val vigorousMinutes = intensity.vigorous
     val moderateMinutes = intensity.moderate
     val lightMinutes = intensity.light
     val activeKcal = activity?.activeEnergyKcal?.roundToInt()
-        ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
+        ?: activity?.manuallyEstimatedActiveEnergyKcal?.takeIf { it > 0 }?.roundToInt()
 
     val intensityStatus = if (totalMinutes > 0) "已记录" else "还未记录"
 
@@ -892,12 +826,12 @@ private fun MoeExerciseProgressCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        if (mvpaMinutes > 0) mvpaMinutes.toString() + " 分钟" else totalMinutes.toString() + " 分钟",
+                        totalMinutes.toString() + " 分钟",
                         style = MaterialTheme.typography.displaySmall,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (mvpaMinutes > 0) "中高强度运动" else "累计运动时间",
+                        "累计运动时间",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
@@ -935,51 +869,20 @@ private fun MoeExerciseProgressCard(
                 }
             }
 
-            // Multi-segment intensity distribution bar
-            val totalRecorded = (vigorousMinutes + moderateMinutes + lightMinutes).toFloat()
-            Box(
+            LinearProgressIndicator(
+                progress = { (totalMinutes.toFloat() / targetMinutes).coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f))
-            ) {
-                if (totalRecorded > 0f) {
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        if (vigorousMinutes > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(vigorousMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.error)
-                            )
-                        }
-                        if (moderateMinutes > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(moderateMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                        if (lightMinutes > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(lightMinutes.toFloat())
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f))
-                            )
-                        }
-                    }
-                } else if (totalMinutes > 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth((totalMinutes.toFloat() / 60f).coerceIn(0.1f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
+                    .clip(RoundedCornerShape(5.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
+            )
+            Text(
+                "累计运动 $totalMinutes / 当日目标 $targetMinutes 分钟",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f)
+            )
 
             // Intensity breakdown metrics
             Row(
@@ -1092,134 +995,6 @@ private fun MacroNutrientCard(
 }
 
 @Composable
-private fun DailyEnergyReferenceSettingCard(
-    currentReference: Int?,
-    energyReferenceInput: String,
-    savingReference: Boolean,
-    userProfile: UserProfile = UserProfile(),
-    onEnergyReferenceChange: (String) -> Unit,
-    onSaveEnergyReference: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    "每日能量参考",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                val refText = currentReference?.let { it.toString() + " 千卡" } ?: "未设定"
-                Text(
-                    "当前基准：" + refText + " · 可自行调整",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // Profile recommendation banner
-            if (userProfile.recommendedEnergyKcal > 0) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                "按身体信息估算：" + userProfile.recommendedEnergyKcal + " 千卡",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Text(
-                                userProfile.bmrStatusText,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                userProfile.bmiStatusText,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
-                            )
-                        }
-                        if (currentReference != userProfile.recommendedEnergyKcal) {
-                            FilledTonalButton(
-                                onClick = {
-                                    onEnergyReferenceChange(userProfile.recommendedEnergyKcal.toString())
-                                    onSaveEnergyReference()
-                                },
-                                enabled = !savingReference,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text("使用估算值", style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                }
-            }
-
-            val presets = remember(userProfile.recommendedEnergyKcal) {
-                val defaultList = listOf(1800, 2000, 2200, 2400)
-                (defaultList + userProfile.recommendedEnergyKcal).distinct().sorted().map { it.toString() }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                presets.forEach { preset ->
-                    val isSelected = energyReferenceInput == preset
-                    val isRecommended = preset == userProfile.recommendedEnergyKcal.toString()
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            onEnergyReferenceChange(preset)
-                            onSaveEnergyReference()
-                        },
-                        enabled = !savingReference,
-                        label = { Text(if (isRecommended) preset + " 千卡（估算）" else preset + " 千卡") }
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = energyReferenceInput,
-                    onValueChange = onEnergyReferenceChange,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    label = { Text("参考值（千卡）") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-                Button(
-                    onClick = onSaveEnergyReference,
-                    enabled = !savingReference && energyReferenceInput.isNotBlank() && energyReferenceInput != currentReference?.toString()
-                ) {
-                    Text(if (savingReference) "保存中" else "保存")
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun NextActionCard(
     summary: DailySummaryDto?,
     modifier: Modifier = Modifier
@@ -1321,7 +1096,7 @@ private fun ActivityTimelineFeed(
             val outsideMinutes = summary?.activity?.outsideMinutes ?: 0
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                val timeSpan = schoolWindows.joinToString("、") { it.startTime + "–" + it.endTime }.ifBlank { "08:00–17:00" }
+                val timeSpan = schoolWindows.joinToString("、") { it.startTime + "–" + it.endTime }.ifBlank { "未提供" }
                 TimelineItemRow(
                     time = timeSpan,
                     title = "在校时段",
@@ -1352,9 +1127,9 @@ private fun ActivityTimelineFeed(
                 )
 
                 val sourceText = if (schoolActivity?.selectedSource == "health_connect") {
-                    "智能手环 (Health Connect)"
+                    "手机运动健康记录"
                 } else {
-                    "学校排课与日常考勤"
+                    "学校提供的体育记录"
                 }
                 TimelineItemRow(
                     time = "数据源",
@@ -1410,7 +1185,7 @@ private fun SchoolEntryCard(
     selectedSchoolId: String,
     modifier: Modifier = Modifier
 ) {
-    val currentSchoolName = schools.firstOrNull { it.id == selectedSchoolId }?.name ?: "默认示范学校"
+    val currentSchoolName = schools.firstOrNull { it.id == selectedSchoolId }?.name ?: "未选择学校"
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -1457,7 +1232,7 @@ private fun ActivityStatsCard(
     val totalMinutes = activity?.totalMinutes ?: 0
     val steps = activity?.steps ?: syncedSteps ?: 0L
     val activeEnergy = activity?.activeEnergyKcal?.roundToInt()
-        ?: activity?.manuallyEstimatedActiveEnergyKcal?.roundToInt()
+        ?: activity?.manuallyEstimatedActiveEnergyKcal?.takeIf { it > 0 }?.roundToInt()
 
     Surface(
         shape = RoundedCornerShape(26.dp),
@@ -1826,7 +1601,11 @@ internal fun SettingsDialog(
     onDynamicColorChange: (Boolean) -> Unit,
     onCustomApiBaseUrlChange: (String?) -> Unit = {},
     onUserProfileChange: suspend (UserProfile) -> Unit = {},
-    onApplyRecommendedEnergy: (Int) -> Unit = {},
+    currentEnergyTargetKcal: Int? = null,
+    energyTargetLoaded: Boolean = false,
+    expenditureOverrideKcal: Int? = null,
+    savingEnergySettings: Boolean = false,
+    onSaveEnergySettings: suspend (Int?, Int?) -> Result<Unit>,
     syncState: SyncState? = null,
     onOpenSyncDialog: () -> Unit = {},
     onTriggerSync: () -> Unit = {},
@@ -1886,13 +1665,14 @@ internal fun SettingsDialog(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "身体信息、学校和外观",
+                        "身体信息、能量、学校和外观",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 IconButton(
                     onClick = onDismiss,
+                    enabled = !savingEnergySettings,
                     modifier = Modifier.size(48.dp)
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "关闭设置")
@@ -1916,7 +1696,7 @@ internal fun SettingsDialog(
                         SettingsItemRow(
                             icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                             title = "按需填写",
-                            subtitle = "估算每日能量"
+                            subtitle = "保存在这台手机"
                         )
 
                         // Keep all profile edits local until the user saves.
@@ -2046,39 +1826,73 @@ internal fun SettingsDialog(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
-                                    Text(
-                                        "${userProfile.recommendedEnergyKcal} 千卡/天",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
                                 }
 
                                 Text(
-                                    userProfile.bmrStatusText,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-
-                                Text(
-                                    "已根据临床 Mifflin-St Jeor 基础代谢公式与轻中度活动系数，结合体质指数推荐每日能量基准。",
+                                    "身体信息仅用于展示计算值。未成年人不使用成人体重分类，也不自动设置减重目标。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                 )
 
-                                Button(
-                                    onClick = {
-                                        onApplyRecommendedEnergy(userProfile.recommendedEnergyKcal)
-                                        testFeedback = "已使用估算值基准：${userProfile.recommendedEnergyKcal} 千卡"
-                                        testSuccess = true
-                                    },
-                                    enabled = !savingProfile && draftProfile != null && !profileChanged,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("使用此能量参考值")
-                                }
+
                             }
+                        }
+                    }
+                }
+
+                SettingsGroupCard(title = "能量设置") {
+                    key(selectedSchoolId, customApiBaseUrl) {
+                        if (energyTargetLoaded) {
+                            var expenditureText by rememberSaveable { mutableStateOf(expenditureOverrideKcal?.toString() ?: "") }
+                            var targetText by rememberSaveable { mutableStateOf(currentEnergyTargetKcal?.toString() ?: "") }
+                            var savedExpenditureText by rememberSaveable { mutableStateOf(expenditureText) }
+                            var savedTargetText by rememberSaveable { mutableStateOf(targetText) }
+                            var energyFeedback by remember { mutableStateOf<String?>(null) }
+                            val energyChanged = expenditureText != savedExpenditureText || targetText != savedTargetText
+                            val validEnergy = listOf(expenditureText, targetText).all { it.isBlank() || it.toIntOrNull() in 500..6000 }
+
+                        Text("能量平衡 = 估算全天消耗 − 已记录摄入。摄入目标单独保存，用于计划。",
+                            style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            value = expenditureText,
+                            onValueChange = { expenditureText = it.filter(Char::isDigit); energyFeedback = null },
+                            label = { Text("全天消耗估算（千卡）") },
+                            supportingText = { Text(userProfile.estimatedDailyExpenditureKcal?.let {
+                                "留空使用成人粗略估算：$it 千卡/天（轻活动系数 1.4）"
+                            } ?: "留空则不估算；成长阶段和未指定性别不套用成人公式") },
+                            singleLine = true, enabled = !savingEnergySettings,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = targetText,
+                            onValueChange = { targetText = it.filter(Char::isDigit); energyFeedback = null },
+                            label = { Text("每日摄入目标（可选，千卡）") },
+                            supportingText = { Text("留空并保存可移除目标；目标不参与消耗估算") },
+                            singleLine = true, enabled = !savingEnergySettings,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("手动值范围 500–6000 千卡；消耗估算仅保存在这台设备。全天消耗已包含活动，不再叠加运动热量。",
+                            style = MaterialTheme.typography.bodySmall)
+                        if (!validEnergy) Text("请填写 500–6000 千卡，或留空。", color = MaterialTheme.colorScheme.error)
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    onSaveEnergySettings(targetText.toIntOrNull(), expenditureText.toIntOrNull())
+                                        .onSuccess {
+                                            savedTargetText = targetText
+                                            savedExpenditureText = expenditureText
+                                            energyFeedback = "能量设置已保存"
+                                        }.onFailure { energyFeedback = if (it is EnergySettingsSaveException) it.message else ApiFactory.formatErrorMessage(it) }
+                                }
+                            },
+                            enabled = !savingEnergySettings && validEnergy && energyChanged,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text(if (savingEnergySettings) "保存中…" else "保存能量设置") }
+                        energyFeedback?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        } else {
+                            Text("暂未读取能量设置，请关闭设置并刷新今天的记录。")
                         }
                     }
                 }
@@ -2111,6 +1925,7 @@ internal fun SettingsDialog(
                                     FilterChip(
                                         selected = selectedSchoolId == school.id,
                                         onClick = { onSchoolChange(school.id) },
+                                        enabled = !savingEnergySettings,
                                         label = { Text(school.name) }
                                     )
                                 }
@@ -2256,14 +2071,14 @@ internal fun SettingsDialog(
                                         testFeedback = result.message
                                     }
                                 },
-                                enabled = !testingConnection && ApiFactory.isValidBaseUrl(serverInput.trim()),
+                                enabled = !savingEnergySettings && !testingConnection && ApiFactory.isValidBaseUrl(serverInput.trim()),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Text(if (testingConnection) "检查中…" else "检查连接")
                             }
 
                             Button(
-                                enabled = !testingConnection && ApiFactory.isValidBaseUrl(serverInput.trim()),
+                                enabled = !savingEnergySettings && !testingConnection && ApiFactory.isValidBaseUrl(serverInput.trim()),
                                 onClick = {
                                     val clean = serverInput.trim()
                                     val target = if (clean == BuildConfig.API_BASE_URL.trim()) null else clean
@@ -2280,6 +2095,7 @@ internal fun SettingsDialog(
 
                         if (serverInput.trim() != BuildConfig.API_BASE_URL.trim()) {
                             TextButton(
+                                enabled = !savingEnergySettings,
                                 onClick = {
                                     serverInput = BuildConfig.API_BASE_URL
                                     ApiFactory.customBaseUrl = null
@@ -2295,166 +2111,17 @@ internal fun SettingsDialog(
                     }
                 }
 
-                // 3. School Group
-                SettingsGroupCard(title = "学校关联") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary) },
-                            title = "就读学校",
-                            subtitle = "关联食堂菜谱与体育课程安排"
-                        )
-
-                        if (schools.isEmpty()) {
-                            Text(
-                                "暂无可选学校，正在使用默认学校。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 48.dp)
-                            )
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 48.dp)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                schools.forEach { school ->
-                                    FilterChip(
-                                        selected = selectedSchoolId == school.id,
-                                        onClick = { onSchoolChange(school.id) },
-                                        label = { Text(school.name) }
-                                    )
-                                }
-                            }
-                        }
+                SettingsGroupCard(title = "账号与跨设备同步") {
+                    Text("跨设备同步尚未完成，当前版本不提供个人记录的加密备份。",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("餐食与运动仍使用试用服务保存，身体信息和外观保存在这台手机。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = onOpenSyncDialog, modifier = Modifier.fillMaxWidth()) {
+                        Text("查看同步说明")
                     }
                 }
 
-                // 4. E2EE Sync Group
-                SettingsGroupCard(title = "学校账号与端对端加密云同步") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SettingsItemRow(
-                            icon = {
-                                Icon(
-                                    if (syncState?.isEnabled == true) Icons.Rounded.CloudDone else Icons.Rounded.CloudSync,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            title = if (syncState?.isEnabled == true) "端对端加密云同步已就绪" else "学校账号云同步",
-                            subtitle = if (syncState?.isEnabled == true) {
-                                "学号: ${syncState.username} · ${syncState.deviceCount} 台设备 · 上次: ${syncState.lastSyncTimestamp ?: "刚刚"}"
-                            } else {
-                                "保护个人隐私 · 跨设备端对端加密多端同步"
-                            }
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (syncState?.isEnabled == true) {
-                                FilledTonalButton(
-                                    onClick = onTriggerSync,
-                                    enabled = !isSyncing,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(if (isSyncing) "同步中…" else "立即同步")
-                                }
-                                OutlinedButton(
-                                    onClick = onOpenSyncDialog,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("账号设置")
-                                }
-                            } else {
-                                Button(
-                                    onClick = onOpenSyncDialog,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("登录学校账号并配置加密同步")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 4. Appearance Group
-                SettingsGroupCard(title = "外观与色彩") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "主题深浅",
-                            subtitle = "切换浅色、深色或随系统切换"
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(
-                                AppearanceMode.SYSTEM to "跟随系统",
-                                AppearanceMode.LIGHT to "浅色",
-                                AppearanceMode.DARK to "深色"
-                            ).forEach { (mode, label) ->
-                                FilterChip(
-                                    selected = appearanceMode == mode,
-                                    onClick = { onAppearanceModeChange(mode) },
-                                    label = { Text(label) }
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                        SettingsItemRow(
-                            icon = {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer
-                                ) {
-                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                                        Text("M", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                                    }
-                                }
-                            },
-                            title = "Monet 动态色彩自适应",
-                            subtitle = "根据系统壁纸动态演变界面与桌面图标底色",
-                            trailing = {
-                                Switch(
-                                    checked = dynamicColor,
-                                    onCheckedChange = onDynamicColorChange
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // 5. Health & Permissions Group
-                SettingsGroupCard(title = "运动健康服务") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SettingsItemRow(
-                            icon = { Icon(Icons.Rounded.HealthAndSafety, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                            title = "Health Connect 权限",
-                            subtitle = "若系统授权未自动弹出，可直接打开系统设置页面开启权限"
-                        )
-
-                        OutlinedButton(
-                            onClick = onOpenHealthSettings,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 48.dp)
-                        ) {
-                            Text("打开系统运动健康设置")
-                        }
-                    }
-                }
             }
         }
     }
@@ -3154,7 +2821,7 @@ private fun HomeMealPanel(
                 }
             }
             Text(
-                "确认菜名和分量后保存，才会计入今天的记录。",
+                "保存后会替换当天同一餐次的记录。手动添加的菜品没有营养估算，暂不计入营养汇总。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

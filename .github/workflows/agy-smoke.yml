@@ -11,8 +11,12 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Verify public AGY readiness
         shell: bash
         run: |
@@ -21,3 +25,5 @@ jobs:
           echo "$body"
           printf '%s' "$body" | grep -q '"ok":true'
           printf '%s' "$body" | grep -q '"agyReady":true'
+      - name: Exercise production multipart upload
+        run: node tools/agy-bridge/smoke.mjs
