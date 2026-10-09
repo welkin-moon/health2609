@@ -1911,9 +1911,9 @@ app.post("/v1/sync/auth/register", async (c) => {
       userId,
       username,
       body.passwordSalt,
-      body.passwordVerifier,
+      await sha256Base64(body.passwordVerifier),
       body.recoverySalt,
-      body.recoveryVerifier
+      await sha256Base64(body.recoveryVerifier)
     ),
     c.env.DB.prepare(
       `INSERT INTO sync_devices_v2
@@ -1967,7 +1967,8 @@ app.post("/v1/sync/auth/login", async (c) => {
     current_key_epoch: number;
   }>();
 
-  if (!account || account.password_verifier !== body.passwordVerifier) {
+  const passwordVerifierHash = await sha256Base64(body.passwordVerifier);
+  if (!account || account.password_verifier !== passwordVerifierHash) {
     return c.json({ error: "invalid_credentials" }, 401);
   }
 
@@ -1982,7 +1983,10 @@ app.post("/v1/sync/auth/login", async (c) => {
   }>();
 
   const isNewOrRevoked = !existingDevice || existingDevice.revoked_at != null;
-  if (isNewOrRevoked && body.recoveryVerifier !== account.recovery_verifier) {
+  const recoveryVerifierHash = body.recoveryVerifier
+    ? await sha256Base64(body.recoveryVerifier)
+    : null;
+  if (isNewOrRevoked && recoveryVerifierHash !== account.recovery_verifier) {
     return c.json({ error: "device_enrollment_requires_recovery" }, 403);
   }
 
@@ -2034,7 +2038,8 @@ app.post("/v1/sync/auth/recovery", async (c) => {
     current_key_epoch: number;
   }>();
 
-  if (!account || account.recovery_verifier !== body.recoveryVerifier) {
+  const recoveryVerifierHash = await sha256Base64(body.recoveryVerifier);
+  if (!account || account.recovery_verifier !== recoveryVerifierHash) {
     return c.json({ error: "invalid_recovery_credentials" }, 401);
   }
 
@@ -2058,7 +2063,8 @@ app.post("/v1/sync/auth/reset-password", async (c) => {
       LIMIT 1`
   ).bind(username).first<{ id: string; recovery_verifier: string }>();
 
-  if (!account || account.recovery_verifier !== body.recoveryVerifier) {
+  const recoveryVerifierHash = await sha256Base64(body.recoveryVerifier);
+  if (!account || account.recovery_verifier !== recoveryVerifierHash) {
     return c.json({ error: "invalid_recovery_credentials" }, 401);
   }
 
@@ -2076,7 +2082,7 @@ app.post("/v1/sync/auth/reset-password", async (c) => {
       `UPDATE sync_accounts_v2
           SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
         WHERE id = ?`
-    ).bind(body.passwordSalt, body.passwordVerifier, account.id),
+    ).bind(body.passwordSalt, await sha256Base64(body.passwordVerifier), account.id),
     ...body.keyEnvelopes.map((envelope) =>
       c.env.DB.prepare(
         `UPDATE sync_key_epochs_v2
@@ -2115,7 +2121,7 @@ app.post("/v1/sync/auth/change-password", async (c) => {
       `UPDATE sync_accounts_v2
           SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
         WHERE id = ?`
-    ).bind(body.passwordSalt, body.passwordVerifier, auth.userId),
+    ).bind(body.passwordSalt, await sha256Base64(body.passwordVerifier), auth.userId),
     ...body.keyEnvelopes.map((envelope) =>
       c.env.DB.prepare(
         `UPDATE sync_key_epochs_v2
