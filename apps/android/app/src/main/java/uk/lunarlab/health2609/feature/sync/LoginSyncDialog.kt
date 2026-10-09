@@ -203,6 +203,37 @@ fun LoginSyncDialog(
                         }
                     }
 
+                    if (generatedRecoveryPhrase != null) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    "恢复短语（只显示这一次）",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    generatedRecoveryPhrase.orEmpty(),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "请先离线保存再关闭此窗口。丢失所有已授权设备和恢复短语后，历史端到端加密数据无法恢复。",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                                TextButton(onClick = { generatedRecoveryPhrase = null }) {
+                                    Text("我已保存恢复短语")
+                                }
+                            }
+                        }
+                    }
+
                     if (syncState.isEnabled) {
                         // Logged-in state
                         Surface(
@@ -527,34 +558,6 @@ fun LoginSyncDialog(
                                         Icon(Icons.Rounded.Security, contentDescription = null)
                                     }
                                 )
-
-                                if (generatedRecoveryPhrase != null) {
-                                    Surface(
-                                        shape = RoundedCornerShape(16.dp),
-                                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(14.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                "恢复短语（只显示这一次）",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Text(
-                                                generatedRecoveryPhrase.orEmpty(),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                            Text(
-                                                "请离线保存。丢失所有已授权设备和这段恢复短语后，历史端到端加密数据无法恢复。",
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                        }
-                                    }
-                                }
 
                                 Button(
                                     onClick = {
