@@ -35,9 +35,26 @@ const commonRoutes = [
   "v1/home-meals"
 ];
 
+const syncRoutes = [
+  "v1/sync/auth/challenge",
+  "v1/sync/auth/register",
+  "v1/sync/auth/login",
+  "v1/sync/auth/recovery",
+  "v1/sync/auth/reset-password",
+  "v1/sync/auth/change-password",
+  "v1/sync/keys",
+  "v1/sync/keys/rotate",
+  "v1/sync/push",
+  "v1/sync/pull",
+  "v1/sync/devices",
+  "v1/sync/devices/:deviceId/revoke"
+];
+
 function verifyBackend() {
   requireText("services/api/src/index.ts", commonRoutes.map((r) => `/${r}`));
   requireText("packages/contracts/src/api.ts", commonRoutes.map((r) => `/${r}`));
+  requireText("services/api/src/index.ts", syncRoutes.map((r) => `/${r}`));
+  requireText("packages/contracts/src/api.ts", syncRoutes.map((r) => `/${r}`));
   requireText("apps/admin-web/src/api.ts", [
     "/v1/admin/stats/overview",
     "/v1/admin/classes",
@@ -52,6 +69,10 @@ function verifyAndroid() {
   requireText(
     "apps/android/app/src/main/java/uk/lunarlab/health2609/core/network/HealthApi.kt",
     commonRoutes
+  );
+  requireText(
+    "apps/android/app/src/main/java/uk/lunarlab/health2609/core/sync/SyncRepository.kt",
+    syncRoutes.filter((route) => !route.includes(":deviceId"))
   );
 }
 
