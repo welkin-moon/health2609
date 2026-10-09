@@ -92,10 +92,10 @@ class SyncRepository(private val context: Context) {
         val currentKeyEpoch: Int
     )
 
+    @Suppress("UNUSED_PARAMETER")
     private fun serverUsername(schoolId: String, username: String): String {
         // Deliberately do not encode school membership into the sync account.
         // schoolId is retained in the local app context only.
-        schoolId.trim()
         return username.trim().lowercase()
     }
 
