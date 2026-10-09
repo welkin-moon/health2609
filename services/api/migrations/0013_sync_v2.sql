@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS sync_devices_v2 (
 CREATE INDEX IF NOT EXISTS idx_sync_devices_v2_user
   ON sync_devices_v2(user_id, revoked_at, last_seen_at);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_devices_v2_token_hash
+  ON sync_devices_v2(token_hash)
+  WHERE token_hash <> '';
+
 CREATE TABLE IF NOT EXISTS sync_key_epochs_v2 (
   user_id TEXT NOT NULL,
   epoch INTEGER NOT NULL,
