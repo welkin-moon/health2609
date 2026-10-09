@@ -352,8 +352,8 @@ fun LoginSyncDialog(
                                 OutlinedTextField(
                                     value = passkeyInput,
                                     onValueChange = { passkeyInput = it },
-                                    label = { Text("端对端加密通行密钥 / 密码") },
-                                    placeholder = { Text("用于在本地生成解密主密钥") },
+                                    label = { Text("密码") },
+                                    placeholder = { Text("至少 8 个字符；恢复账号时作为新密码") },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
@@ -371,21 +371,65 @@ fun LoginSyncDialog(
                                     }
                                 )
 
+                                OutlinedTextField(
+                                    value = recoveryPhraseInput,
+                                    onValueChange = { recoveryPhraseInput = it },
+                                    label = { Text("恢复短语（新设备/找回密码时填写）") },
+                                    placeholder = { Text("首次注册留空；已有账号的新设备请填写") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = false,
+                                    minLines = 2,
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Security, contentDescription = null)
+                                    }
+                                )
+
+                                if (generatedRecoveryPhrase != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                "恢复短语（只显示这一次）",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                generatedRecoveryPhrase.orEmpty(),
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "请离线保存。丢失所有已授权设备和这段恢复短语后，历史端到端加密数据无法恢复。",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                }
+
                                 Button(
                                     onClick = {
                                         isProcessing = true
-                                        statusMessage = "正在执行端对端密钥派生与登录..."
+                                        statusMessage = "正在派生密钥并验证账号…"
                                         isSuccessMessage = true
                                         coroutineScope.launch {
                                             syncRepository.registerOrLogin(
                                                 schoolId = schoolIdInput.trim(),
                                                 username = usernameInput.trim(),
-                                                passkey = passkeyInput.trim()
-                                            ).onSuccess { msg ->
+                                                passkey = passkeyInput,
+                                                recoveryPhrase = recoveryPhraseInput
+                                            ).onSuccess { result ->
                                                 isProcessing = false
-                                                statusMessage = msg
+                                                statusMessage = result.message
+                                                generatedRecoveryPhrase = result.recoveryPhrase
                                                 isSuccessMessage = true
                                                 passkeyInput = ""
+                                                recoveryPhraseInput = ""
                                             }.onFailure { err ->
                                                 isProcessing = false
                                                 statusMessage = err.message ?: "登录配置失败"
@@ -393,7 +437,7 @@ fun LoginSyncDialog(
                                             }
                                         }
                                     },
-                                    enabled = !isProcessing && usernameInput.isNotBlank() && passkeyInput.isNotBlank(),
+                                    enabled = !isProcessing && usernameInput.isNotBlank() && passkeyInput.length >= 8,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     if (isProcessing) {
@@ -405,8 +449,41 @@ fun LoginSyncDialog(
                                         Spacer(Modifier.width(8.dp))
                                         Text("派生密钥并验证中…")
                                     } else {
-                                        Text("登录并开启端对端加密同步")
+                                        Text("注册 / 登录并开启同步")
                                     }
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        isProcessing = true
+                                        statusMessage = "正在用恢复短语重建账号密钥…"
+                                        isSuccessMessage = true
+                                        coroutineScope.launch {
+                                            syncRepository.recoverAndResetPassword(
+                                                schoolId = schoolIdInput.trim(),
+                                                username = usernameInput.trim(),
+                                                recoveryPhrase = recoveryPhraseInput,
+                                                newPassword = passkeyInput
+                                            ).onSuccess { result ->
+                                                isProcessing = false
+                                                statusMessage = result.message
+                                                isSuccessMessage = true
+                                                passkeyInput = ""
+                                                recoveryPhraseInput = ""
+                                            }.onFailure { err ->
+                                                isProcessing = false
+                                                statusMessage = err.message ?: "账号恢复失败"
+                                                isSuccessMessage = false
+                                            }
+                                        }
+                                    },
+                                    enabled = !isProcessing &&
+                                        usernameInput.isNotBlank() &&
+                                        passkeyInput.length >= 8 &&
+                                        recoveryPhraseInput.isNotBlank(),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("用恢复短语重设密码")
                                 }
                             }
                         }
