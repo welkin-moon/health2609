@@ -650,7 +650,8 @@ class SyncRepository(private val context: Context) {
                 )
                 val aad = remote.getString("aad")
                 if (aad != expectedAad) throw IllegalStateException("同步记录元数据校验失败")
-                val key = epochKeys[epoch] ?: run {
+                val key = epochKeys[epoch]
+                if (key == null) {
                     prefs[KEY_KEY_REFRESH_REQUIRED] = true
                     continue
                 }
