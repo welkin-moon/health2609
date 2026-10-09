@@ -10,6 +10,14 @@ import {
   recordMealSchema,
   schoolActivityOverrideSchema
 } from "./index";
+import {
+  syncChangePasswordSchema,
+  syncLoginSchema,
+  syncPushSchema,
+  syncRecoveryResetPasswordSchema,
+  syncRegisterSchema,
+  syncRotateKeySchema
+} from "./sync";
 
 export const API_CONTRACT_VERSION = 1 as const;
 
@@ -82,11 +90,42 @@ export const adminApiContract = {
 } as const;
 
 export const syncApiContract = {
-  register: { method: "POST", path: "/v1/sync/auth/register" },
-  login: { method: "POST", path: "/v1/sync/auth/login" },
-  push: { method: "POST", path: "/v1/sync/push" },
+  challenge: { method: "GET", path: "/v1/sync/auth/challenge" },
+  register: {
+    method: "POST",
+    path: "/v1/sync/auth/register",
+    body: syncRegisterSchema
+  },
+  login: {
+    method: "POST",
+    path: "/v1/sync/auth/login",
+    body: syncLoginSchema
+  },
+  recovery: { method: "POST", path: "/v1/sync/auth/recovery" },
+  resetPassword: {
+    method: "POST",
+    path: "/v1/sync/auth/reset-password",
+    body: syncRecoveryResetPasswordSchema
+  },
+  changePassword: {
+    method: "POST",
+    path: "/v1/sync/auth/change-password",
+    body: syncChangePasswordSchema
+  },
+  keys: { method: "GET", path: "/v1/sync/keys" },
+  rotateKey: {
+    method: "POST",
+    path: "/v1/sync/keys/rotate",
+    body: syncRotateKeySchema
+  },
+  push: {
+    method: "POST",
+    path: "/v1/sync/push",
+    body: syncPushSchema
+  },
   pull: { method: "GET", path: "/v1/sync/pull" },
-  devices: { method: "GET", path: "/v1/sync/devices" }
+  devices: { method: "GET", path: "/v1/sync/devices" },
+  revokeDevice: { method: "POST", path: "/v1/sync/devices/:deviceId/revoke" }
 } as const;
 
 export type ApiContract =
