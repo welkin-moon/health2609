@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { zValidator } from "@hono/zod-validator";
 import {
@@ -1790,7 +1790,7 @@ type SyncAuth = {
   deviceId: string;
 };
 
-function syncTokenFromRequest(c: any): string | null {
+function syncTokenFromRequest(c: Context<AppEnv>): string | null {
   const authorization = c.req.header("Authorization") || "";
   if (authorization.startsWith("Bearer ")) {
     return authorization.slice(7).trim() || null;
@@ -1820,7 +1820,7 @@ function randomSyncToken(): string {
     .replace(/=+$/g, "");
 }
 
-async function authenticateSync(c: any): Promise<SyncAuth | null> {
+async function authenticateSync(c: Context<AppEnv>): Promise<SyncAuth | null> {
   const token = syncTokenFromRequest(c);
   if (!token) return null;
   const tokenHash = await sha256Base64(token);
@@ -2016,7 +2016,7 @@ app.post("/v1/sync/auth/login", async (c) => {
 });
 
 app.post("/v1/sync/auth/recovery", async (c) => {
-  const body = await c.req.json<{ username?: string; recoveryVerifier?: string }>().catch(() => ({}));
+  const body = await c.req.json<{ username?: string; recoveryVerifier?: string }>().catch(() => ({} as { username?: string; recoveryVerifier?: string }));
   const username = (body.username || "").trim().toLowerCase();
   if (!username || !body.recoveryVerifier) {
     return c.json({ error: "missing_recovery_credentials" }, 400);
