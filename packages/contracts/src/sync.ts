@@ -76,3 +76,35 @@ export type SyncRegisterInput = z.infer<typeof syncRegisterSchema>;
 export type SyncLoginInput = z.infer<typeof syncLoginSchema>;
 export type SyncRecordEnvelope = z.infer<typeof syncRecordEnvelopeSchema>;
 export type SyncPushInput = z.infer<typeof syncPushSchema>;
+
+
+export const syncPulledRecordSchema = syncRecordEnvelopeSchema.extend({
+  sourceDeviceId: z.string().min(1).max(200),
+  serverReceivedAt: z.string().datetime({ offset: true })
+});
+
+export type SyncVersionStamp = {
+  revision: number;
+  clientUpdatedAt: string;
+  sourceDeviceId: string;
+};
+
+/**
+ * Deterministic last-writer ordering shared by clients and the Worker:
+ * revision, then client timestamp, then source device id.
+ */
+export function compareSyncVersion(
+  left: SyncVersionStamp,
+  right: SyncVersionStamp
+): number {
+  if (left.revision !== right.revision) {
+    return left.revision < right.revision ? -1 : 1;
+  }
+  if (left.clientUpdatedAt !== right.clientUpdatedAt) {
+    return left.clientUpdatedAt < right.clientUpdatedAt ? -1 : 1;
+  }
+  if (left.sourceDeviceId === right.sourceDeviceId) return 0;
+  return left.sourceDeviceId < right.sourceDeviceId ? -1 : 1;
+}
+
+export type SyncPulledRecord = z.infer<typeof syncPulledRecordSchema>;
