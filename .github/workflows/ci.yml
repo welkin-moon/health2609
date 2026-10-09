@@ -65,7 +65,7 @@ jobs:
       - name: Smoke test deployed API
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 https://h2609-admin.lunarlab.uk/ | grep -q 'health2609 管理台'
+          curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 https://h2609-admin.lunarlab.uk/ | grep -q '一餐一动'
           curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 https://h2609.lunarlab.uk/healthz | grep -q '"ok":true'
           curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 2 \
             -H 'x-demo-role: admin' \
@@ -86,7 +86,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
-      - run: gradle -p apps/android assembleDebug
+      - run: gradle -p apps/android assembleDebug testDebugUnitTest lintDebug
       - run: node tools/verify-multiplatform.mjs android
       - uses: actions/upload-artifact@v4
         with:
