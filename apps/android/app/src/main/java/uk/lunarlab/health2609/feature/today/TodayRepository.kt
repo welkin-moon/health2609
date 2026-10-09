@@ -15,6 +15,7 @@ import uk.lunarlab.health2609.core.network.EnergyReferenceRequest
 import uk.lunarlab.health2609.core.network.EnergySummaryDto
 import uk.lunarlab.health2609.core.network.HealthApi
 import uk.lunarlab.health2609.core.network.HomeMealAnalysisResultDto
+import uk.lunarlab.health2609.core.network.HomeMealsDto
 import uk.lunarlab.health2609.core.network.IntensityMinutesDto
 import uk.lunarlab.health2609.core.network.MacroCompositionDto
 import uk.lunarlab.health2609.core.network.ManualActivityRequest
@@ -23,19 +24,20 @@ import uk.lunarlab.health2609.core.network.MealItemRequest
 import uk.lunarlab.health2609.core.network.NutritionDto
 import uk.lunarlab.health2609.core.network.NutritionSummaryDto
 import uk.lunarlab.health2609.core.network.OutsideSchoolActivityRequest
+import uk.lunarlab.health2609.core.network.SavedHomeMealDto
 import uk.lunarlab.health2609.core.network.SchoolActivityDto
 import uk.lunarlab.health2609.core.network.SchoolActivityOverrideRequest
 import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 import uk.lunarlab.health2609.core.sync.SyncRepository
-import uk.lunarlab.health2609.core.utils.ImageCompressor
 
 data class TodayData(
     val menu: TodayMenuDto,
     val summary: DailySummaryDto,
     val schoolActivity: SchoolActivityDto,
-    val schools: List<StudentSchoolDto>
+    val schools: List<StudentSchoolDto>,
+    val homeMeals: HomeMealsDto
 )
 
 class TodayRepository(
@@ -46,18 +48,37 @@ class TodayRepository(
         val menu = async { api.todayMenu(date = date, mealSlot = "lunch") }
         val summary = async { loadSummary(date) }
         val schoolActivity = async { api.todaySchoolActivity(date = date) }
+        val homeMeals = async { loadHomeMeals(date) }
         val schools = async { runCatching { api.studentSchools().schools }.getOrDefault(emptyList()) }
         TodayData(
             menu = menu.await(),
             summary = summary.await(),
             schoolActivity = schoolActivity.await(),
-            schools = schools.await()
+            schools = schools.await(),
+            homeMeals = homeMeals.await()
         )
     }
 
     suspend fun loadSummary(date: String): DailySummaryDto {
         val remote = api.todaySummary(date)
-        return if (syncRepository == null) remote else overlayPrivateSummary(remote, date)
+        if (syncRepository == null) return remote
+        val remoteHomeMeals = runCatching { api.homeMeals(date) }
+            .getOrDefault(HomeMealsDto(date = date))
+        return overlayPrivateSummary(remote, date, remoteHomeMeals)
+    }
+
+    suspend fun loadHomeMeals(date: String): HomeMealsDto {
+        val remote = runCatching { api.homeMeals(date) }
+            .getOrDefault(HomeMealsDto(date = date))
+        val sync = syncRepository ?: return remote
+        val local = localHomeMeals(sync, date)
+        if (local.isEmpty()) return remote
+
+        val localSlots = local.map { it.mealSlot }.toSet()
+        return HomeMealsDto(
+            date = date,
+            meals = remote.meals.filterNot { it.mealSlot in localSlots } + local
+        )
     }
 
     suspend fun loadSchoolDayWindows(date: String): List<SchoolDayWindowDto> =
@@ -101,9 +122,6 @@ class TodayRepository(
                 .toString()
         )
 
-        // This aggregate feeds the school dashboard. Raw sensor samples and
-        // trajectories never leave the device; the encrypted journal above is
-        // the personal cross-device source of truth.
         api.saveOutsideSchoolActivity(
             OutsideSchoolActivityRequest(
                 date = date,
@@ -126,28 +144,13 @@ class TodayRepository(
         require(images.isNotEmpty()) { "请至少提供一张图片" }
         require(images.size <= 5) { "最多支持上传 5 张图片" }
 
-        val compressedList = images.map { img ->
-            val result = runCatching {
-                ImageCompressor.compressFromBytes(img.bytes)
-            }.getOrNull()
-            if (result != null) {
-                img.copy(
-                    bytes = result.bytes,
-                    mimeType = result.mimeType,
-                    fileName = result.fileName
-                )
-            } else {
-                img
-            }
-        }
-
-        val parts = compressedList.mapIndexed { index, img ->
+        val parts = images.mapIndexed { index, img ->
             require(img.bytes.isNotEmpty()) { "图片为空" }
             require(img.bytes.size <= 8 * 1024 * 1024) { "单张图片不能超过 8 MB" }
             val body = img.bytes.toRequestBody(img.mimeType.toMediaTypeOrNull())
             MultipartBody.Part.createFormData(
                 "images",
-                img.fileName.ifBlank { "meal_" + index + ".jpg" },
+                img.fileName.ifBlank { "meal_$index.jpg" },
                 body
             )
         }
@@ -166,7 +169,8 @@ class TodayRepository(
         mealSlot: String,
         items: List<ConfirmedHomeMealItemRequest>
     ) {
-        if (syncRepository == null) {
+        val sync = syncRepository
+        if (sync == null) {
             api.saveHomeMeal(
                 ConfirmedHomeMealRequest(date = date, mealSlot = mealSlot, items = items)
             )
@@ -182,7 +186,7 @@ class TodayRepository(
                     .put("nutrition", item.nutrition?.toJson() ?: JSONObject.NULL)
             )
         }
-        syncRepository.enqueuePrivateRecord(
+        sync.enqueuePrivateRecord(
             entityType = "home_meal",
             entityId = date + ":" + mealSlot,
             payloadJson = JSONObject()
@@ -250,9 +254,9 @@ class TodayRepository(
                 .toString()
         )
 
-        // Campus meal contribution remains in the school-readable operational
-        // boundary because it drives k-anonymous class statistics.
-        api.saveMeal(MealConsumptionRequest(date = date, mealSlot = "lunch", items = items))
+        api.saveMeal(
+            MealConsumptionRequest(date = date, mealSlot = "lunch", items = items)
+        )
     }
 
     suspend fun saveManualActivity(
@@ -261,7 +265,8 @@ class TodayRepository(
         durationMinutes: Int,
         intensity: String
     ) {
-        if (syncRepository == null) {
+        val sync = syncRepository
+        if (sync == null) {
             api.saveManualActivity(
                 ManualActivityRequest(
                     date = date,
@@ -273,7 +278,7 @@ class TodayRepository(
             return
         }
 
-        syncRepository.enqueuePrivateRecord(
+        sync.enqueuePrivateRecord(
             entityType = "manual_activity",
             entityId = date + ":" + UUID.randomUUID().toString(),
             payloadJson = JSONObject()
@@ -286,12 +291,13 @@ class TodayRepository(
     }
 
     suspend fun saveEnergyReference(kcal: Int?) {
-        if (syncRepository == null) {
+        val sync = syncRepository
+        if (sync == null) {
             api.saveEnergyReference(EnergyReferenceRequest(dailyEnergyReferenceKcal = kcal))
             return
         }
 
-        syncRepository.enqueuePrivateRecord(
+        sync.enqueuePrivateRecord(
             entityType = "preference",
             entityId = "energy_reference",
             payloadJson = JSONObject()
@@ -300,39 +306,102 @@ class TodayRepository(
         )
     }
 
-    private suspend fun overlayPrivateSummary(
-        remote: DailySummaryDto,
+    private suspend fun localHomeMeals(
+        sync: SyncRepository,
         date: String
-    ): DailySummaryDto {
-        val sync = syncRepository ?: return remote
-
-        var homeEnergy = 0.0
-        var homeProtein = 0.0
-        var homeFat = 0.0
-        var homeCarbs = 0.0
-        var homeFiber = 0.0
-        var homeSodium = 0.0
-        var homeSugar = 0.0
-        var homeSaturatedFat = 0.0
-
+    ): List<SavedHomeMealDto> =
         sync.listPrivateRecords("home_meal")
             .filter { !it.deleted && it.entityId.startsWith(date + ":") }
-            .forEach { record ->
-                val items = runCatching {
-                    JSONObject(record.payloadJson).optJSONArray("items")
-                }.getOrNull() ?: return@forEach
-                for (i in 0 until items.length()) {
-                    val nutrition = items.optJSONObject(i)?.optJSONObject("nutrition") ?: continue
-                    homeEnergy += nutrition.optDouble("energyKcal", 0.0)
-                    homeProtein += nutrition.optDouble("proteinG", 0.0)
-                    homeFat += nutrition.optDouble("fatG", 0.0)
-                    homeCarbs += nutrition.optDouble("carbohydrateG", 0.0)
-                    homeFiber += nutrition.optDouble("fiberG", 0.0)
-                    homeSodium += nutrition.optDouble("sodiumMg", 0.0)
-                    homeSugar += nutrition.optDouble("sugarG", 0.0)
-                    homeSaturatedFat += nutrition.optDouble("saturatedFatG", 0.0)
-                }
+            .mapNotNull { record ->
+                runCatching {
+                    val json = JSONObject(record.payloadJson)
+                    val array = json.optJSONArray("items") ?: JSONArray()
+                    val items = List(array.length()) { index ->
+                        val item = array.getJSONObject(index)
+                        ConfirmedHomeMealItemRequest(
+                            name = item.getString("name"),
+                            grams = item.optNullableDouble("grams"),
+                            nutrition = item.optJSONObject("nutrition")?.toNutritionDto()
+                        )
+                    }
+                    SavedHomeMealDto(
+                        mealSlot = json.getString("mealSlot"),
+                        items = items
+                    )
+                }.getOrNull()
             }
+
+    private suspend fun overlayPrivateSummary(
+        remote: DailySummaryDto,
+        date: String,
+        remoteHomeMeals: HomeMealsDto
+    ): DailySummaryDto {
+        val sync = syncRepository ?: return remote
+        val localHomeMeals = localHomeMeals(sync, date)
+        val overriddenSlots = localHomeMeals.map { it.mealSlot }.toSet()
+        val overriddenRemoteItems = remoteHomeMeals.meals
+            .filter { it.mealSlot in overriddenSlots }
+            .flatMap { it.items }
+        val localItems = localHomeMeals.flatMap { it.items }
+
+        fun sum(items: List<ConfirmedHomeMealItemRequest>, selector: (NutritionDto) -> Double?): Double =
+            items.sumOf { item -> item.nutrition?.let(selector) ?: 0.0 }
+
+        val remoteNutrition = remote.nutrition
+        val energy = (remoteNutrition.energyKcal -
+            sum(overriddenRemoteItems) { it.energyKcal } +
+            sum(localItems) { it.energyKcal }).coerceAtLeast(0.0)
+        val protein = (remoteNutrition.proteinG -
+            sum(overriddenRemoteItems) { it.proteinG } +
+            sum(localItems) { it.proteinG }).coerceAtLeast(0.0)
+        val fat = (remoteNutrition.fatG -
+            sum(overriddenRemoteItems) { it.fatG } +
+            sum(localItems) { it.fatG }).coerceAtLeast(0.0)
+        val carbs = (remoteNutrition.carbohydrateG -
+            sum(overriddenRemoteItems) { it.carbohydrateG } +
+            sum(localItems) { it.carbohydrateG }).coerceAtLeast(0.0)
+        val fiber = (remoteNutrition.fiberG -
+            sum(overriddenRemoteItems) { it.fiberG } +
+            sum(localItems) { it.fiberG }).coerceAtLeast(0.0)
+        val sodium = (remoteNutrition.sodiumMg -
+            sum(overriddenRemoteItems) { it.sodiumMg } +
+            sum(localItems) { it.sodiumMg }).coerceAtLeast(0.0)
+        val sugar = (remoteNutrition.sugarG -
+            sum(overriddenRemoteItems) { it.sugarG } +
+            sum(localItems) { it.sugarG }).coerceAtLeast(0.0)
+        val saturatedFat = (remoteNutrition.saturatedFatG -
+            sum(overriddenRemoteItems) { it.saturatedFatG } +
+            sum(localItems) { it.saturatedFatG }).coerceAtLeast(0.0)
+
+        val recordedFoodItems = (
+            remoteNutrition.recordedFoodItems -
+                overriddenRemoteItems.size +
+                localItems.size
+            ).coerceAtLeast(0)
+        val unknownEnergyItems = (
+            remoteNutrition.unknownEnergyItems -
+                overriddenRemoteItems.count { it.nutrition?.energyKcal == null } +
+                localItems.count { it.nutrition?.energyKcal == null }
+            ).coerceAtLeast(0)
+
+        val macroEnergy = protein * 4.0 + fat * 9.0 + carbs * 4.0
+        val nutrition = NutritionSummaryDto(
+            recordedFoodItems = recordedFoodItems,
+            unknownEnergyItems = unknownEnergyItems,
+            energyKcal = energy,
+            proteinG = protein,
+            fatG = fat,
+            carbohydrateG = carbs,
+            fiberG = fiber,
+            sodiumMg = sodium,
+            sugarG = sugar,
+            saturatedFatG = saturatedFat,
+            macroCompositionPercent = MacroCompositionDto(
+                protein = if (macroEnergy > 0) protein * 4.0 / macroEnergy * 100.0 else 0.0,
+                fat = if (macroEnergy > 0) fat * 9.0 / macroEnergy * 100.0 else 0.0,
+                carbohydrate = if (macroEnergy > 0) carbs * 4.0 / macroEnergy * 100.0 else 0.0
+            )
+        )
 
         var localManualMinutes = 0
         var localLight = 0
@@ -355,65 +424,44 @@ class TodayRepository(
                 localEstimatedEnergy += json.optDouble("estimatedActiveEnergyKcal", 0.0)
             }
 
+        val activity = remote.activity.let { base ->
+            val manualTotal = base.manualOutsideMinutes + localManualMinutes
+            val outside = maxOf(base.healthConnectOutsideMinutes, manualTotal)
+            val total = base.peMinutes + outside
+            base.copy(
+                manualOutsideMinutes = manualTotal,
+                outsideMinutes = outside,
+                totalMinutes = total,
+                targetReached = total >= base.targetMinutes,
+                intensityMinutes = IntensityMinutesDto(
+                    light = base.intensityMinutes.light + localLight,
+                    moderate = base.intensityMinutes.moderate + localModerate,
+                    vigorous = base.intensityMinutes.vigorous + localVigorous
+                ),
+                manuallyEstimatedActiveEnergyKcal =
+                    base.manuallyEstimatedActiveEnergyKcal + localEstimatedEnergy
+            )
+        }
+
         val preferenceRecord = sync.getPrivateRecord("preference", "energy_reference")
-        val localEnergyReference = preferenceRecord?.takeIf { !it.deleted }?.let { record ->
+        val localTarget = preferenceRecord?.takeIf { !it.deleted }?.let { record ->
             runCatching {
                 val json = JSONObject(record.payloadJson)
                 if (json.isNull("dailyEnergyReferenceKcal")) null
                 else json.getInt("dailyEnergyReferenceKcal")
             }.getOrNull()
         }
-
-        val nutrition = NutritionSummaryDto(
-            energyKcal = remote.nutrition.energyKcal + homeEnergy,
-            proteinG = remote.nutrition.proteinG + homeProtein,
-            fatG = remote.nutrition.fatG + homeFat,
-            carbohydrateG = remote.nutrition.carbohydrateG + homeCarbs,
-            fiberG = remote.nutrition.fiberG + homeFiber,
-            sodiumMg = remote.nutrition.sodiumMg + homeSodium,
-            sugarG = remote.nutrition.sugarG + homeSugar,
-            saturatedFatG = remote.nutrition.saturatedFatG + homeSaturatedFat
-        )
-        val macroEnergy =
-            nutrition.proteinG * 4.0 +
-            nutrition.fatG * 9.0 +
-            nutrition.carbohydrateG * 4.0
-        val nutritionWithMacro = nutrition.copy(
-            macroCompositionPercent = MacroCompositionDto(
-                protein = if (macroEnergy > 0) nutrition.proteinG * 4.0 / macroEnergy * 100.0 else 0.0,
-                fat = if (macroEnergy > 0) nutrition.fatG * 9.0 / macroEnergy * 100.0 else 0.0,
-                carbohydrate = if (macroEnergy > 0) nutrition.carbohydrateG * 4.0 / macroEnergy * 100.0 else 0.0
-            )
-        )
-
-        val manualTotal = remote.activity.manualOutsideMinutes + localManualMinutes
-        val outsideMinutes = maxOf(remote.activity.healthConnectOutsideMinutes, manualTotal)
-        val totalMinutes = remote.activity.peMinutes + outsideMinutes
-        val activity = remote.activity.copy(
-            manualOutsideMinutes = manualTotal,
-            outsideMinutes = outsideMinutes,
-            totalMinutes = totalMinutes,
-            targetReached = totalMinutes >= remote.activity.targetMinutes,
-            intensityMinutes = IntensityMinutesDto(
-                light = remote.activity.intensityMinutes.light + localLight,
-                moderate = remote.activity.intensityMinutes.moderate + localModerate,
-                vigorous = remote.activity.intensityMinutes.vigorous + localVigorous
-            ),
-            manuallyEstimatedActiveEnergyKcal =
-                remote.activity.manuallyEstimatedActiveEnergyKcal + localEstimatedEnergy
-        )
-
-        val target = localEnergyReference ?: remote.energy.dailyEnergyReferenceKcal
-        val energy = EnergySummaryDto(
+        val target = localTarget ?: remote.energy.dailyEnergyReferenceKcal
+        val energySummary = EnergySummaryDto(
             dailyEnergyReferenceKcal = target,
-            intakeKcal = nutritionWithMacro.energyKcal,
-            referenceGapKcal = target?.minus(nutritionWithMacro.energyKcal)
+            intakeKcal = nutrition.energyKcal,
+            referenceGapKcal = target?.minus(nutrition.energyKcal)
         )
 
         return remote.copy(
-            nutrition = nutritionWithMacro,
+            nutrition = nutrition,
             activity = activity,
-            energy = energy
+            energy = energySummary
         )
     }
 
@@ -427,4 +475,19 @@ class TodayRepository(
             .put("sodiumMg", sodiumMg ?: JSONObject.NULL)
             .put("sugarG", sugarG ?: JSONObject.NULL)
             .put("saturatedFatG", saturatedFatG ?: JSONObject.NULL)
+
+    private fun JSONObject.toNutritionDto(): NutritionDto =
+        NutritionDto(
+            energyKcal = optNullableDouble("energyKcal"),
+            proteinG = optNullableDouble("proteinG"),
+            fatG = optNullableDouble("fatG"),
+            carbohydrateG = optNullableDouble("carbohydrateG"),
+            fiberG = optNullableDouble("fiberG"),
+            sodiumMg = optNullableDouble("sodiumMg"),
+            sugarG = optNullableDouble("sugarG"),
+            saturatedFatG = optNullableDouble("saturatedFatG")
+        )
+
+    private fun JSONObject.optNullableDouble(name: String): Double? =
+        if (isNull(name) || !has(name)) null else optDouble(name)
 }
