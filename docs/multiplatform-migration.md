@@ -61,6 +61,22 @@ Harmony/OpenHarmony 的正式 HAP 签名构建仍依赖 DevEco/OpenHarmony SDK �
 
 个人跨设备数据：设备端加密 -> Worker sync API -> D1 ciphertext
 
-## 与 E2EE 同步的边界
+## E2EE 多设备同步
 
-多端客户端迁移与账号/E2EE 同步是两层工作：本次迁移统一了客户端架构、API 边界和 CI；Issue #17 继续跟踪设备注册、密钥恢复/吊销和完整跨设备密文同步验收。
+Issue #17 的同步层已经并入本次迁移：
+
+- [x] 账号注册 / 登录与学校 membership 解耦
+- [x] Android local-first 私密 journal
+- [x] AES-256-GCM versioned envelope + AAD
+- [x] D1 仅保存密文、最小同步元数据与包装后的 key epoch
+- [x] Bearer device token 身份认证，移除可伪造 user-id header
+- [x] 新设备恢复短语 enrollment
+- [x] 忘记密码后的 recovery + 全 epoch 重新包装
+- [x] 设备列表、吊销和未来记录 key rotation
+- [x] cursor 增量 pull 与确定性冲突顺序
+- [x] Android Keystore 保护本机 token / epoch key / 待同步 journal
+- [x] 清理旧版明文 passkey 缓存
+- [x] AES-GCM 篡改、协议版本、冲突和吊销安全测试
+- [x] 密钥层级、威胁模型、不可恢复场景文档
+
+完整设计见 docs/e2ee-sync.md。Harmony/OpenHarmony/iOS 继续共享同一 sync API contract；Issue #17 要求的工程验收以 Android 本地模型为主实现。
