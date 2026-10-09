@@ -9,7 +9,7 @@ import {
   outsideActivitySchema,
   recordMealSchema,
   schoolActivityOverrideSchema
-} from "./index.ts";
+} from "./index";
 
 export const API_CONTRACT_VERSION = 1 as const;
 
