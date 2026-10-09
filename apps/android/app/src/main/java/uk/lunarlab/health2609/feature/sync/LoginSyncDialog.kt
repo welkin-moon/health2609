@@ -45,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +63,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import uk.lunarlab.health2609.core.sync.SyncDevice
 import uk.lunarlab.health2609.core.sync.SyncRepository
 import uk.lunarlab.health2609.core.sync.SyncState
 
@@ -81,12 +83,25 @@ fun LoginSyncDialog(
         mutableStateOf(syncState.username.orEmpty())
     }
     var passkeyInput by rememberSaveable { mutableStateOf("") }
+    var recoveryPhraseInput by rememberSaveable { mutableStateOf("") }
+    var generatedRecoveryPhrase by rememberSaveable { mutableStateOf<String?>(null) }
+    var rotationPasswordInput by rememberSaveable { mutableStateOf("") }
+    var rotationRecoveryInput by rememberSaveable { mutableStateOf("") }
+    var devices by remember { mutableStateOf<List<SyncDevice>>(emptyList()) }
     var showPassword by rememberSaveable { mutableStateOf(false) }
 
     var isProcessing by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var isSuccessMessage by remember { mutableStateOf(true) }
     var showPrivacyDetail by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(syncState.isEnabled, syncState.deviceCount) {
+        if (syncState.isEnabled) {
+            syncRepository.devices().onSuccess { devices = it }
+        } else {
+            devices = emptyList()
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
