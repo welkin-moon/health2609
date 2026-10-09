@@ -15,6 +15,14 @@ import {
   recordMealSchema,
   todayMenuSchema
 } from "@health2609/contracts";
+import {
+  syncChangePasswordSchema,
+  syncLoginSchema,
+  syncPushSchema,
+  syncRecoveryResetPasswordSchema,
+  syncRegisterSchema,
+  syncRotateKeySchema
+} from "@health2609/contracts/sync";
 import { HOME_MEAL_AGY_PROMPT } from "./integrations/agy/homeMealPrompt";
 
 type Bindings = {
@@ -1774,57 +1782,161 @@ app.get("/v1/admin/stats/overview", async (c) => {
 });
 
 /* -------------------------------------------------------------------------- */
-/*           Multi-device End-to-End Encrypted (E2EE) Sync with D1             */
+/*                Multi-device E2EE Sync v2 (authenticated D1)                 */
 /* -------------------------------------------------------------------------- */
 
-app.post("/v1/sync/auth/register", async (c) => {
-  const body = await c.req.json<{
-    username: string;
-    passwordSalt: string;
-    passwordHash: string;
-    masterKeyEnc: string;
-    deviceFingerprint?: string;
-    deviceName?: string;
-    publicKeyJwk?: string;
+type SyncAuth = {
+  userId: string;
+  deviceId: string;
+};
+
+function syncTokenFromRequest(c: any): string | null {
+  const authorization = c.req.header("Authorization") || "";
+  if (authorization.startsWith("Bearer ")) {
+    return authorization.slice(7).trim() || null;
+  }
+  return c.req.header("x-sync-token") || null;
+}
+
+async function sha256Base64(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value)
+  );
+  const bytes = new Uint8Array(digest);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function randomSyncToken(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+async function authenticateSync(c: any): Promise<SyncAuth | null> {
+  const token = syncTokenFromRequest(c);
+  if (!token) return null;
+  const tokenHash = await sha256Base64(token);
+  const row = await c.env.DB.prepare(
+    `SELECT id, user_id
+       FROM sync_devices_v2
+      WHERE token_hash = ? AND revoked_at IS NULL
+      LIMIT 1`
+  ).bind(tokenHash).first<{ id: string; user_id: string }>();
+  if (!row) return null;
+
+  await c.env.DB.prepare(
+    "UPDATE sync_devices_v2 SET last_seen_at = datetime('now') WHERE id = ?"
+  ).bind(row.id).run();
+
+  return { userId: row.user_id, deviceId: row.id };
+}
+
+async function syncKeyEnvelopes(db: D1Database, userId: string, kind: "password" | "recovery") {
+  const rows = await db.prepare(
+    `SELECT epoch, password_wrapped_key, password_nonce,
+            recovery_wrapped_key, recovery_nonce
+       FROM sync_key_epochs_v2
+      WHERE user_id = ?
+      ORDER BY epoch ASC`
+  ).bind(userId).all();
+
+  return rows.results.map((row) => kind === "password"
+    ? {
+        epoch: Number(row.epoch),
+        wrappedKey: String(row.password_wrapped_key),
+        nonce: String(row.password_nonce)
+      }
+    : {
+        epoch: Number(row.epoch),
+        wrappedKey: String(row.recovery_wrapped_key),
+        nonce: String(row.recovery_nonce)
+      }
+  );
+}
+
+app.get("/v1/sync/auth/challenge", async (c) => {
+  const username = (c.req.query("username") || "").trim().toLowerCase();
+  if (!username) return c.json({ error: "missing_username" }, 400);
+
+  const account = await c.env.DB.prepare(
+    `SELECT password_salt, recovery_salt, current_key_epoch
+       FROM sync_accounts_v2
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(username).first<{
+    password_salt: string;
+    recovery_salt: string;
+    current_key_epoch: number;
   }>();
 
-  if (!body.username || !body.passwordSalt || !body.passwordHash || !body.masterKeyEnc) {
-    return c.json({ error: "missing_required_fields" }, 400);
-  }
+  if (!account) return c.json({ error: "account_not_found" }, 404);
+  return c.json({
+    passwordSalt: account.password_salt,
+    recoverySalt: account.recovery_salt,
+    currentKeyEpoch: Number(account.current_key_epoch)
+  });
+});
+
+app.post("/v1/sync/auth/register", async (c) => {
+  const parsed = syncRegisterSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_register_payload" }, 400);
+  const body = parsed.data;
+  const username = body.username.trim().toLowerCase();
 
   const existing = await c.env.DB.prepare(
-    "SELECT id FROM sync_users WHERE username = ? LIMIT 1"
-  ).bind(body.username.trim().toLowerCase()).first();
-
-  if (existing) {
-    return c.json({ error: "username_already_exists" }, 409);
-  }
+    "SELECT id FROM sync_accounts_v2 WHERE username = ? LIMIT 1"
+  ).bind(username).first();
+  if (existing) return c.json({ error: "username_already_exists" }, 409);
 
   const userId = crypto.randomUUID();
   const deviceId = crypto.randomUUID();
-  const deviceFingerprint = body.deviceFingerprint || crypto.randomUUID();
-  const deviceName = body.deviceName || "Default Device";
+  const token = randomSyncToken();
+  const tokenHash = await sha256Base64(token);
 
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `INSERT INTO sync_users (id, username, password_salt, password_hash, master_key_enc)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO sync_accounts_v2
+         (id, username, password_salt, password_verifier, recovery_salt,
+          recovery_verifier, current_key_epoch)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`
     ).bind(
       userId,
-      body.username.trim().toLowerCase(),
+      username,
       body.passwordSalt,
-      body.passwordHash,
-      body.masterKeyEnc
+      body.passwordVerifier,
+      body.recoverySalt,
+      body.recoveryVerifier
     ),
     c.env.DB.prepare(
-      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
+      `INSERT INTO sync_devices_v2
+         (id, user_id, device_fingerprint, device_name, token_hash)
+       VALUES (?, ?, ?, ?, ?)`
     ).bind(
       deviceId,
       userId,
-      deviceFingerprint,
-      deviceName,
-      body.publicKeyJwk || null
+      body.deviceFingerprint,
+      body.deviceName,
+      tokenHash
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO sync_key_epochs_v2
+         (user_id, epoch, password_wrapped_key, password_nonce,
+          recovery_wrapped_key, recovery_nonce)
+       VALUES (?, 1, ?, ?, ?, ?)`
+    ).bind(
+      userId,
+      body.keyEnvelope.passwordWrappedKey,
+      body.keyEnvelope.passwordNonce,
+      body.keyEnvelope.recoveryWrappedKey,
+      body.keyEnvelope.recoveryNonce
     )
   ]);
 
@@ -1832,179 +1944,425 @@ app.post("/v1/sync/auth/register", async (c) => {
     ok: true,
     userId,
     deviceId,
-    token: `sync_${userId}_${deviceId}`
-  });
+    token,
+    currentKeyEpoch: 1
+  }, 201);
 });
 
 app.post("/v1/sync/auth/login", async (c) => {
-  const body = await c.req.json<{
-    username: string;
-    passwordHash: string;
-    deviceFingerprint?: string;
-    deviceName?: string;
-    publicKeyJwk?: string;
-  }>();
+  const parsed = syncLoginSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_login_payload" }, 400);
+  const body = parsed.data;
+  const username = body.username.trim().toLowerCase();
 
-  if (!body.username || !body.passwordHash) {
-    return c.json({ error: "missing_credentials" }, 400);
-  }
-
-  const user = await c.env.DB.prepare(
-    `SELECT id, username, password_salt, password_hash, master_key_enc
-       FROM sync_users
+  const account = await c.env.DB.prepare(
+    `SELECT id, password_verifier, recovery_verifier, current_key_epoch
+       FROM sync_accounts_v2
       WHERE username = ?
       LIMIT 1`
-  ).bind(body.username.trim().toLowerCase()).first<{
+  ).bind(username).first<{
     id: string;
-    username: string;
-    password_salt: string;
-    password_hash: string;
-    master_key_enc: string;
+    password_verifier: string;
+    recovery_verifier: string;
+    current_key_epoch: number;
   }>();
 
-  if (!user || user.password_hash !== body.passwordHash) {
+  if (!account || account.password_verifier !== body.passwordVerifier) {
     return c.json({ error: "invalid_credentials" }, 401);
   }
 
-  const deviceFingerprint = body.deviceFingerprint || "unknown-device";
-  const deviceName = body.deviceName || "Sync Client";
   const existingDevice = await c.env.DB.prepare(
-    "SELECT id FROM sync_devices WHERE user_id = ? AND device_fingerprint = ? LIMIT 1"
-  ).bind(user.id, deviceFingerprint).first<{ id: string }>();
+    `SELECT id, revoked_at
+       FROM sync_devices_v2
+      WHERE user_id = ? AND device_fingerprint = ?
+      LIMIT 1`
+  ).bind(account.id, body.deviceFingerprint).first<{
+    id: string;
+    revoked_at: string | null;
+  }>();
 
-  let deviceId = existingDevice?.id;
-  if (!deviceId) {
-    deviceId = crypto.randomUUID();
+  const isNewOrRevoked = !existingDevice || existingDevice.revoked_at != null;
+  if (isNewOrRevoked && body.recoveryVerifier !== account.recovery_verifier) {
+    return c.json({ error: "device_enrollment_requires_recovery" }, 403);
+  }
+
+  const token = randomSyncToken();
+  const tokenHash = await sha256Base64(token);
+  let deviceId = existingDevice?.id || crypto.randomUUID();
+
+  if (existingDevice) {
     await c.env.DB.prepare(
-      `INSERT INTO sync_devices (id, user_id, device_fingerprint, device_name, public_key_jwk, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, datetime('now'))`
-    ).bind(deviceId, user.id, deviceFingerprint, deviceName, body.publicKeyJwk || null).run();
+      `UPDATE sync_devices_v2
+          SET device_name = ?, token_hash = ?, revoked_at = NULL,
+              last_seen_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.deviceName, tokenHash, deviceId).run();
   } else {
     await c.env.DB.prepare(
-      `UPDATE sync_devices SET device_name = ?, public_key_jwk = coalesce(?, public_key_jwk), last_seen_at = datetime('now') WHERE id = ?`
-    ).bind(deviceName, body.publicKeyJwk || null, deviceId).run();
+      `INSERT INTO sync_devices_v2
+         (id, user_id, device_fingerprint, device_name, token_hash)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(deviceId, account.id, body.deviceFingerprint, body.deviceName, tokenHash).run();
   }
 
   return c.json({
     ok: true,
-    userId: user.id,
+    userId: account.id,
     deviceId,
-    passwordSalt: user.password_salt,
-    masterKeyEnc: user.master_key_enc,
-    token: `sync_${user.id}_${deviceId}`
+    token,
+    currentKeyEpoch: Number(account.current_key_epoch),
+    keyEnvelopes: await syncKeyEnvelopes(c.env.DB, account.id, "password")
   });
 });
 
-app.post("/v1/sync/push", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const body = await c.req.json<{
-    records: Array<{
-      entityType: string;
-      entityId: string;
-      encryptedPayload: string;
-      payloadNonce: string;
-      recordVersion?: number;
-      deleted?: boolean | number;
-      clientUpdatedAt?: string;
-    }>;
-  }>();
-
-  if (!Array.isArray(body.records)) {
-    return c.json({ error: "invalid_records_array" }, 400);
+app.post("/v1/sync/auth/recovery", async (c) => {
+  const body = await c.req.json<{ username?: string; recoveryVerifier?: string }>().catch(() => ({}));
+  const username = (body.username || "").trim().toLowerCase();
+  if (!username || !body.recoveryVerifier) {
+    return c.json({ error: "missing_recovery_credentials" }, 400);
   }
 
-  const statements = body.records.map((r) => {
-    const id = `${userId}_${r.entityType}_${r.entityId}`;
-    const version = Number(r.recordVersion || 1);
-    const deleted = r.deleted ? 1 : 0;
-    const clientUpdatedAt = r.clientUpdatedAt || new Date().toISOString();
+  const account = await c.env.DB.prepare(
+    `SELECT id, recovery_salt, recovery_verifier, current_key_epoch
+       FROM sync_accounts_v2
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(username).first<{
+    id: string;
+    recovery_salt: string;
+    recovery_verifier: string;
+    current_key_epoch: number;
+  }>();
 
-    return c.env.DB.prepare(
-      `INSERT INTO sync_records
-         (id, user_id, entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(user_id, entity_type, entity_id)
-       DO UPDATE SET
-         encrypted_payload = excluded.encrypted_payload,
-         payload_nonce = excluded.payload_nonce,
-         record_version = excluded.record_version,
-         deleted = excluded.deleted,
-         client_updated_at = excluded.client_updated_at,
-         server_received_at = datetime('now')
-       WHERE excluded.record_version >= sync_records.record_version`
-    ).bind(
-      id,
-      userId,
-      r.entityType,
-      r.entityId,
-      r.encryptedPayload,
-      r.payloadNonce,
-      version,
-      deleted,
-      clientUpdatedAt
-    );
-  });
-
-  if (statements.length > 0) {
-    await c.env.DB.batch(statements);
+  if (!account || account.recovery_verifier !== body.recoveryVerifier) {
+    return c.json({ error: "invalid_recovery_credentials" }, 401);
   }
 
   return c.json({
+    recoverySalt: account.recovery_salt,
+    currentKeyEpoch: Number(account.current_key_epoch),
+    keyEnvelopes: await syncKeyEnvelopes(c.env.DB, account.id, "recovery")
+  });
+});
+
+app.post("/v1/sync/auth/reset-password", async (c) => {
+  const parsed = syncRecoveryResetPasswordSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_password_reset_payload" }, 400);
+  const body = parsed.data;
+  const username = body.username.trim().toLowerCase();
+
+  const account = await c.env.DB.prepare(
+    `SELECT id, recovery_verifier
+       FROM sync_accounts_v2
+      WHERE username = ?
+      LIMIT 1`
+  ).bind(username).first<{ id: string; recovery_verifier: string }>();
+
+  if (!account || account.recovery_verifier !== body.recoveryVerifier) {
+    return c.json({ error: "invalid_recovery_credentials" }, 401);
+  }
+
+  const currentEpochs = await c.env.DB.prepare(
+    "SELECT epoch FROM sync_key_epochs_v2 WHERE user_id = ? ORDER BY epoch"
+  ).bind(account.id).all();
+  const expected = currentEpochs.results.map((r) => Number(r.epoch));
+  const supplied = body.keyEnvelopes.map((r) => r.epoch).sort((a, b) => a - b);
+  if (JSON.stringify(expected) !== JSON.stringify(supplied)) {
+    return c.json({ error: "incomplete_key_epoch_set" }, 409);
+  }
+
+  const statements = [
+    c.env.DB.prepare(
+      `UPDATE sync_accounts_v2
+          SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.passwordSalt, body.passwordVerifier, account.id),
+    ...body.keyEnvelopes.map((envelope) =>
+      c.env.DB.prepare(
+        `UPDATE sync_key_epochs_v2
+            SET password_wrapped_key = ?, password_nonce = ?
+          WHERE user_id = ? AND epoch = ?`
+      ).bind(
+        envelope.passwordWrappedKey,
+        envelope.passwordNonce,
+        account.id,
+        envelope.epoch
+      )
+    )
+  ];
+  await c.env.DB.batch(statements);
+  return c.json({ ok: true });
+});
+
+app.post("/v1/sync/auth/change-password", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const parsed = syncChangePasswordSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_password_change_payload" }, 400);
+  const body = parsed.data;
+
+  const currentEpochs = await c.env.DB.prepare(
+    "SELECT epoch FROM sync_key_epochs_v2 WHERE user_id = ? ORDER BY epoch"
+  ).bind(auth.userId).all();
+  const expected = currentEpochs.results.map((r) => Number(r.epoch));
+  const supplied = body.keyEnvelopes.map((r) => r.epoch).sort((a, b) => a - b);
+  if (JSON.stringify(expected) !== JSON.stringify(supplied)) {
+    return c.json({ error: "incomplete_key_epoch_set" }, 409);
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE sync_accounts_v2
+          SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.passwordSalt, body.passwordVerifier, auth.userId),
+    ...body.keyEnvelopes.map((envelope) =>
+      c.env.DB.prepare(
+        `UPDATE sync_key_epochs_v2
+            SET password_wrapped_key = ?, password_nonce = ?
+          WHERE user_id = ? AND epoch = ?`
+      ).bind(
+        envelope.passwordWrappedKey,
+        envelope.passwordNonce,
+        auth.userId,
+        envelope.epoch
+      )
+    )
+  ]);
+  return c.json({ ok: true });
+});
+
+app.get("/v1/sync/keys", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+
+  const account = await c.env.DB.prepare(
+    "SELECT password_salt, current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ password_salt: string; current_key_epoch: number }>();
+
+  return c.json({
+    passwordSalt: account?.password_salt,
+    currentKeyEpoch: Number(account?.current_key_epoch ?? 1),
+    keyEnvelopes: await syncKeyEnvelopes(c.env.DB, auth.userId, "password")
+  });
+});
+
+app.post("/v1/sync/keys/rotate", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const parsed = syncRotateKeySchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_key_rotation_payload" }, 400);
+  const body = parsed.data;
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
+  const currentEpoch = Number(account?.current_key_epoch ?? 0);
+  if (body.newEpoch !== currentEpoch + 1) {
+    return c.json({ error: "invalid_next_key_epoch", currentKeyEpoch: currentEpoch }, 409);
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO sync_key_epochs_v2
+         (user_id, epoch, password_wrapped_key, password_nonce,
+          recovery_wrapped_key, recovery_nonce)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      auth.userId,
+      body.newEpoch,
+      body.passwordWrappedKey,
+      body.passwordNonce,
+      body.recoveryWrappedKey,
+      body.recoveryNonce
+    ),
+    c.env.DB.prepare(
+      `UPDATE sync_accounts_v2
+          SET current_key_epoch = ?, updated_at = datetime('now')
+        WHERE id = ?`
+    ).bind(body.newEpoch, auth.userId)
+  ]);
+
+  return c.json({ ok: true, currentKeyEpoch: body.newEpoch });
+});
+
+app.post("/v1/sync/push", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const parsed = syncPushSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "invalid_sync_payload" }, 400);
+  const body = parsed.data;
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
+  const currentKeyEpoch = Number(account?.current_key_epoch ?? 1);
+
+  if (body.records.some((r) => r.keyEpoch !== currentKeyEpoch)) {
+    return c.json({ error: "stale_key_epoch", currentKeyEpoch }, 409);
+  }
+
+  const statements: D1PreparedStatement[] = [];
+  for (const r of body.records) {
+    statements.push(
+      c.env.DB.prepare(
+        `INSERT INTO sync_records_v2
+           (user_id, entity_type, entity_id, ciphertext, nonce, aad,
+            envelope_version, key_epoch, revision, deleted, client_updated_at,
+            source_device_id, server_received_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, entity_type, entity_id)
+         DO UPDATE SET
+           ciphertext = excluded.ciphertext,
+           nonce = excluded.nonce,
+           aad = excluded.aad,
+           envelope_version = excluded.envelope_version,
+           key_epoch = excluded.key_epoch,
+           revision = excluded.revision,
+           deleted = excluded.deleted,
+           client_updated_at = excluded.client_updated_at,
+           source_device_id = excluded.source_device_id,
+           server_received_at = datetime('now')
+         WHERE excluded.revision > sync_records_v2.revision
+            OR (excluded.revision = sync_records_v2.revision
+                AND excluded.client_updated_at > sync_records_v2.client_updated_at)
+            OR (excluded.revision = sync_records_v2.revision
+                AND excluded.client_updated_at = sync_records_v2.client_updated_at
+                AND excluded.source_device_id > sync_records_v2.source_device_id)`
+      ).bind(
+        auth.userId,
+        r.entityType,
+        r.entityId,
+        r.ciphertext,
+        r.nonce,
+        r.aad,
+        r.envelopeVersion,
+        r.keyEpoch,
+        r.revision,
+        r.deleted ? 1 : 0,
+        r.clientUpdatedAt,
+        auth.deviceId
+      ),
+      c.env.DB.prepare(
+        `INSERT INTO sync_changes_v2
+           (user_id, entity_type, entity_id)
+         VALUES (?, ?, ?)`
+      ).bind(auth.userId, r.entityType, r.entityId)
+    );
+  }
+
+  if (statements.length) await c.env.DB.batch(statements);
+  return c.json({
     ok: true,
-    processedCount: body.records.length,
-    serverTimestamp: new Date().toISOString()
+    acceptedCount: body.records.length,
+    currentKeyEpoch
   });
 });
 
 app.get("/v1/sync/pull", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
 
-  const sinceTimestamp = c.req.query("since") || "1970-01-01T00:00:00Z";
+  const cursor = Math.max(0, Number.parseInt(c.req.query("cursor") || "0", 10) || 0);
+  const limit = Math.min(500, Math.max(1, Number.parseInt(c.req.query("limit") || "200", 10) || 200));
+
   const rows = await c.env.DB.prepare(
-    `SELECT entity_type, entity_id, encrypted_payload, payload_nonce, record_version, deleted, client_updated_at, server_received_at
-       FROM sync_records
-      WHERE user_id = ? AND server_received_at > ?
-      ORDER BY server_received_at ASC`
-  ).bind(userId, sinceTimestamp).all();
+    `SELECT ch.change_id,
+            r.entity_type, r.entity_id, r.ciphertext, r.nonce, r.aad,
+            r.envelope_version, r.key_epoch, r.revision, r.deleted,
+            r.client_updated_at, r.source_device_id, r.server_received_at
+       FROM sync_changes_v2 ch
+       JOIN sync_records_v2 r
+         ON r.user_id = ch.user_id
+        AND r.entity_type = ch.entity_type
+        AND r.entity_id = ch.entity_id
+      WHERE ch.user_id = ? AND ch.change_id > ?
+      ORDER BY ch.change_id ASC
+      LIMIT ?`
+  ).bind(auth.userId, cursor, limit).all();
+
+  let nextCursor = cursor;
+  const records = rows.results.map((r) => {
+    nextCursor = Math.max(nextCursor, Number(r.change_id));
+    return {
+      entityType: String(r.entity_type),
+      entityId: String(r.entity_id),
+      ciphertext: String(r.ciphertext),
+      nonce: String(r.nonce),
+      aad: String(r.aad),
+      envelopeVersion: Number(r.envelope_version),
+      keyEpoch: Number(r.key_epoch),
+      revision: Number(r.revision),
+      deleted: Boolean(r.deleted),
+      clientUpdatedAt: String(r.client_updated_at),
+      sourceDeviceId: String(r.source_device_id),
+      serverReceivedAt: String(r.server_received_at)
+    };
+  });
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
 
   return c.json({
     ok: true,
-    records: rows.results.map((r) => ({
-      entityType: String(r.entity_type),
-      entityId: String(r.entity_id),
-      encryptedPayload: String(r.encrypted_payload),
-      payloadNonce: String(r.payload_nonce),
-      recordVersion: Number(r.record_version),
-      deleted: Boolean(r.deleted),
-      clientUpdatedAt: String(r.client_updated_at),
-      serverReceivedAt: String(r.server_received_at)
-    })),
-    serverTimestamp: new Date().toISOString()
+    records,
+    nextCursor,
+    hasMore: records.length === limit,
+    currentKeyEpoch: Number(account?.current_key_epoch ?? 1)
   });
 });
 
 app.get("/v1/sync/devices", async (c) => {
-  const userId = c.req.header("x-sync-user-id");
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
 
   const rows = await c.env.DB.prepare(
-    `SELECT id, device_fingerprint, device_name, last_seen_at
-       FROM sync_devices
+    `SELECT id, device_fingerprint, device_name, created_at, last_seen_at, revoked_at
+       FROM sync_devices_v2
       WHERE user_id = ?
-      ORDER BY last_seen_at DESC`
-  ).bind(userId).all();
+      ORDER BY revoked_at IS NULL DESC, last_seen_at DESC`
+  ).bind(auth.userId).all();
 
   return c.json({
     devices: rows.results.map((r) => ({
       id: String(r.id),
       deviceFingerprint: String(r.device_fingerprint),
       deviceName: String(r.device_name),
-      lastSeenAt: String(r.last_seen_at)
+      createdAt: String(r.created_at),
+      lastSeenAt: String(r.last_seen_at),
+      revokedAt: r.revoked_at == null ? null : String(r.revoked_at),
+      current: String(r.id) === auth.deviceId
     }))
   });
 });
 
+app.post("/v1/sync/devices/:deviceId/revoke", async (c) => {
+  const auth = await authenticateSync(c);
+  if (!auth) return c.json({ error: "unauthorized" }, 401);
+  const deviceId = c.req.param("deviceId");
+  if (deviceId === auth.deviceId) {
+    return c.json({ error: "cannot_revoke_current_device" }, 409);
+  }
+
+  const result = await c.env.DB.prepare(
+    `UPDATE sync_devices_v2
+        SET revoked_at = datetime('now'), token_hash = ''
+      WHERE id = ? AND user_id = ? AND revoked_at IS NULL`
+  ).bind(deviceId, auth.userId).run();
+
+  if (!result.meta.changes) return c.json({ error: "device_not_found" }, 404);
+
+  const account = await c.env.DB.prepare(
+    "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ current_key_epoch: number }>();
+
+  return c.json({
+    ok: true,
+    rotationRequired: true,
+    currentKeyEpoch: Number(account?.current_key_epoch ?? 1)
+  });
+});
+
 export default app;
+
