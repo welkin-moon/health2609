@@ -635,6 +635,7 @@ class SyncRepository(private val context: Context) {
 
     private suspend fun applyPulledRecords(records: JSONArray) {
         if (records.length() == 0) return
+        var missingKeyEpoch = false
         dataStore.edit { prefs ->
             val root = JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
             val epochKeys = openEpochKeys(prefs[KEY_EPOCH_KEYS_JSON])
@@ -654,6 +655,7 @@ class SyncRepository(private val context: Context) {
                 val key = epochKeys[epoch]
                 if (key == null) {
                     prefs[KEY_KEY_REFRESH_REQUIRED] = true
+                    missingKeyEpoch = true
                     continue
                 }
                 val plaintext = E2eeCrypto.decrypt(
@@ -694,6 +696,9 @@ class SyncRepository(private val context: Context) {
                 }
             }
             prefs[KEY_LOCAL_RECORDS_JSON] = root.toString()
+        }
+        if (missingKeyEpoch) {
+            throw IllegalStateException("账号存在新的密钥 epoch，请重新登录刷新密钥后再同步")
         }
     }
 
