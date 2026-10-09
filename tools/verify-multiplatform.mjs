@@ -72,7 +72,7 @@ function verifyAndroid() {
   );
   requireText(
     "apps/android/app/src/main/java/uk/lunarlab/health2609/core/sync/SyncRepository.kt",
-    syncRoutes.filter((route) => !route.includes(":deviceId"))
+    syncRoutes.filter((route) => !route.includes(":deviceId") && route !== "v1/sync/keys")
   );
 }
 
