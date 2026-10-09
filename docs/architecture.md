@@ -15,7 +15,7 @@ The application is intentionally modular but small enough for a competition demo
 
 ### Trusted server-side
 
-- Worker authentication and authorization
+- Demo-role routing (client-supplied headers; not production authentication)
 - school tenant enforcement
 - D1 repositories
 - aggregate statistics
@@ -36,7 +36,7 @@ All untrusted data is validated before entering domain logic.
 
 ### school
 
-School, join code, class/group, school-time windows and configurable daily activity target.
+School, preset demo membership, class/group, school-time windows and configurable daily activity target. Student registration/join-code enrollment is not part of the accepted demo.
 
 ### meals
 
@@ -56,12 +56,11 @@ The server combines:
 
 ```text
 daily activity minutes =
-    confirmed school PE activity minutes
-  + outside-school Health Connect activity minutes
-  + manually entered activity minutes
+    selected school PE minutes (school record OR phone PE-window record)
+  + max(outside-school Health Connect minutes, summed manual minutes)
 ```
 
-The implementation must avoid double-counting overlapping sources. Manual entries are explicit student records, not hidden inference from phone sensors.
+The demo treats manual activity as a daily fallback/correction. It takes the larger of phone and manual totals, rather than claiming per-session overlap detection. This may undercount disjoint sessions; exact interval-based merging is deferred. Overlapping PE windows are merged locally before reading Health Connect.
 
 ### insights
 

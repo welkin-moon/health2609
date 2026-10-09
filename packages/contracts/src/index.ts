@@ -32,7 +32,9 @@ export const dishSchema = z.object({
   id: z.string(),
   name: z.string().min(1).max(80),
   standardServingGrams: z.number().positive().nullable(),
-  nutritionPerServing: nutritionSchema.nullable()
+  nutritionPerServing: nutritionSchema.nullable(),
+  savedServingMultiplier: portionSchema.nullable().optional(),
+  savedConsumedGrams: z.number().min(0).max(5000).nullable().optional()
 });
 
 export const todayMenuSchema = z.object({
@@ -140,8 +142,8 @@ export const confirmedHomeMealSchema = z.object({
   mealSlot: mealSlotSchema,
   items: z.array(z.object({
     name: z.string().trim().min(1).max(120),
-    grams: z.number().min(0).max(5000).nullable(),
-    nutrition: nutritionSchema.nullable()
+    grams: z.number().min(0).max(5000).nullable().default(null),
+    nutrition: nutritionSchema.nullable().default(null)
   })).min(1).max(30)
 });
 

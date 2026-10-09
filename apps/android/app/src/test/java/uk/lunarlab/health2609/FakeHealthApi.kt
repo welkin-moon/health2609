@@ -21,6 +21,8 @@ import uk.lunarlab.health2609.core.network.StudentSchoolsDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 
 class FakeHealthApi : HealthApi {
+    var savedHomeMeals = uk.lunarlab.health2609.core.network.HomeMealsDto("2026-09-30")
+    override suspend fun homeMeals(date: String) = savedHomeMeals
     var schoolsToReturn = StudentSchoolsDto(
         schools = listOf(
             StudentSchoolDto(
@@ -75,13 +77,20 @@ class FakeHealthApi : HealthApi {
 
     var lastSavedMealRequest: MealConsumptionRequest? = null
     var lastSavedManualActivityRequest: ManualActivityRequest? = null
+    var manualSaveCount: Int = 0
     var lastSavedOutsideSchoolRequest: OutsideSchoolActivityRequest? = null
     var lastSavedEnergyReferenceRequest: EnergyReferenceRequest? = null
+    var energySaveFailure: Exception? = null
     var lastSavedHomeMealRequest: ConfirmedHomeMealRequest? = null
 
     override suspend fun todayMenu(date: String, mealSlot: String): TodayMenuDto = menuToReturn
 
-    override suspend fun todaySummary(date: String): DailySummaryDto = summaryToReturn
+    var summaryGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    var manualSaveGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    override suspend fun todaySummary(date: String): DailySummaryDto {
+        summaryGate?.await()
+        return summaryToReturn
+    }
 
     override suspend fun schoolDayWindows(date: String): SchoolDayWindowsDto =
         SchoolDayWindowsDto(date = date, weekday = 3, windows = emptyList())
@@ -124,11 +133,14 @@ class FakeHealthApi : HealthApi {
     }
 
     override suspend fun saveManualActivity(request: ManualActivityRequest): ApiWriteResult {
+        manualSaveCount += 1
+        manualSaveGate?.await()
         lastSavedManualActivityRequest = request
         return ApiWriteResult(ok = true, id = "mact-1")
     }
 
     override suspend fun saveEnergyReference(request: EnergyReferenceRequest): ApiWriteResult {
+        energySaveFailure?.let { throw it }
         lastSavedEnergyReferenceRequest = request
         return ApiWriteResult(ok = true)
     }

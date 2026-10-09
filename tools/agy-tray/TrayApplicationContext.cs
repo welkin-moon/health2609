@@ -140,6 +140,10 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OnStateChanged(BridgeState state)
     {
+        if (_contextMenu.InvokeRequired) {
+            _contextMenu.BeginInvoke(new Action(() => UpdateMenuState()));
+            return;
+        }
         UpdateMenuState();
     }
 

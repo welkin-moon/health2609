@@ -6,6 +6,8 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -41,6 +43,19 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun refreshMovesToTheCurrentDayAndDoesNotCarrySavedLunchAmounts() = runTest(testDispatcher) {
+        var day = java.time.LocalDate.of(2026, 10, 5)
+        val model = TodayViewModel(repository) { day }
+        advanceUntilIdle()
+        model.setPortion("dish-1", 1.5)
+        day = day.plusDays(1)
+        model.checkCurrentDate()
+        advanceUntilIdle()
+        assertEquals("2026-10-06", model.uiState.value.date)
+        assertEquals(DishAmount(0.0, 0.0), model.uiState.value.amounts["dish-1"])
+    }
+
+    @Test
     fun testInitialLoad_populatesDishesAndDefaults() = runTest(testDispatcher) {
         advanceUntilIdle()
 
@@ -65,6 +80,25 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun persistedLunchPortionIsRestoredOnFirstLoad() = runTest(testDispatcher) {
+        fakeApi.menuToReturn = fakeApi.menuToReturn.copy(dishes = fakeApi.menuToReturn.dishes.map {
+            if (it.id == "dish-1") it.copy(savedServingMultiplier = 0.75, savedConsumedGrams = 112.5) else it
+        })
+        advanceUntilIdle()
+        assertEquals(DishAmount(0.75, 112.5), viewModel.uiState.value.amounts["dish-1"])
+    }
+
+    @Test
+    fun repeatedTapBeforeDispatchSavesManualActivityOnlyOnce() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        viewModel.saveManualActivity("跑步")
+        viewModel.saveManualActivity("跑步")
+        advanceUntilIdle()
+        assertEquals(1, fakeApi.manualSaveCount)
+        assertFalse(viewModel.uiState.value.savingActivity)
+    }
+
+    @Test
     fun testSetConsumedGrams_updatesMultiplierAndGrams() = runTest(testDispatcher) {
         advanceUntilIdle()
 
@@ -74,6 +108,61 @@ class TodayViewModelTest {
         assertNotNull(amount)
         assertEquals(0.5, amount?.servingMultiplier ?: 0.0, 0.001)
         assertEquals(60.0, amount?.consumedGrams ?: 0.0, 0.001)
+    }
+
+    @Test
+    fun lunchSummaryCannotUnlockAnUnfinishedActivitySave() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        fakeApi.summaryGate = CompletableDeferred()
+        viewModel.saveMeal()
+        runCurrent()
+        fakeApi.manualSaveGate = CompletableDeferred()
+        viewModel.saveManualActivity("跑步")
+        runCurrent()
+        assertTrue(viewModel.uiState.value.savingActivity)
+        fakeApi.summaryGate!!.complete(Unit)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.savingActivity)
+        viewModel.saveManualActivity("跑步")
+        assertEquals(1, fakeApi.manualSaveCount)
+        fakeApi.manualSaveGate!!.complete(Unit)
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.savingActivity)
+    }
+
+    @Test
+    fun savedDinnerRestoresAndAddingFoodPreservesItsEarlierItems() = runTest(testDispatcher) {
+        fakeApi.savedHomeMeals = uk.lunarlab.health2609.core.network.HomeMealsDto("2026-09-30", listOf(
+            uk.lunarlab.health2609.core.network.SavedHomeMealDto("dinner", listOf(
+                uk.lunarlab.health2609.core.network.ConfirmedHomeMealItemRequest("炒饭", 180.0,
+                    uk.lunarlab.health2609.core.network.NutritionDto(energyKcal = 300.0))
+            ))
+        ))
+        advanceUntilIdle()
+        assertEquals("炒饭", viewModel.uiState.value.homeMealDraft.single().name)
+        viewModel.addManualHomeMealItem("苹果", 100.0)
+        viewModel.setHomeMealSlot("breakfast")
+        assertTrue(viewModel.uiState.value.homeMealDraft.isEmpty())
+        viewModel.setHomeMealSlot("dinner")
+        assertEquals(2, viewModel.uiState.value.homeMealDraft.size)
+        viewModel.saveHomeMeal()
+        advanceUntilIdle()
+        assertEquals(listOf("炒饭", "苹果"), fakeApi.lastSavedHomeMealRequest!!.items.map { it.name })
+        assertEquals(300.0, fakeApi.lastSavedHomeMealRequest!!.items.first().nutrition!!.energyKcal!!, 0.001)
+    }
+
+    @Test
+    fun recreatingScreenWithSameServerPreservesPhotosAndUnsavedFood() = runTest(testDispatcher) {
+        viewModel.configureContext("test-server|test-school")
+        advanceUntilIdle()
+        viewModel.analyzeHomeMeal("fake-image".toByteArray(), "image/jpeg")
+        advanceUntilIdle()
+        viewModel.setHomeMealName(0, "已编辑的菜名")
+        val before = viewModel.uiState.value
+        viewModel.configureContext("test-server|test-school")
+        advanceUntilIdle()
+        assertEquals(before.stagedMealImages, viewModel.uiState.value.stagedMealImages)
+        assertEquals(before.homeMealDraft, viewModel.uiState.value.homeMealDraft)
     }
 
     @Test
@@ -100,12 +189,48 @@ class TodayViewModelTest {
     }
 
     @Test
-    fun testEnergyReferenceInput_filtersNonDigitsAndClampsLength() {
-        viewModel.setEnergyReferenceInput("2200kcal")
-        assertEquals("2200", viewModel.uiState.value.energyReferenceInput)
+    fun energySettingsSaveAndClearTargetImmediately() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        var persisted = 0
+        assertTrue(viewModel.saveEnergySettings(1800) { persisted++ }.isSuccess)
+        assertEquals(1800, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertTrue(viewModel.saveEnergySettings(null) { persisted++ }.isSuccess)
+        assertEquals(null, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertEquals(null, fakeApi.lastSavedEnergyReferenceRequest?.dailyEnergyReferenceKcal)
+        assertEquals(2, persisted)
+        assertFalse(viewModel.uiState.value.savingEnergyReference)
+    }
 
-        viewModel.setEnergyReferenceInput("123456")
-        assertEquals("1234", viewModel.uiState.value.energyReferenceInput)
+    @Test
+    fun failedTargetSaveDoesNotPersistExpenditureAndReleasesBusyState() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        fakeApi.energySaveFailure = java.io.IOException("offline")
+        var persisted = false
+        assertTrue(viewModel.saveEnergySettings(1800) { persisted = true }.isFailure)
+        assertFalse(persisted)
+        assertEquals(null, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertFalse(viewModel.uiState.value.savingEnergyReference)
+        assertTrue(viewModel.saveEnergySettings(null) { persisted = true }.isSuccess)
+        assertTrue(persisted)
+    }
+
+    @Test
+    fun localFailureAfterRemoteSaveReportsPartialSuccess() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        val result = viewModel.saveEnergySettings(1800) { throw java.io.IOException("disk full") }
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("摄入目标已保存"))
+        assertEquals(1800, viewModel.uiState.value.summary?.energy?.dailyEnergyReferenceKcal)
+        assertFalse(viewModel.uiState.value.savingEnergyReference)
+    }
+
+    @Test
+    fun invalidTargetIsRejectedBeforeAnyPersistence() = runTest(testDispatcher) {
+        advanceUntilIdle()
+        var persisted = false
+        assertTrue(viewModel.saveEnergySettings(20) { persisted = true }.isFailure)
+        assertFalse(persisted)
+        assertEquals(null, fakeApi.lastSavedEnergyReferenceRequest)
     }
 
     @Test
@@ -136,7 +261,7 @@ class TodayViewModelTest {
         assertNotNull(fakeApi.lastSavedHomeMealRequest)
         assertEquals("清炖牛肉", fakeApi.lastSavedHomeMealRequest?.items?.get(0)?.name)
         assertEquals(180.0, fakeApi.lastSavedHomeMealRequest?.items?.get(0)?.grams ?: 0.0, 0.001)
-        assertTrue(viewModel.uiState.value.homeMealDraft.isEmpty())
+        assertEquals("清炖牛肉", viewModel.uiState.value.homeMealDraft.single().name)
     }
 
     @Test

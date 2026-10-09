@@ -2,3 +2,6 @@ packages:
   - "services/*"
   - "packages/*"
   - "apps/admin-web"
+allowBuilds:
+  esbuild: true
+  workerd: true

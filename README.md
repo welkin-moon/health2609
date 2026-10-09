@@ -10,11 +10,9 @@
 - 家庭餐：学生可拍照或手动记录。图片识别由经提示词约束的常驻 AGY CLI 处理；AGY 预读任务要求，收到新任务后触发子 agent 输出结构化候选结果，仓库内不再单独维护模型服务。
 - 管理端：Cloudflare Pages + Vite/React，使用自定义域名作为比赛入口，不依赖 `pages.dev`。
 - 后端：Cloudflare Workers + D1，使用自定义域名作为 API 入口，不依赖 `workers.dev`；家庭餐图片不落对象存储，Worker 仅校验后经 Cloudflare Tunnel/AGY 入口触发分析任务。目标是免费层即可跑比赛 Demo。
-- 多端客户端矩阵：统一采用 **Material 3 Expressive (M3E)** 设计系统，全平台保持统一的色盘、32dp/24dp圆角卡片、34dp浮动胶囊底栏与动效。
-  - Android：Kotlin + Jetpack Compose + M3E
-  - iOS：Swift + SwiftUI + M3E（支持 Apple HealthKit 运动同步与本地在校时段剔除）
-  - 鸿蒙（HarmonyOS NEXT）：ArkTS + ArkUI + M3E（Stage 模型，API 12+）
-  - 开鸿（OpenHarmony）：ArkUI + 自适应断点响应式 + M3E（面向开鸿智慧校园终端与平板设备）
+- 当前比赛验收范围：Android 原生客户端、学校管理台和 Worker/D1 测试服务。
+- iOS、鸿蒙与 OpenHarmony 目录保留为后续探索代码，尚未作为本次可安装、可运行的提交成果验收。
+- 账号与跨设备加密同步尚未开放；试用环境使用共享演示身份，不应记录真实学生的敏感信息。
 
 ## 仓库结构
 

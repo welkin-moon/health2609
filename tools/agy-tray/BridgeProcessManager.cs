@@ -29,7 +29,9 @@ public class BridgeProcessManager : IDisposable
     public BridgeState CurrentState { get; private set; } = BridgeState.Stopped;
     public string LogFilePath { get; }
     public int Port { get; } = 18788;
-    public string Token { get; } = "00e037966ab94d718109e054e1922133e1aded4063ea4ec7a5dba7c5cf80ab35";
+    public string Token { get; } = Environment.GetEnvironmentVariable("HEALTH2609_AGY_TOKEN", EnvironmentVariableTarget.User)
+        ?? Environment.GetEnvironmentVariable("HEALTH2609_AGY_TOKEN")
+        ?? string.Empty;
 
     public BridgeProcessManager()
     {
@@ -109,6 +111,12 @@ public class BridgeProcessManager : IDisposable
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(Token)) {
+                AppendLog("ERROR: HEALTH2609_AGY_TOKEN is not configured.");
+                SetState(BridgeState.Error);
+                return;
+            }
+
             string repoRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(scriptPath)!, "..", ".."));
 
             var psi = new ProcessStartInfo
@@ -127,6 +135,10 @@ public class BridgeProcessManager : IDisposable
             psi.EnvironmentVariables["HEALTH2609_AGY_PORT"] = Port.ToString();
             psi.EnvironmentVariables["HEALTH2609_AGY_TOKEN"] = Token;
             psi.EnvironmentVariables["HEALTH2609_REPO_ROOT"] = repoRoot;
+            foreach (string key in new[] { "HEALTH2609_AGY_MODEL", "HEALTH2609_AGY_EFFORT" }) {
+                string? configured = Environment.GetEnvironmentVariable(key, EnvironmentVariableTarget.User);
+                if (!string.IsNullOrWhiteSpace(configured)) psi.EnvironmentVariables[key] = configured;
+            }
 
             string currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
             string extraPaths = @"C:\Users\meteo\AppData\Local\MixProcessProxy\bin;C:\Program Files\nodejs;";
@@ -326,9 +338,15 @@ public class BridgeProcessManager : IDisposable
 
     private static string? FindBridgeScript()
     {
+        string? configuredRoot = Environment.GetEnvironmentVariable("HEALTH2609_REPO_ROOT");
+        if (!string.IsNullOrWhiteSpace(configuredRoot)) {
+            string configuredScript = Path.Combine(configuredRoot, "tools", "agy-bridge", "server.mjs");
+            if (File.Exists(configuredScript)) return configuredScript;
+        }
         string appDir = AppContext.BaseDirectory;
         string[] candidates = new[]
         {
+            Path.Combine(appDir, "..", "..", "..", "tools", "agy-bridge", "server.mjs"),
             Path.Combine(appDir, "..", "..", "..", "..", "tools", "agy-bridge", "server.mjs"),
             Path.Combine(appDir, "..", "..", "tools", "agy-bridge", "server.mjs"),
             Path.Combine(appDir, "tools", "agy-bridge", "server.mjs"),
