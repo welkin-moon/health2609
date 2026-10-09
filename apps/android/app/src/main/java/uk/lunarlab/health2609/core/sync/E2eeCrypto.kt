@@ -46,7 +46,7 @@ object E2eeCrypto {
     private fun purposeSalt(salt: ByteArray, purpose: String): ByteArray {
         val digest = MessageDigest.getInstance("SHA-256")
         digest.update(salt)
-        digest.update(0)
+        digest.update(0.toByte())
         digest.update("health2609:$purpose:v1".toByteArray(Charsets.UTF_8))
         return digest.digest()
     }
