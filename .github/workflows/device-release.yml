@@ -30,10 +30,27 @@ jobs:
         with:
           gradle-version: '9.3.1'
       - name: Package Android (no tests)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          HEALTH2609_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          HEALTH2609_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          HEALTH2609_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
         run: |
-          gradle -p apps/android assembleDebug
+          set -euo pipefail
           mkdir -p dist/android
-          cp apps/android/app/build/outputs/apk/debug/app-debug.apk dist/android/yicanyidong-android-debug.apk
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            export HEALTH2609_KEYSTORE_PATH="$RUNNER_TEMP/android-release.jks"
+            trap 'rm -f "$HEALTH2609_KEYSTORE_PATH"' EXIT
+            umask 077
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$HEALTH2609_KEYSTORE_PATH"
+            test -n "$HEALTH2609_KEYSTORE_PASSWORD" && test -n "$HEALTH2609_KEY_ALIAS" && test -n "$HEALTH2609_KEY_PASSWORD"
+            gradle -p apps/android assembleRelease
+            cp apps/android/app/build/outputs/apk/release/app-release.apk dist/android/yicanyidong-android-release.apk
+          else
+            gradle -p apps/android assembleDebug
+            cp apps/android/app/build/outputs/apk/debug/app-debug.apk dist/android/yicanyidong-android-debug.apk
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: device-android
@@ -71,11 +88,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="v0.4.0-device.${GITHUB_SHA:0:7}"
+          TAG="v0.4.1-device.${GITHUB_SHA:0:7}"
           cp docs/device-install.md release-assets/INSTALL.md
           (cd release-assets && sha256sum *.apk *.ipa > SHA256SUMS.txt)
           cat > /tmp/release-notes.md <<'NOTES'
-          Android: debug-signed APK, ready for device installation. Updating an older APK requires the same signer; back up records before any uninstall.
+          Android: signed APK, ready for device installation; artifact name identifies private release signing or temporary debug signing. Updating an older APK requires the same signer; preserve the old app and records until backup is confirmed.
           iPhone/iPad: unsigned arm64 device IPA for re-signing with a valid matching certificate/profile. Default resign package does not require HealthKit entitlement; manual and photo flows remain available. The optional healthkit IPA requires a profile authorizing HealthKit.
           HarmonyOS 6 / OpenHarmony: HAP assets are not included in this release. SDK builds and platform-specific signing remain required. A source archive is not an installable HAP.
           This release was reviewed from source and packaged without running tests. Device behavior has not been verified.
@@ -83,5 +100,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber
           else
-            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --prerelease --title "一餐一动 0.4.0 · Android / iOS 安装包" --notes-file /tmp/release-notes.md
+            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --prerelease --title "一餐一动 0.4.1 · Android / iOS 安装包" --notes-file /tmp/release-notes.md
           fi

@@ -2,7 +2,7 @@
 
 ## Android
 
-下载 Release 中的 `yicanyidong-android-debug.apk` 安装。包名 `uk.lunarlab.health2609`，版本 0.4.0。若 Android 提示签名冲突，旧包和本次构建使用了不同的 debug key。先保留旧版与记录，不能通过直接卸载解决而不考虑本地记录丢失。
+下载 Release 中的 `yicanyidong-android-debug.apk` 安装。包名 `uk.lunarlab.health2609`，版本 0.4.1。CI 支持私有 keystore secrets 生成 release 签名 APK；未配置时使用 runner 的 debug key，不能保证覆盖旧包升级。若 Android 提示签名冲突，应保留旧应用和数据，确认私密记录备份与恢复短语后再迁移。先保留旧版与记录，不能通过直接卸载解决而不考虑本地记录丢失。
 
 ## iPhone / iPad
 
