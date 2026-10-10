@@ -45,7 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Package iPhone/iPad for re-signing (no tests)
-        run: bash apps/ios/build-ipa.sh
+        run: |
+          bash apps/ios/build-ipa.sh
+          ENABLE_HEALTHKIT=1 bash apps/ios/build-ipa.sh
       - uses: actions/upload-artifact@v4
         with:
           name: device-ios
@@ -74,7 +76,7 @@ jobs:
           (cd release-assets && sha256sum *.apk *.ipa > SHA256SUMS.txt)
           cat > /tmp/release-notes.md <<'NOTES'
           Android: debug-signed APK, ready for device installation. Updating an older APK requires the same signer; back up records before any uninstall.
-          iPhone/iPad: unsigned arm64 device IPA for re-signing with a valid matching certificate/profile. Default package does not require HealthKit entitlement; manual and photo flows remain available.
+          iPhone/iPad: unsigned arm64 device IPA for re-signing with a valid matching certificate/profile. Default resign package does not require HealthKit entitlement; manual and photo flows remain available. The optional healthkit IPA requires a profile authorizing HealthKit.
           HarmonyOS 6 / OpenHarmony: HAP assets are not included in this release. SDK builds and platform-specific signing remain required. A source archive is not an installable HAP.
           This release was reviewed from source and packaged without running tests. Device behavior has not been verified.
           NOTES

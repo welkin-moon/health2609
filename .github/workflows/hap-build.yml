@@ -10,6 +10,9 @@ on:
       - .github/workflows/hap-build.yml
 permissions:
   contents: read
+concurrency:
+  group: health2609-hap-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   hap:
     runs-on: ubuntu-latest
@@ -51,7 +54,7 @@ jobs:
       - name: Configure Huawei build plugin registry
         run: |
           npm config set registry https://repo.huaweicloud.com/repository/npm/
-          npm config set @ohos:registry https://repo.huaweicloud.com/repository/npm/
+          npm config set @ohos:registry https://repo.harmonyos.com/npm/
       - name: Build real unsigned HAP (no tests)
         run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.0 --version-code 17
       - uses: actions/upload-artifact@v4

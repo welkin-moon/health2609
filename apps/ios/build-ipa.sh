@@ -15,7 +15,7 @@ fi
 xcodebuild -project "$IOS_DIR/Health2609.xcodeproj" -scheme Health2609 \
   -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
   -derivedDataPath "$DERIVED_DIR" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-  "CURRENT_PROJECT_VERSION=${IOS_BUILD_NUMBER:-1}" "MARKETING_VERSION=${IOS_VERSION:-0.4.0}" \
+  "CURRENT_PROJECT_VERSION=${IOS_BUILD_NUMBER:-17}" "MARKETING_VERSION=${IOS_VERSION:-0.4.0}" \
   "${EXTRA_SETTINGS[@]}" build
 STAGING_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGING_DIR"' EXIT
