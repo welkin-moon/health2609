@@ -64,7 +64,7 @@ export struct PrivateAccountView {
     catch (error) { this.message = (error as Error).message || '撤销结果未确认，请刷新设备列表，并完成密钥轮换'; }
     finally { this.refresh(); this.busy = false; }
   }
-  private async rotate(): Promise<void> {
+  private async rotateAccountKey(): Promise<void> {
     if (this.busy) return; this.busy = true;
     try { await this.repository.rotate(this.password, this.recovery); this.message = '新密钥已启用，历史记录仍可解密'; }
     catch (error) { this.message = (error as Error).message || '轮换结果未确认，请重新登录刷新密钥'; }
@@ -141,7 +141,7 @@ export struct PrivateAccountView {
           if (this.rotationRequired) { Text('设备撤销后需轮换密钥；完成前暂停同步新记录。').fontColor(M3EColors.error) }
           Text('修改密码填写上方当前密码与新密码；轮换密钥填写当前密码与恢复短语。').fontSize(12)
           Button('修改密码').onClick(() => { this.changePassword(); }).enabled(!this.busy)
-          Button('轮换个人记录密钥').onClick(() => { this.rotate(); }).enabled(!this.busy)
+          Button('轮换个人记录密钥').onClick(() => { this.rotateAccountKey(); }).enabled(!this.busy)
           Button('刷新登录设备').onClick(() => { this.loadDevices(); }).enabled(!this.busy)
           ForEach(this.devices, (device: PrivateDevice) => {
             Column({ space: 4 }) {
