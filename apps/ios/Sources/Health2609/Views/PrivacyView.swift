@@ -95,7 +95,7 @@ public struct PrivacyView: View {
             iconColor: M3E.Colors.primary,
             title: "Apple 健康本地沙盒保护",
             bodyText: "严格遵循 iOS HealthKit 数据规范，步数与卡路里仅在本地进行差集运算。",
-            detailText: "完全受设备锁与系统级沙盒保护，符合国家学生体质健康监测规范。"
+            detailText: "系统授权后仅读取必要数据。无可读数据时保留已有记录；通用重签包可使用手动记录。"
         )
     }
 }

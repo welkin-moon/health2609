@@ -137,6 +137,7 @@ public actor HealthApi: HealthApiClient {
         let url = baseURL.appendingPathComponent("v1/home-meals/analyze")
         let boundary = "Boundary-\(UUID().uuidString)"
         var req = makeRequest(url: url, method: "POST")
+        req.timeoutInterval = 120
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var body = Data()
@@ -167,6 +168,8 @@ public actor HealthApi: HealthApiClient {
         for (key, val) in defaultHeaders {
             request.setValue(val, forHTTPHeaderField: key)
         }
+        request.setValue(UserDefaults.standard.string(forKey: "schoolId") ?? "demo-school", forHTTPHeaderField: "x-demo-school")
+        request.setValue(UserDefaults.standard.string(forKey: "participantId") ?? "demo-student", forHTTPHeaderField: "x-demo-participant")
         return request
     }
 

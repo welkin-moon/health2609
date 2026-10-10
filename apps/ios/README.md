@@ -1,109 +1,36 @@
-# Health2609 ("一餐一动") - Native iOS Client
+# 一餐一动 iOS / iPadOS
 
-A modern native iOS application built with **Swift & SwiftUI** for iOS 17+ and iOS 18+, strictly implementing the **Material 3 Expressive (M3E)** design system unified across Android, Web, and iOS platforms.
+SwiftUI device application, iOS 17+. Open `Health2609.xcodeproj`, select the shared **Health2609** scheme and an iPhone/iPad or a simulator. `Package.swift` remains a source development convenience; a Swift executable is not an installable iOS application.
 
----
+## Device release packaging
 
-## 核心特性
+On macOS with Xcode 15+:
 
-1. **Unified Material 3 Expressive (M3E) Design Language**
-   - **Color System**: Dynamic tonal palettes (`primary`, `primaryContainer`, `secondaryContainer`, `surfaceContainerLow`, `surfaceContainerHigh`, `surfaceContainerHighest`, etc.) supporting both Light and Dark appearances.
-   - **Expressive Shapes**: Continuous curve rounded rectangles (`cornerRadius: 32` for primary cards, `cornerRadius: 24` for internal sections, `cornerRadius: 34` for floating bottom dock capsule, `cornerRadius: 28` for inner dock pill).
-   - **Motion Scheme**: Expressive spring physics (`MotionScheme.expressive()`) providing smooth fluid transitions.
-   - **Floating Dock Navigation**: Floating bottom pill capsule dock for fast switching between "今天" (Today Dashboard) and "隐私" (Privacy & Boundaries).
-
-2. **School Lunch Portion Logging ("午餐")**
-   - Live synchronization with school cafeteria daily menus.
-   - Fast portion selection chips (`0`, `¼份`, `半份`, `¾份`, `1份`).
-   - Optional exact grams input mode (`需要时精确到克`).
-   - Deterministic nutrient recalculation (`NutritionMath.calculateServingNutrition`) for kcal, protein, fat, and carbohydrates.
-
-3. **Physical Activity & Apple HealthKit Sync ("运动")**
-   - **Deterministic Separation**: School PE is recorded by the school administration, while outside-school activity is retrieved from personal devices.
-   - **School-Time Exclusion Calculation**: Local mathematical inversion of school day windows (`[dayStart, school.start]`, `[school.end, dayEnd]`) ensuring during-school intervals are excluded from outside-school activity metrics.
-   - **HealthKit Integration**: Seamlessly queries steps, active energy (kcal), and exercise minutes using Apple HealthKit.
-   - **Manual Activity Logging**: Interactive duration slider (5–180 min), preset chips (跑步, 跳绳, 羽毛球, 篮球, 自主运动), and intensity levels (轻松, 中等, 较累).
-
-4. **Home Meal AI Visual Recognition ("家庭餐")**
-   - PhotosPicker and camera integration for breakfast, lunch, and dinner.
-   - Async multipart upload directly to the Cloudflare API endpoint (`/v1/home-meals/analyze`).
-   - Editable food names and estimated grams with real-time scaled nutrition preview.
-   - Strict student confirmation before committing to daily records.
-
-5. **Today Overview & Evidence-Based Next Action ("今日汇总")**
-   - Real-time energy balance and progress towards the 120-minute daily physical activity target.
-   - Macronutrient breakdown (protein, fat, carbs) with visual indicators.
-   - Evidence-based next action tips ("下一步建议") conforming to Chinese school-age children dietary & activity guidelines.
-
-6. **Privacy Sandbox & Local Processing ("隐私")**
-   - Clear boundary visualization for student data.
-   - Local on-device filtering without uploading GPS trajectories or raw meal images.
-
----
-
-## Architecture & Directory Structure
-
-```
-apps/ios/
-├── Package.swift                             # Swift Package Manager definition
-├── README.md                                 # Documentation & build instructions
-└── Sources/
-    └── Health2609/
-        ├── App/
-        │   └── Health2609App.swift           # Application entrypoint (@main)
-        ├── Theme/
-        │   └── M3ETheme.swift                # M3E Color tokens, shapes, motion curves & modifiers
-        ├── Models/
-        │   └── ApiModels.swift               # Codable DTOs matching @health2609/contracts & deterministic math
-        ├── Network/
-        │   └── HealthApi.swift               # Async/await URLSession API client with demo school headers
-        ├── Health/
-        │   └── HealthKitManager.swift        # HealthKit bridge with outside-school time exclusion algorithm
-        ├── ViewModels/
-        │   └── TodayViewModel.swift          # Main view model handling state, portion math, sync & tips
-        └── Views/
-            ├── StudentAppShell.swift         # Root container with M3E floating bottom capsule dock
-            ├── TodayView.swift               # Dashboard: TopBar, Lunch, Activity, HomeMeal AI, Overview
-            └── PrivacyView.swift             # Privacy & data boundary documentation screen
+```sh
+apps/ios/build-ipa.sh
+ENABLE_HEALTHKIT=1 apps/ios/build-ipa.sh
 ```
 
----
+Output:
 
-## Prerequisites & Build Instructions
+- `dist/ios/yicanyidong-ios-resign-unsigned.ipa`: arm64 device bundle, suitable input for a signing/re-signing tool. Does not request the HealthKit entitlement. Manual exercise, lunch, real camera/photo recognition, editing and summary remain available.
+- `dist/ios/yicanyidong-ios-healthkit-unsigned.ipa`: same app with HealthKit enabled; the eventual signing profile must authorize `com.apple.developer.healthkit`. The source entitlements are at `Resources/Health2609.entitlements`.
 
-### Requirements
-- **macOS Sonoma (14.0+)** or later
-- **Xcode 15.0+** (Swift 5.9+) or **Xcode 16.0+** (Swift 6.0)
-- **Target OS**: iOS 17.0+ / iPadOS 17.0+ / macOS 14.0+ (Mac Catalyst)
+These are **unsigned** IPA files. Enterprise signing/Aisi installation still requires an actual valid certificate, matching provisioning profile, bundle ID and device/distribution authorization. No certificate or profile is included in this repository, and an unsigned IPA cannot be installed directly. Re-sign the chosen IPA using the intended tool and its supplied profile. A generic signing profile without HealthKit should use the `resign` variant. Both variants share a bundle ID and replace each other when installed.
 
-### Build via Swift Package Manager CLI
-```bash
-cd apps/ios
-swift build
-```
+`IOS_VERSION`, `IOS_BUILD_NUMBER`, `IOS_OUTPUT_DIR` and `IOS_DERIVED_DIR` are optional build environment settings. The script performs a device build and packaging only, and runs no tests.
 
-### Open in Xcode
-You can open `Package.swift` directly in Xcode:
-```bash
-cd apps/ios
-open Package.swift
-```
-Select the **Health2609** scheme and target any iOS Simulator (e.g. iPhone 15 Pro, iPhone 16) or physical iOS device, then press `Cmd + R` to build and run.
+## Implemented flows
 
-### Entitlements & Permissions
-When bundling as a full `.ipa` or embedding into an Xcode application project, include the following keys in your `Info.plist`:
-- `NSHealthShareUsageDescription`: "用于同步校外运动时长与卡路里消耗，并结合校内体育计算当日总运动量。"
-- `NSHealthUpdateUsageDescription`: "用于记录经过校对的活动数据。"
-- `NSCameraUsageDescription`: "用于拍摄家庭餐食照片以便通过智能识别估算营养成分。"
-- `NSPhotoLibraryUsageDescription`: "用于从相册中选择家庭餐食照片进行营养识别。"
+- School menu, persistent saved portions, lunch updates and daily summary.
+- Manual exercise, energy reference, photo library and real camera capture.
+- Photos are decoded, resized to 1600 px and encoded as JPEG before multipart upload, including HEIC originals. Students edit and confirm AI results before saving.
+- HealthKit variant requests explicit system permission; errors and no-readable-data preserve previous records. No fabricated demo activity is uploaded. Samples spanning a school boundary are excluded conservatively rather than attributed wholly to outside-school activity.
+- School day boundaries use Asia/Shanghai, consistent with the current school deployment. In-school windows must load successfully before health synchronization.
+- Settings allow administrator-assigned school/student identifiers and explain the demo identity.
 
----
+## Current scope
 
-## API & Backend Contract
+The current school API uses demo identity headers, matching the backend competition-demo shell. These are not secure account authentication. Android's E2EE private journal/recovery is **not implemented in this iOS client**; its absence is visible in Settings. Campus records can be shared by the same assigned identifiers, but this does not promise cross-platform private journal sync.
 
-The iOS client communicates with the Cloudflare Worker API at `https://h2609.lunarlab.uk` with standard demo identity headers:
-- `x-demo-school: demo-school`
-- `x-demo-participant: demo-student`
-- `x-demo-role: student`
-
-Data structures strictly match `@health2609/contracts`.
+Production endpoint: `https://h2609.lunarlab.uk`. The app uploads selected meal images transiently for AI recognition and stores the confirmed nutritional record. HealthKit raw samples and routes stay on device.

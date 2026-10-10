@@ -1,6 +1,6 @@
 import Foundation
 
-#if canImport(HealthKit)
+#if canImport(HealthKit) && HEALTHKIT_ENABLED
 import HealthKit
 #endif
 
@@ -35,14 +35,14 @@ public struct DateRange: Sendable {
 public final class HealthKitManager: @unchecked Sendable {
     public static let shared = HealthKitManager()
 
-    #if canImport(HealthKit)
+    #if canImport(HealthKit) && HEALTHKIT_ENABLED
     private let healthStore = HKHealthStore()
     #endif
 
     public init() {}
 
     public var isAvailable: Bool {
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && HEALTHKIT_ENABLED
         return HKHealthStore.isHealthDataAvailable()
         #else
         return false
@@ -52,7 +52,7 @@ public final class HealthKitManager: @unchecked Sendable {
     // MARK: - Permissions
 
     public func requestAuthorization() async throws -> Bool {
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && HEALTHKIT_ENABLED
         guard isAvailable else { return false }
 
         let typesToRead: Set<HKObjectType> = [
@@ -93,7 +93,9 @@ public final class HealthKitManager: @unchecked Sendable {
         let parsedRanges: [DateRange] = schoolWindows.compactMap { window in
             let startParts = window.startTime.split(separator: ":").compactMap { Int($0) }
             let endParts = window.endTime.split(separator: ":").compactMap { Int($0) }
-            guard startParts.count == 2, endParts.count == 2 else { return nil }
+            guard startParts.count == 2, endParts.count == 2,
+                  (0...23).contains(startParts[0]), (0...59).contains(startParts[1]),
+                  (0...23).contains(endParts[0]), (0...59).contains(endParts[1]) else { return nil }
 
             guard let windowStart = calendar.date(bySettingHour: startParts[0], minute: startParts[1], second: 0, of: date),
                   let windowEnd = calendar.date(bySettingHour: endParts[0], minute: endParts[1], second: 0, of: date),
@@ -147,12 +149,14 @@ public final class HealthKitManager: @unchecked Sendable {
         date: Date,
         schoolWindows: [SchoolDayWindowDto]
     ) async throws -> HealthKitDayAggregate {
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && HEALTHKIT_ENABLED
         guard isAvailable else {
-            return simulateFallbackAggregate()
+            throw HealthKitReadError.unavailable
         }
 
-        let ranges = outsideSchoolRanges(for: date, schoolWindows: schoolWindows)
+        var schoolCalendar = Calendar(identifier: .gregorian)
+        schoolCalendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let ranges = outsideSchoolRanges(for: date, schoolWindows: schoolWindows, calendar: schoolCalendar)
         var totalSteps: Int64 = 0
         var totalActiveKcal: Double = 0.0
         var totalExerciseMinutes: Int = 0
@@ -162,26 +166,27 @@ public final class HealthKitManager: @unchecked Sendable {
 
             // 1. Steps
             if let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
-                let steps = try? await queryQuantitySum(type: stepType, unit: .count(), range: range)
-                totalSteps += Int64(steps ?? 0)
+                let steps = try await queryQuantitySum(type: stepType, unit: .count(), range: range)
+                totalSteps += Int64(steps)
             }
 
             // 2. Active Calories
             if let energyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
-                let energy = try? await queryQuantitySum(type: energyType, unit: .kilocalorie(), range: range)
-                totalActiveKcal += energy ?? 0.0
+                let energy = try await queryQuantitySum(type: energyType, unit: .kilocalorie(), range: range)
+                totalActiveKcal += energy
             }
 
             // 3. Exercise Minutes
             if let exerciseType = HKQuantityType.quantityType(forIdentifier: .appleExerciseTime) {
-                let mins = try? await queryQuantitySum(type: exerciseType, unit: .minute(), range: range)
-                totalExerciseMinutes += Int(mins ?? 0)
+                let mins = try await queryQuantitySum(type: exerciseType, unit: .minute(), range: range)
+                totalExerciseMinutes += Int(mins)
             }
         }
 
-        // If HealthKit returned 0 or permissions not granted in demo mode, return fallback
+        // HealthKit intentionally conceals denied read permission. Never replace existing
+        // records with guessed demo data or a zero when nothing is readable.
         if totalSteps == 0 && totalExerciseMinutes == 0 && totalActiveKcal == 0 {
-            return simulateFallbackAggregate()
+            throw HealthKitReadError.noReadableData
         }
 
         return HealthKitDayAggregate(
@@ -190,13 +195,13 @@ public final class HealthKitManager: @unchecked Sendable {
             activeEnergyKcal: min(max(totalActiveKcal, 0.0), 20_000.0)
         )
         #else
-        return simulateFallbackAggregate()
+        throw HealthKitReadError.unavailable
         #endif
     }
 
-    #if canImport(HealthKit)
+    #if canImport(HealthKit) && HEALTHKIT_ENABLED
     private func queryQuantitySum(type: HKQuantityType, unit: HKUnit, range: DateRange) async throws -> Double {
-        let predicate = HKQuery.predicateForSamples(withStart: range.start, end: range.end, options: .strictStartDate)
+        let predicate = HKQuery.predicateForSamples(withStart: range.start, end: range.end, options: [.strictStartDate, .strictEndDate])
         return try await withCheckedThrowingContinuation { continuation in
             let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
                 if let error = error {
@@ -211,12 +216,14 @@ public final class HealthKitManager: @unchecked Sendable {
     }
     #endif
 
-    private func simulateFallbackAggregate() -> HealthKitDayAggregate {
-        // Fallback demo values if HealthKit is disabled, in simulator, or without permissions
-        return HealthKitDayAggregate(
-            exerciseMinutes: 45,
-            steps: 5820,
-            activeEnergyKcal: 230.0
-        )
+}
+
+public enum HealthKitReadError: LocalizedError {
+    case unavailable, noReadableData
+    public var errorDescription: String? {
+        switch self {
+        case .unavailable: return "此安装包未启用 Apple 健康，或设备不支持。可以手动记录运动。"
+        case .noReadableData: return "没有可读取的校外健康数据，请检查读取权限。原有记录未被覆盖。"
+        }
     }
 }

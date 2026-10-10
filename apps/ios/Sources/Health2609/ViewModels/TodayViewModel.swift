@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct LunchTotals: Sendable {
     public var energyKcal: Double
@@ -58,6 +61,8 @@ public final class TodayViewModel: ObservableObject {
 
     private let api: HealthApiClient
     private let healthKit: HealthKitManager
+    private var refreshTask: Task<Void, Never>?
+    private var windowsLoaded = false
 
     public init(
         api: HealthApiClient = HealthApi.shared,
@@ -67,6 +72,8 @@ public final class TodayViewModel: ObservableObject {
         self.healthKit = healthKit
 
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         formatter.dateFormat = "yyyy-MM-dd"
         self.date = formatter.string(from: Date())
 
@@ -77,10 +84,13 @@ public final class TodayViewModel: ObservableObject {
 
     public var formattedDate: String {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         formatter.dateFormat = "yyyy-MM-dd"
         guard let parsed = formatter.date(from: date) else { return date }
 
         let displayFormatter = DateFormatter()
+        displayFormatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         displayFormatter.locale = Locale(identifier: "zh_CN")
         displayFormatter.dateFormat = "M月d日 EEEE"
         return displayFormatter.string(from: parsed)
@@ -148,10 +158,13 @@ public final class TodayViewModel: ObservableObject {
     // MARK: - Actions
 
     public func refresh() {
+        refreshTask?.cancel()
         loading = true
+        windowsLoaded = false
         message = nil
+        let requestedDate = date
 
-        Task {
+        refreshTask = Task {
             do {
                 async let menuTask = api.todayMenu(date: date, mealSlot: "lunch")
                 async let summaryTask = api.todaySummary(date: date)
@@ -159,6 +172,8 @@ public final class TodayViewModel: ObservableObject {
 
                 let (menuResult, summaryResult, windowsResult) = try await (menuTask, summaryTask, windowsTask)
 
+                guard !Task.isCancelled, self.date == requestedDate else { return }
+                self.windowsLoaded = true
                 self.menu = menuResult
                 self.summary = summaryResult
                 self.schoolWindows = windowsResult.windows
@@ -170,19 +185,31 @@ public final class TodayViewModel: ObservableObject {
                 // Initialize amounts for each dish
                 for dish in menuResult.dishes {
                     if self.amounts[dish.id] == nil {
-                        self.amounts[dish.id] = DishAmount(servingMultiplier: 0.0, consumedGrams: 0.0)
+                        self.amounts[dish.id] = DishAmount(servingMultiplier: dish.savedServingMultiplier ?? 0.0, consumedGrams: dish.savedConsumedGrams)
                     }
                 }
 
                 self.loading = false
             } catch {
+                guard !Task.isCancelled else { return }
                 self.loading = false
                 self.message = error.localizedDescription
             }
         }
     }
 
+    public func reloadIdentity() {
+        amounts = [:]
+        menu = nil
+        summary = nil
+        schoolWindows = []
+        homeMealDraft = []
+        homeMealNotes = []
+        refresh()
+    }
+
     public func setPortion(dishId: String, portion: Double) {
+        let portion = portion.isFinite ? min(max(portion, 0), 5) : 0
         let dish = menu?.dishes.first(where: { $0.id == dishId })
         let grams: Double?
         if let std = dish?.standardServingGrams {
@@ -196,7 +223,7 @@ public final class TodayViewModel: ObservableObject {
     public func setConsumedGrams(dishId: String, grams: Double?) {
         let dish = menu?.dishes.first(where: { $0.id == dishId })
         let maxGrams = (dish?.standardServingGrams ?? 1000.0) * 5.0
-        let safeGrams = grams.map { min(max($0, 0.0), maxGrams) }
+        let safeGrams = grams.flatMap { $0.isFinite ? min(max($0, 0.0), maxGrams) : nil }
 
         let multiplier: Double
         if let safe = safeGrams, let std = dish?.standardServingGrams, std > 0 {
@@ -213,8 +240,10 @@ public final class TodayViewModel: ObservableObject {
         savingMeal = true
         message = nil
 
-        let items: [MealItemRequest] = amounts.map { (dishId, amount) in
-            MealItemRequest(
+        let items: [MealItemRequest] = menu.dishes.map { dish in
+            let dishId = dish.id
+            let amount = amounts[dishId] ?? DishAmount()
+            return MealItemRequest(
                 dishId: dishId,
                 servingMultiplier: amount.servingMultiplier,
                 consumedGrams: amount.consumedGrams
@@ -257,15 +286,22 @@ public final class TodayViewModel: ObservableObject {
     }
 
     public func syncHealthKitActivity() {
-        guard !syncingPhoneActivity else { return }
+        guard !syncingPhoneActivity, windowsLoaded, !loading else {
+            message = "请先成功加载学校在校时段，再同步健康数据。"
+            return
+        }
         syncingPhoneActivity = true
         message = "正在读取健康数据并排除在校时段…"
 
         Task {
             do {
-                _ = try? await healthKit.requestAuthorization()
+                guard try await healthKit.requestAuthorization() else {
+                    throw HealthKitReadError.unavailable
+                }
 
                 let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
                 formatter.dateFormat = "yyyy-MM-dd"
                 let targetDate = formatter.date(from: date) ?? Date()
 
@@ -291,12 +327,27 @@ public final class TodayViewModel: ObservableObject {
 
     public func analyzeHomeMeal(imageData: Data) {
         guard !analyzingHomeMeal else { return }
+        #if canImport(UIKit)
+        guard let image = UIImage(data: imageData) else {
+            message = "无法读取照片，请重新选择"
+            return
+        }
+        let longest = max(image.size.width, image.size.height)
+        let scale = min(1, 1600 / max(longest, 1))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: image.size.width * scale, height: image.size.height * scale), format: format)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: CGSize(width: image.size.width * scale, height: image.size.height * scale))) }
+        guard let jpegData = resized.jpegData(compressionQuality: 0.82) else { return }
+        #else
+        let jpegData = imageData
+        #endif
         analyzingHomeMeal = true
         message = "正在智能识别餐食内容…"
 
         Task {
             do {
-                let result = try await api.analyzeHomeMeal(imageData: imageData, mimeType: "image/jpeg", fileName: "meal.jpg")
+                let result = try await api.analyzeHomeMeal(imageData: jpegData, mimeType: "image/jpeg", fileName: "meal.jpg")
                 self.homeMealDraft = result.items.map { item in
                     HomeMealDraftItem(
                         name: item.name,
@@ -324,7 +375,7 @@ public final class TodayViewModel: ObservableObject {
 
     public func setHomeMealGrams(index: Int, grams: Double?) {
         guard homeMealDraft.indices.contains(index) else { return }
-        homeMealDraft[index].grams = grams.map { min(max($0, 0.0), 5000.0) }
+        homeMealDraft[index].grams = grams.flatMap { $0.isFinite ? min(max($0, 0.0), 5000.0) : nil }
     }
 
     public func removeHomeMealItem(index: Int) {

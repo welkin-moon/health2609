@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 #if canImport(PhotosUI)
 import PhotosUI
 #endif
@@ -10,6 +13,7 @@ public struct TodayView: View {
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
     #endif
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var showCamera = false
     @State private var showManualActivity: Bool = false
     @State private var showEditReference: Bool = false
     @State private var expandedDishGrams: Set<String> = []
@@ -64,6 +68,12 @@ public struct TodayView: View {
             .padding(.top, 8)
         }
         .background(M3E.Colors.surface)
+        #if canImport(UIKit)
+        .sheet(isPresented: $showCamera) {
+            MealCamera { viewModel.analyzeHomeMeal(imageData: $0) }
+                .ignoresSafeArea()
+        }
+        #endif
         .refreshable {
             viewModel.refresh()
         }
@@ -667,10 +677,15 @@ public struct TodayView: View {
 
                     // Demo / Fast simulate meal capture button
                     Button {
-                        // Demo sample meal simulation
-                        if let mockJpg = "demo-meal-photo".data(using: .utf8) {
-                            viewModel.analyzeHomeMeal(imageData: mockJpg)
+                        #if canImport(UIKit)
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            showCamera = true
+                        } else {
+                            viewModel.message = "当前设备没有可用相机，请从相册选择照片。"
                         }
+                        #else
+                        viewModel.message = "请从相册选择照片。"
+                        #endif
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "camera.viewfinder")

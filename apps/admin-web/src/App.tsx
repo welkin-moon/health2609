@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type ClassGroup,
@@ -28,6 +28,15 @@ const weekdayForDate = (date: string) => {
   const day = new Date(`${date}T00:00:00Z`).getUTCDay();
   return day === 0 ? 7 : day;
 };
+
+const isValidDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
+
+const isValidTime = (value: string) =>
+  /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 
 const nutritionKeys: Array<{
   key: keyof Nutrition;
@@ -76,11 +85,16 @@ export function App() {
   const [schoolStartTime, setSchoolStartTime] = useState("08:00");
   const [schoolEndTime, setSchoolEndTime] = useState("17:00");
   const [status, setStatus] = useState("正在载入…");
+  const [loadingMenu, setLoadingMenu] = useState(true);
+  const [menuReady, setMenuReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingPe, setSavingPe] = useState(false);
   const [savingSchoolWindow, setSavingSchoolWindow] = useState(false);
   const [refreshingStats, setRefreshingStats] = useState(false);
   const [peError, setPeError] = useState("");
+  const menuRefreshId = useRef(0);
+  const peRefreshId = useRef(0);
+  const overviewRefreshId = useRef(0);
 
   const studentCount =
     typeof overview?.totalStudents === "number"
@@ -103,7 +117,18 @@ export function App() {
   async function refresh(
     targetDate = date,
     signal?: AbortSignal
-  ) {
+  ): Promise<boolean> {
+    const requestId = ++menuRefreshId.current;
+    if (!isValidDate(targetDate)) {
+      if (requestId === menuRefreshId.current) {
+        setLoadingMenu(false);
+        setMenuReady(false);
+        setStatus("请选择有效日期");
+      }
+      return false;
+    }
+    setLoadingMenu(true);
+    setMenuReady(false);
     setStatus("正在同步");
     try {
       const [menuResult, classResult, schoolWindowResult] =
@@ -113,7 +138,7 @@ export function App() {
           api.schoolDayWindows(signal)
         ]);
 
-      if (signal?.aborted) return;
+      if (signal?.aborted || requestId !== menuRefreshId.current) return false;
 
       const lunch = menuResult.menus.find((menu) => menu.mealSlot === "lunch");
       setDishes(
@@ -135,12 +160,17 @@ export function App() {
       setSelectedClassId((current) =>
         current || classResult.classes[0]?.id || ""
       );
+      setMenuReady(true);
       setStatus("已同步");
+      return true;
     } catch (error) {
-      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
-        return;
+      if (signal?.aborted || requestId !== menuRefreshId.current || (error instanceof Error && error.name === "AbortError")) {
+        return false;
       }
       setStatus(error instanceof Error ? error.message : "载入失败");
+      return false;
+    } finally {
+      if (requestId === menuRefreshId.current) setLoadingMenu(false);
     }
   }
 
@@ -149,25 +179,28 @@ export function App() {
     classGroupId = selectedClassId,
     signal?: AbortSignal
   ) {
+    const requestId = ++peRefreshId.current;
+    setPeSessions([]);
+    setPeActual({});
+
     if (!classGroupId) {
-      setPeSessions([]);
       return;
     }
 
+    if (!isValidDate(targetDate)) return;
+
     try {
       const result = await api.peSessions(targetDate, classGroupId, signal);
-      if (signal?.aborted) return;
+      if (signal?.aborted || requestId !== peRefreshId.current) return;
       setPeSessions(result.items);
-      setPeActual(
-        Object.fromEntries(
-          result.items.map((item) => [
-            item.timetableId,
-            item.actualActivityMinutes?.toString() ?? ""
-          ])
-        )
-      );
+      setPeActual((current) => Object.fromEntries(
+        result.items.map((item) => [
+          item.timetableId,
+          current[item.timetableId] ?? item.actualActivityMinutes?.toString() ?? ""
+        ])
+      ));
     } catch (error) {
-      if (signal?.aborted) return;
+      if (signal?.aborted || requestId !== peRefreshId.current) return;
       setStatus(error instanceof Error ? error.message : "体育课载入失败");
     }
   }
@@ -182,10 +215,18 @@ export function App() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const requestId = ++overviewRefreshId.current;
+    setOverview(null);
+    if (!isValidDate(date)) {
+      setStatus("请选择有效日期");
+      return () => controller.abort();
+    }
     void api.overview(date, statsClassId, controller.signal).then((stats) => {
-      if (!controller.signal.aborted) setOverview(stats);
+      if (!controller.signal.aborted && requestId === overviewRefreshId.current) setOverview(stats);
     }).catch((error) => {
-      if (!controller.signal.aborted) setStatus(error instanceof Error ? error.message : "统计载入失败");
+      if (!controller.signal.aborted && requestId === overviewRefreshId.current) {
+        setStatus(error instanceof Error ? error.message : "统计载入失败");
+      }
     });
     return () => controller.abort();
   }, [date, statsClassId]);
@@ -224,6 +265,14 @@ export function App() {
 
   async function submitMenu(event: FormEvent) {
     event.preventDefault();
+    if (!menuReady) {
+      setStatus("请先重新载入菜单");
+      return;
+    }
+    if (!isValidDate(date)) {
+      setStatus("请选择有效日期");
+      return;
+    }
     const valid = dishes
       .map(normalizeDish)
       .filter((dish) => dish.name);
@@ -233,12 +282,29 @@ export function App() {
       return;
     }
 
+    if (valid.length > 40) {
+      setStatus("每份菜单最多添加 40 道菜");
+      return;
+    }
+
+    if (valid.some((dish) => dish.name.length > 80)) {
+      setStatus("菜品名称不能超过 80 个字符");
+      return;
+    }
+
     setSaving(true);
     try {
       await api.saveMenu(date, "lunch", valid);
-      await refresh(date);
-      setOverview(await api.overview(date, statsClassId));
-      setStatus("午餐菜单已保存");
+      const menuRefreshed = await refresh(date);
+      try {
+        const overviewRequestId = ++overviewRefreshId.current;
+        const stats = await api.overview(date, statsClassId);
+        if (overviewRequestId === overviewRefreshId.current) setOverview(stats);
+      } catch (error) {
+        setStatus(`菜单已保存；看板更新失败：${error instanceof Error ? error.message : "请稍后重试"}`);
+        return;
+      }
+      setStatus(menuRefreshed ? "午餐菜单已保存" : "菜单已保存，但列表刷新失败，请重试");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "菜单保存失败");
     } finally {
@@ -247,8 +313,12 @@ export function App() {
   }
 
   async function addSchoolWindow() {
-    if (schoolStartTime >= schoolEndTime) {
-      setStatus("在校结束时间需要晚于开始时间");
+    if (!isValidDate(date)) {
+      setStatus("请选择有效日期");
+      return;
+    }
+    if (!isValidTime(schoolStartTime) || !isValidTime(schoolEndTime) || schoolStartTime >= schoolEndTime) {
+      setStatus("请输入有效时间，并确保离校时间晚于到校时间");
       return;
     }
 
@@ -272,8 +342,15 @@ export function App() {
   async function handleAddPe() {
     if (!selectedClassId) return;
 
-    if (peStartTime >= peEndTime) {
-      const msg = "体育课结束时间需要晚于开始时间";
+    if (!isValidDate(date)) {
+      const msg = "请选择有效日期";
+      setStatus(msg);
+      setPeError(msg);
+      return;
+    }
+
+    if (!isValidTime(peStartTime) || !isValidTime(peEndTime) || peStartTime >= peEndTime) {
+      const msg = "请输入有效时间，并确保体育课结束时间晚于开始时间";
       setStatus(msg);
       setPeError(msg);
       return;
@@ -300,6 +377,10 @@ export function App() {
   const addPeSchedule = handleAddPe;
 
   async function savePeActual(item: PeSessionItem) {
+    if (!isValidDate(date)) {
+      setStatus("请选择有效日期");
+      return;
+    }
     const raw = peActual[item.timetableId]?.trim();
     if (!raw) {
       setStatus("请填写实际活动分钟；没有活动时填写 0");
@@ -320,7 +401,13 @@ export function App() {
         date,
         actualActivityMinutes: Math.round(minutes)
       });
-      await Promise.all([refreshPe(), api.overview(date, statsClassId).then(setOverview)]);
+      const overviewRequestId = ++overviewRefreshId.current;
+      await Promise.all([
+        refreshPe(),
+        api.overview(date, statsClassId).then((stats) => {
+          if (overviewRequestId === overviewRefreshId.current) setOverview(stats);
+        })
+      ]);
       setStatus("体育课实际活动时间已记录");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "体育记录保存失败");
@@ -332,13 +419,19 @@ export function App() {
   async function updateOverview() {
     if (refreshingStats) return;
     setRefreshingStats(true);
+    const requestId = ++overviewRefreshId.current;
     try {
-      setOverview(await api.overview(date, statsClassId));
-      setStatus("看板已更新，未保存的菜单仍保留");
+      const stats = await api.overview(date, statsClassId);
+      if (requestId === overviewRefreshId.current) {
+        setOverview(stats);
+        setStatus("看板已更新，未保存的菜单仍保留");
+      }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "看板暂时无法更新");
+      if (requestId === overviewRefreshId.current) {
+        setStatus(error instanceof Error ? error.message : "看板暂时无法更新");
+      }
     } finally {
-      setRefreshingStats(false);
+      if (requestId === overviewRefreshId.current) setRefreshingStats(false);
     }
   }
 
@@ -358,6 +451,7 @@ export function App() {
           <label className="date-field">
             <span>日期</span>
             <input
+              required
               disabled={saving || savingPe || savingSchoolWindow || refreshingStats}
               value={date}
               onChange={(event) => setDate(event.target.value)}
@@ -567,9 +661,18 @@ export function App() {
             <button
               type="button"
               className="text-button"
-              onClick={() => setDishes((items) => [...items, emptyDish()])}
+              disabled={saving || loadingMenu || (menuReady && dishes.length >= 40)}
+              onClick={() => {
+                if (!menuReady) {
+                  void refresh(date);
+                } else {
+                  setDishes((items) => [...items, emptyDish()]);
+                }
+              }}
             >
-              + 添加菜品
+              {!menuReady
+                ? loadingMenu ? "菜单载入中…" : "重新载入菜单"
+                : dishes.length >= 40 ? "已达 40 道菜上限" : "+ 添加菜品"}
             </button>
           </div>
 
@@ -583,6 +686,8 @@ export function App() {
                   <label>
                     <span>菜品</span>
                     <input
+                      disabled={saving || loadingMenu || !menuReady}
+                      maxLength={80}
                       value={dish.name}
                       onChange={(event) =>
                         updateDish(index, { name: event.target.value })
@@ -594,8 +699,10 @@ export function App() {
                   <label>
                     <span>标准份 / g</span>
                     <input
+                      disabled={saving || loadingMenu || !menuReady}
                       min="1"
                       max="3000"
+                      step="any"
                       type="number"
                       value={dish.standardServingGrams ?? ""}
                       onChange={(event) =>
@@ -609,6 +716,7 @@ export function App() {
                   </label>
 
                   <button
+                    disabled={saving || loadingMenu || !menuReady}
                     aria-label="删除菜品"
                     className="icon-button"
                     type="button"
@@ -625,8 +733,9 @@ export function App() {
                     <label key={key}>
                       <span>{label} / {unit}</span>
                       <input
+                        disabled={saving || loadingMenu || !menuReady}
                         min="0"
-                        step="0.1"
+                        step="any"
                         type="number"
                         value={dish.nutritionPerServing?.[key] ?? ""}
                         onChange={(event) =>
@@ -643,8 +752,8 @@ export function App() {
 
           <div className="actions">
             <span className="status">{status}</span>
-            <button className="filled-button" disabled={saving} type="submit">
-              {saving ? "保存中…" : "保存菜单"}
+            <button className="filled-button" disabled={saving || loadingMenu || !menuReady} type="submit">
+              {saving ? "保存中…" : loadingMenu ? "菜单载入中…" : menuReady ? "保存菜单" : "请先载入菜单"}
             </button>
           </div>
         </form>
@@ -720,6 +829,7 @@ export function App() {
                 <span>开始</span>
                 <input
                   type="time"
+                  disabled={savingPe}
                   value={peStartTime}
                   onChange={(event) => setPeStartTime(event.target.value)}
                 />
@@ -728,6 +838,7 @@ export function App() {
                 <span>结束</span>
                 <input
                   type="time"
+                  disabled={savingPe}
                   value={peEndTime}
                   onChange={(event) => setPeEndTime(event.target.value)}
                 />
@@ -759,6 +870,7 @@ export function App() {
                       <small>当天实际活动分钟</small>
                     </div>
                     <input
+                      disabled={savingPe}
                       type="number"
                       min="0"
                       aria-label={`${item.startTime} 体育课实际活动分钟`}

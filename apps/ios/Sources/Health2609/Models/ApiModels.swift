@@ -40,6 +40,8 @@ public struct DishDto: Codable, Identifiable, Hashable, Sendable {
     public var name: String
     public var standardServingGrams: Double?
     public var nutritionPerServing: NutritionDto?
+    public var savedServingMultiplier: Double? = nil
+    public var savedConsumedGrams: Double? = nil
 
     public init(
         id: String,

@@ -1,0 +1,39 @@
+// !$*UTF8*$!
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+C38D31CA4DE11DC7642A841D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/App/Health2609App.swift"; sourceTree = "<group>"; };
+28135D5058D343E770896373 = { isa = PBXBuildFile; fileRef = C38D31CA4DE11DC7642A841D; };
+27A3183289C3B56DFD52D413 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Health/HealthKitManager.swift"; sourceTree = "<group>"; };
+6256FD2A7F1CFC408D90EB6F = { isa = PBXBuildFile; fileRef = 27A3183289C3B56DFD52D413; };
+E1E375B184FFCF14AC14D901 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Models/ApiModels.swift"; sourceTree = "<group>"; };
+8BD7D090A822CA74FF9C80B1 = { isa = PBXBuildFile; fileRef = E1E375B184FFCF14AC14D901; };
+944154D92C1CB14C2C457A05 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Network/HealthApi.swift"; sourceTree = "<group>"; };
+B878E873BF76EB95A71CCCE6 = { isa = PBXBuildFile; fileRef = 944154D92C1CB14C2C457A05; };
+571380A2A7DDF9CC39FD49C1 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Theme/M3ETheme.swift"; sourceTree = "<group>"; };
+36BD43AD4118134D14465639 = { isa = PBXBuildFile; fileRef = 571380A2A7DDF9CC39FD49C1; };
+EF12121E7EA3218C26606CA6 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/ViewModels/TodayViewModel.swift"; sourceTree = "<group>"; };
+B71526598FB3A5A4BE916441 = { isa = PBXBuildFile; fileRef = EF12121E7EA3218C26606CA6; };
+5E6C4E4A8102EDD8C82FAC71 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Views/MealCamera.swift"; sourceTree = "<group>"; };
+2B71611B031EC6AC5316EDE4 = { isa = PBXBuildFile; fileRef = 5E6C4E4A8102EDD8C82FAC71; };
+33D3B18AD0797A0F865AD1F0 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Views/PrivacyView.swift"; sourceTree = "<group>"; };
+DD5F70C165E9E9FCF46FAD1F = { isa = PBXBuildFile; fileRef = 33D3B18AD0797A0F865AD1F0; };
+C0EBA35AB65F27C9185D750C = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Views/StudentAppShell.swift"; sourceTree = "<group>"; };
+24F9DDB4684CF8106B8261A7 = { isa = PBXBuildFile; fileRef = C0EBA35AB65F27C9185D750C; };
+53D97126A2CF1EA15DABF02B = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Views/StudentSettingsView.swift"; sourceTree = "<group>"; };
+D47496C836045BDC22308667 = { isa = PBXBuildFile; fileRef = 53D97126A2CF1EA15DABF02B; };
+B088C5599F5D3D196DA155BD = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Health2609/Views/TodayView.swift"; sourceTree = "<group>"; };
+99681870E6B1B61516AE4AB7 = { isa = PBXBuildFile; fileRef = B088C5599F5D3D196DA155BD; };
+38A007151ABE87CC01A5B6E9 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = Health2609.app; sourceTree = BUILT_PRODUCTS_DIR; };
+BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (28135D5058D343E770896373,6256FD2A7F1CFC408D90EB6F,8BD7D090A822CA74FF9C80B1,B878E873BF76EB95A71CCCE6,36BD43AD4118134D14465639,B71526598FB3A5A4BE916441,2B71611B031EC6AC5316EDE4,DD5F70C165E9E9FCF46FAD1F,24F9DDB4684CF8106B8261A7,D47496C836045BDC22308667,99681870E6B1B61516AE4AB7); runOnlyForDeploymentPostprocessing = 0; };
+7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+0189424A5A60FED329FA868E = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+FBDC4F23F93125BBEEAE800C = { isa = PBXGroup; children = (38A007151ABE87CC01A5B6E9); name = Products; sourceTree = "<group>"; };
+64292B1C2B2E13EAD8788FC8 = { isa = PBXGroup; children = (C38D31CA4DE11DC7642A841D,27A3183289C3B56DFD52D413,E1E375B184FFCF14AC14D901,944154D92C1CB14C2C457A05,571380A2A7DDF9CC39FD49C1,EF12121E7EA3218C26606CA6,5E6C4E4A8102EDD8C82FAC71,33D3B18AD0797A0F865AD1F0,C0EBA35AB65F27C9185D750C,53D97126A2CF1EA15DABF02B,B088C5599F5D3D196DA155BD,FBDC4F23F93125BBEEAE800C); sourceTree = "<group>"; };
+89E1FD6268CC0F221A2BE178 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0;  SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; name = Debug; };
+E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0;  SWIFT_OPTIMIZATION_LEVEL = "-O"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; name = Release; };
+862894B703A6DEDF96A9DD6C = { isa = XCConfigurationList; buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+7082CC0B6FC1282FCEABD07A = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Resources/Info.plist; MARKETING_VERSION = 0.4.0; PRODUCT_BUNDLE_IDENTIFIER = uk.lunarlab.health2609; PRODUCT_NAME = Health2609; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; ENABLE_BITCODE = NO; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; name = Debug; };
+639A7CA24D39909E713B47F7 = { isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Resources/Info.plist; MARKETING_VERSION = 0.4.0; PRODUCT_BUNDLE_IDENTIFIER = uk.lunarlab.health2609; PRODUCT_NAME = Health2609; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks"; ENABLE_BITCODE = NO; SWIFT_OPTIMIZATION_LEVEL = "-O"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; name = Release; };
+C57128001CE614BF8549D6BB = { isa = XCConfigurationList; buildConfigurations = (7082CC0B6FC1282FCEABD07A,639A7CA24D39909E713B47F7); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = C57128001CE614BF8549D6BB; buildPhases = (BCE16DD0260827ECF338C787,7561BFB015D8F536760CB671,0189424A5A60FED329FA868E); buildRules = (); dependencies = (); name = Health2609; productName = Health2609; productReference = 38A007151ABE87CC01A5B6E9; productType = "com.apple.product-type.application"; };
+98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 1600; }; buildConfigurationList = 862894B703A6DEDF96A9DD6C; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh_CN; hasScannedForEncodings = 0; knownRegions = (zh_CN,en,Base); mainGroup = 64292B1C2B2E13EAD8788FC8; productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E); };
+}; rootObject = 98F54143AB4E86B28C3AFEE0; }

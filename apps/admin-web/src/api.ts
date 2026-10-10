@@ -104,13 +104,19 @@ export type Overview = {
 };
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${url}`, {
-    ...init,
-    headers: {
-      ...headers,
-      ...(init?.headers ?? {})
-    }
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBase}${url}`, {
+      ...init,
+      headers: {
+        ...headers,
+        ...(init?.headers ?? {})
+      }
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw error;
+    throw new Error("无法连接服务器，请检查网络后重试；未保存的输入仍保留");
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
@@ -118,9 +124,14 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
       date_invalid: "请选择有效日期", timetable_not_found: "这节课已不存在，请刷新页面",
       pe_minutes_exceed_lesson: "实际活动时间不能超过这节课的时长",
       pe_date_weekday_mismatch: "课程星期与日期不一致，请刷新后重试",
-      forbidden: "当前无管理权限", class_not_found: "班级不存在，请重新选择"
+      invalid_date: "请选择有效日期", valid_date_required: "请选择有效日期",
+      date_required: "请选择日期", date_and_class_group_required: "请选择日期和班级",
+      forbidden: "当前无管理权限", class_not_found: "班级不存在，请重新选择",
+      class_group_not_found: "班级不存在，请重新选择",
+      class_group_required: "请选择班级", duplicate_dish_id: "菜单中有重复菜品，请刷新后重试",
+      dish_scope_mismatch: "菜单数据已变化，请刷新后重试", menu_upsert_failed: "菜单暂时无法保存，请稍后重试"
     };
-    throw new Error(messages[payload?.error] ?? (response.status >= 500
+    throw new Error(messages[payload?.error] ?? payload?.message ?? (response.status >= 500
       ? "服务暂时无法处理，请稍后重试；未保存的输入仍保留"
       : "内容尚未保存，请检查日期、份量和必填项"));
   }

@@ -32,6 +32,11 @@ export const syncLoginSchema = z.object({
   recoveryVerifier: verifierSchema.optional()
 });
 
+export const syncRecoverySchema = z.object({
+  username: z.string().trim().min(3).max(160),
+  recoveryVerifier: verifierSchema
+});
+
 export const syncRecordEnvelopeSchema = z.object({
   entityType: z.string().trim().min(1).max(64),
   entityId: z.string().trim().min(1).max(160),
@@ -69,7 +74,9 @@ export const syncChangePasswordSchema = z.object({
   })).min(1).max(1000)
 });
 
-export const syncRecoveryResetPasswordSchema = syncChangePasswordSchema.extend({
+export const syncRecoveryResetPasswordSchema = syncChangePasswordSchema.omit({
+  currentPasswordVerifier: true
+}).extend({
   username: z.string().trim().min(3).max(160),
   recoveryVerifier: verifierSchema
 });
@@ -103,8 +110,10 @@ export function compareSyncVersion(
   if (left.revision !== right.revision) {
     return left.revision < right.revision ? -1 : 1;
   }
-  if (left.clientUpdatedAt !== right.clientUpdatedAt) {
-    return left.clientUpdatedAt < right.clientUpdatedAt ? -1 : 1;
+  const leftTime = Date.parse(left.clientUpdatedAt);
+  const rightTime = Date.parse(right.clientUpdatedAt);
+  if (leftTime !== rightTime) {
+    return leftTime < rightTime ? -1 : 1;
   }
   if (left.sourceDeviceId === right.sourceDeviceId) return 0;
   return left.sourceDeviceId < right.sourceDeviceId ? -1 : 1;

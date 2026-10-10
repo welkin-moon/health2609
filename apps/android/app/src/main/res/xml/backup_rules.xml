@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Android Keystore keys cannot be restored on another device. Recover
+         encrypted records through the account instead of restoring unusable
+         ciphertext, a device fingerprint, or session credentials. -->
+    <exclude domain="file" path="datastore/health2609_sync_store.preferences_pb" />
+</full-backup-content>

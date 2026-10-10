@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -66,6 +68,7 @@ class SyncRepository(private val context: Context) {
     private val dataStore = context.applicationContext.syncDataStoreV2
     private val httpClient = OkHttpClient.Builder().build()
     private val localBox = DeviceKeyStoreBox()
+    private val sessionMutex = Mutex()
 
     private val baseUrl: String
         get() = ApiFactory.currentBaseUrl.trimEnd('/')
@@ -217,12 +220,27 @@ class SyncRepository(private val context: Context) {
         recoverySalt: ByteArray,
         currentKeyEpoch: Int,
         epochKeys: Map<Int, SecretKey>,
-        fingerprint: String
+        fingerprint: String,
+        serviceUrl: String = baseUrl
     ) {
         dataStore.edit { prefs ->
-            val existingKeys = runCatching {
-                JSONObject(prefs[KEY_EPOCH_KEYS_JSON] ?: "{}")
-            }.getOrElse { JSONObject() }
+            val owner = "$serviceUrl|$accountName"
+            // Preserve encrypted local records when switching accounts, without
+            // ever pushing one account's pending records into another account.
+            val previousOwner = prefs[KEY_LOCAL_OWNER]
+                ?: prefs[KEY_SERVER_USERNAME]?.let { "$serviceUrl|$it" }
+            if (previousOwner != null && previousOwner != owner) {
+                val archives = JSONObject(prefs[KEY_ACCOUNT_RECORDS_JSON] ?: "{}")
+                archives.put(previousOwner, JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}"))
+                prefs[KEY_LOCAL_RECORDS_JSON] = archives.optJSONObject(owner)?.toString() ?: "{}"
+                archives.remove(owner)
+                prefs[KEY_ACCOUNT_RECORDS_JSON] = archives.toString()
+                prefs.remove(KEY_PULL_CURSOR)
+                prefs.remove(KEY_LAST_SYNC_AT)
+                prefs.remove(KEY_DEVICE_COUNT)
+            }
+            prefs[KEY_LOCAL_OWNER] = owner
+            prefs[KEY_SESSION_BASE_URL] = serviceUrl
             prefs[KEY_SYNC_ENABLED] = true
             prefs[KEY_SYNC_SCHOOL_ID] = schoolId
             prefs[KEY_SYNC_USERNAME] = localUsername(accountName)
@@ -234,7 +252,7 @@ class SyncRepository(private val context: Context) {
             prefs[KEY_RECOVERY_SALT] = E2eeCrypto.base64(recoverySalt)
             prefs[KEY_CURRENT_KEY_EPOCH] = currentKeyEpoch
             prefs[KEY_DEVICE_FINGERPRINT] = fingerprint
-            prefs[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(existingKeys, epochKeys)
+            prefs[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(JSONObject(), epochKeys)
             prefs[KEY_ROTATION_REQUIRED] = false
             prefs[KEY_KEY_REFRESH_REQUIRED] = false
         }
@@ -246,25 +264,27 @@ class SyncRepository(private val context: Context) {
         passkey: String,
         recoveryPhrase: String = ""
     ): Result<SyncAuthResult> = withContext(Dispatchers.IO) {
-        runCatching {
-            require(username.isNotBlank()) { "请输入学号或用户名" }
-            require(passkey.length >= 8) { "密码至少需要 8 个字符" }
+        sessionMutex.withLock {
+            runCatching {
+                require(username.isNotBlank()) { "请输入学号或用户名" }
+                require(passkey.length >= 8) { "密码至少需要 8 个字符" }
 
-            val cleanSchool = schoolId.trim().ifBlank { "demo-school" }
-            val accountName = serverUsername(cleanSchool, username)
-            val fingerprint = ensureDeviceFingerprint()
-            val known = challenge(accountName)
-            if (known == null) {
-                register(cleanSchool, accountName, passkey, fingerprint)
-            } else {
-                login(
-                    cleanSchool,
-                    accountName,
-                    passkey,
-                    recoveryPhrase,
-                    fingerprint,
-                    known
-                )
+                val cleanSchool = schoolId.trim().ifBlank { "demo-school" }
+                val accountName = serverUsername(cleanSchool, username)
+                val fingerprint = ensureDeviceFingerprint()
+                val known = challenge(accountName)
+                if (known == null) {
+                    register(cleanSchool, accountName, passkey, fingerprint)
+                } else {
+                    login(
+                        cleanSchool,
+                        accountName,
+                        passkey,
+                        recoveryPhrase,
+                        fingerprint,
+                        known
+                    )
+                }
             }
         }
     }
@@ -275,6 +295,7 @@ class SyncRepository(private val context: Context) {
         passkey: String,
         fingerprint: String
     ): SyncAuthResult {
+        val registerServer = baseUrl
         val passwordSalt = E2eeCrypto.generateSalt()
         val recoverySalt = E2eeCrypto.generateSalt()
         val recoveryPhrase = E2eeCrypto.generateRecoveryPhrase()
@@ -314,7 +335,7 @@ class SyncRepository(private val context: Context) {
             )
 
         val request = Request.Builder()
-            .url("$baseUrl/v1/sync/auth/register")
+            .url("$registerServer/v1/sync/auth/register")
             .post(jsonBody(payload))
             .build()
 
@@ -337,7 +358,8 @@ class SyncRepository(private val context: Context) {
                 recoverySalt,
                 1,
                 mapOf(1 to accountKey),
-                fingerprint
+                fingerprint,
+                registerServer
             )
         }
 
@@ -372,10 +394,16 @@ class SyncRepository(private val context: Context) {
             )
         }
 
-        val request = Request.Builder()
-            .url("$baseUrl/v1/sync/auth/login")
+        val loginServer = baseUrl
+        val session = dataStore.data.first()
+        val existingToken = if (session[KEY_SESSION_BASE_URL] == loginServer &&
+            session[KEY_SERVER_USERNAME] == accountName
+        ) openToken(session[KEY_TOKEN_BOX]) else null
+        val requestBuilder = Request.Builder()
+            .url("$loginServer/v1/sync/auth/login")
             .post(jsonBody(payload))
-            .build()
+        existingToken?.let { requestBuilder.header("Authorization", "Bearer $it") }
+        val request = requestBuilder.build()
 
         httpClient.newCall(request).execute().use { response ->
             val body = parseResponseBody(response.body?.string())
@@ -416,7 +444,8 @@ class SyncRepository(private val context: Context) {
                 challenge.recoverySalt,
                 body.getInt("currentKeyEpoch"),
                 epochKeys,
-                fingerprint
+                fingerprint,
+                loginServer
             )
         }
 
@@ -511,123 +540,132 @@ class SyncRepository(private val context: Context) {
         updatedAt: String
     ) = "health2609|local-record|v1|$entityType|$entityId|$revision|$updatedAt"
 
+    private fun sessionBaseUrl(prefs: androidx.datastore.preferences.core.Preferences): String {
+        val serviceUrl = prefs[KEY_SESSION_BASE_URL]
+        require(serviceUrl == baseUrl) { "服务地址已改变，请在当前服务重新登录后同步" }
+        return requireNotNull(serviceUrl)
+    }
+
     private fun authenticatedRequestBuilder(
         prefs: androidx.datastore.preferences.core.Preferences
     ): Request.Builder {
+        sessionBaseUrl(prefs)
         val token = openToken(prefs[KEY_TOKEN_BOX])
             ?: throw IllegalStateException("本机同步令牌不可用，请重新登录")
         return Request.Builder().header("Authorization", "Bearer $token")
     }
 
     suspend fun triggerSync(): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            val initialPrefs = dataStore.data.first()
-            if (!(initialPrefs[KEY_SYNC_ENABLED] ?: false)) {
-                throw IllegalStateException("尚未登录或未启用端对端加密同步")
-            }
-
-            val currentEpoch = initialPrefs[KEY_CURRENT_KEY_EPOCH] ?: 0
-            val epochKeys = openEpochKeys(initialPrefs[KEY_EPOCH_KEYS_JSON])
-            val currentKey = epochKeys[currentEpoch]
-                ?: throw IllegalStateException("缺少当前账号密钥，请重新输入密码刷新密钥")
-            val localRoot = JSONObject(initialPrefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
-            val dirtyItems = mutableListOf<Pair<String, JSONObject>>()
-            val iterator = localRoot.keys()
-            while (iterator.hasNext()) {
-                val key = iterator.next()
-                val item = localRoot.optJSONObject(key) ?: continue
-                if (item.optBoolean("dirty", false)) dirtyItems += key to item
-            }
-
-            if (dirtyItems.isNotEmpty()) {
-                val records = JSONArray()
-                for ((_, item) in dirtyItems) {
-                    val local = decodeLocalRecord(item)
-                    val aad = E2eeCrypto.buildRecordAad(
-                        local.entityType,
-                        local.entityId,
-                        1,
-                        currentEpoch,
-                        local.revision,
-                        local.clientUpdatedAt
-                    )
-                    val encrypted = E2eeCrypto.encrypt(
-                        local.payloadJson.toByteArray(Charsets.UTF_8),
-                        currentKey,
-                        aad
-                    )
-                    records.put(
-                        JSONObject()
-                            .put("entityType", local.entityType)
-                            .put("entityId", local.entityId)
-                            .put("ciphertext", encrypted.ciphertextBase64)
-                            .put("nonce", encrypted.nonceBase64)
-                            .put("aad", aad)
-                            .put("envelopeVersion", 1)
-                            .put("keyEpoch", currentEpoch)
-                            .put("revision", local.revision)
-                            .put("deleted", local.deleted)
-                            .put("clientUpdatedAt", local.clientUpdatedAt)
-                    )
+        sessionMutex.withLock {
+            runCatching {
+                val initialPrefs = dataStore.data.first()
+                if (!(initialPrefs[KEY_SYNC_ENABLED] ?: false)) {
+                    throw IllegalStateException("尚未登录或未启用端对端加密同步")
                 }
 
-                val request = authenticatedRequestBuilder(initialPrefs)
-                    .url("$baseUrl/v1/sync/push")
-                    .post(jsonBody(JSONObject().put("records", records)))
-                    .build()
-                httpClient.newCall(request).execute().use { response ->
-                    val body = parseResponseBody(response.body?.string())
-                    if (response.code == 409 && body.optString("error") == "stale_key_epoch") {
-                        dataStore.edit { it[KEY_KEY_REFRESH_REQUIRED] = true }
-                        throw IllegalStateException("账号密钥已轮换，请重新登录以刷新密钥")
+                val currentEpoch = initialPrefs[KEY_CURRENT_KEY_EPOCH] ?: 0
+                val epochKeys = openEpochKeys(initialPrefs[KEY_EPOCH_KEYS_JSON])
+                val currentKey = epochKeys[currentEpoch]
+                    ?: throw IllegalStateException("缺少当前账号密钥，请重新输入密码刷新密钥")
+                val localRoot = JSONObject(initialPrefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+                val dirtyItems = mutableListOf<Pair<String, JSONObject>>()
+                val iterator = localRoot.keys()
+                while (iterator.hasNext()) {
+                    val key = iterator.next()
+                    val item = localRoot.optJSONObject(key) ?: continue
+                    if (item.optBoolean("dirty", false)) dirtyItems += key to item
+                }
+
+                for (batch in dirtyItems.chunked(200)) {
+                    val records = JSONArray()
+                    for ((_, item) in batch) {
+                        val local = decodeLocalRecord(item)
+                        val aad = E2eeCrypto.buildRecordAad(
+                            local.entityType,
+                            local.entityId,
+                            1,
+                            currentEpoch,
+                            local.revision,
+                            local.clientUpdatedAt
+                        )
+                        val encrypted = E2eeCrypto.encrypt(
+                            local.payloadJson.toByteArray(Charsets.UTF_8),
+                            currentKey,
+                            aad
+                        )
+                        records.put(
+                            JSONObject()
+                                .put("entityType", local.entityType)
+                                .put("entityId", local.entityId)
+                                .put("ciphertext", encrypted.ciphertextBase64)
+                                .put("nonce", encrypted.nonceBase64)
+                                .put("aad", aad)
+                                .put("envelopeVersion", 1)
+                                .put("keyEpoch", currentEpoch)
+                                .put("revision", local.revision)
+                                .put("deleted", local.deleted)
+                                .put("clientUpdatedAt", local.clientUpdatedAt)
+                        )
                     }
-                    if (!response.isSuccessful) throw serverError(response.code, body, "sync_push_failed")
-                }
 
-                dataStore.edit { prefs ->
-                    val root = JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
-                    for ((key, pushed) in dirtyItems) {
-                        val current = root.optJSONObject(key) ?: continue
-                        if (current.optLong("revision") == pushed.optLong("revision") &&
-                            current.optString("clientUpdatedAt") == pushed.optString("clientUpdatedAt")
-                        ) current.put("dirty", false)
+                    val request = authenticatedRequestBuilder(initialPrefs)
+                        .url("${sessionBaseUrl(initialPrefs)}/v1/sync/push")
+                        .post(jsonBody(JSONObject().put("records", records)))
+                        .build()
+                    httpClient.newCall(request).execute().use { response ->
+                        val body = parseResponseBody(response.body?.string())
+                        if (response.code == 409 && body.optString("error") == "stale_key_epoch") {
+                            dataStore.edit { it[KEY_KEY_REFRESH_REQUIRED] = true }
+                            throw IllegalStateException("账号密钥已轮换，请重新登录以刷新密钥")
+                        }
+                        if (!response.isSuccessful) throw serverError(response.code, body, "sync_push_failed")
                     }
-                    prefs[KEY_LOCAL_RECORDS_JSON] = root.toString()
-                }
-            }
 
-            var cursor = initialPrefs[KEY_PULL_CURSOR] ?: 0L
-            var hasMore: Boolean
-            do {
-                val prefs = dataStore.data.first()
-                val request = authenticatedRequestBuilder(prefs)
-                    .url("$baseUrl/v1/sync/pull?cursor=$cursor&limit=200")
-                    .get()
-                    .build()
-                httpClient.newCall(request).execute().use { response ->
-                    val body = parseResponseBody(response.body?.string())
-                    if (!response.isSuccessful) throw serverError(response.code, body, "sync_pull_failed")
-                    applyPulledRecords(body.optJSONArray("records") ?: JSONArray())
-                    cursor = body.optLong("nextCursor", cursor)
-                    hasMore = body.optBoolean("hasMore", false)
-                    val serverEpoch = body.optInt("currentKeyEpoch", currentEpoch)
-                    dataStore.edit { p ->
-                        p[KEY_PULL_CURSOR] = cursor
-                        if (serverEpoch > (p[KEY_CURRENT_KEY_EPOCH] ?: 0)) {
-                            p[KEY_KEY_REFRESH_REQUIRED] = true
+                    dataStore.edit { prefs ->
+                        val root = JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+                        for ((key, pushed) in batch) {
+                            val current = root.optJSONObject(key) ?: continue
+                            if (current.optLong("revision") == pushed.optLong("revision") &&
+                                current.optString("clientUpdatedAt") == pushed.optString("clientUpdatedAt")
+                            ) current.put("dirty", false)
+                        }
+                        prefs[KEY_LOCAL_RECORDS_JSON] = root.toString()
+                    }
+                }
+
+                var cursor = initialPrefs[KEY_PULL_CURSOR] ?: 0L
+                var hasMore: Boolean
+                do {
+                    val prefs = dataStore.data.first()
+                    val request = authenticatedRequestBuilder(prefs)
+                        .url("${sessionBaseUrl(prefs)}/v1/sync/pull?cursor=$cursor&limit=200")
+                        .get()
+                        .build()
+                    httpClient.newCall(request).execute().use { response ->
+                        val body = parseResponseBody(response.body?.string())
+                        if (!response.isSuccessful) throw serverError(response.code, body, "sync_pull_failed")
+                        applyPulledRecords(body.optJSONArray("records") ?: JSONArray())
+                        cursor = body.optLong("nextCursor", cursor)
+                        hasMore = body.optBoolean("hasMore", false)
+                        val serverEpoch = body.optInt("currentKeyEpoch", currentEpoch)
+                        dataStore.edit { p ->
+                            p[KEY_PULL_CURSOR] = cursor
+                            if (serverEpoch > (p[KEY_CURRENT_KEY_EPOCH] ?: 0)) {
+                                p[KEY_KEY_REFRESH_REQUIRED] = true
+                            }
                         }
                     }
+                } while (hasMore)
+
+                val devices = fetchDevicesInternal()
+                val activeCount = devices.count { it.revokedAt == null }
+                dataStore.edit { prefs ->
+                    prefs[KEY_LAST_SYNC_AT] = Instant.now().toString()
+                    prefs[KEY_DEVICE_COUNT] = activeCount
                 }
-            } while (hasMore)
 
-            val devices = fetchDevicesInternal()
-            val activeCount = devices.count { it.revokedAt == null }
-            dataStore.edit { prefs ->
-                prefs[KEY_LAST_SYNC_AT] = Instant.now().toString()
-                prefs[KEY_DEVICE_COUNT] = activeCount
+                "端对端加密同步已完成（$activeCount 台已授权设备）"
             }
-
-            "端对端加密同步已完成（$activeCount 台已授权设备）"
         }
     }
 
@@ -670,10 +708,12 @@ class SyncRepository(private val context: Context) {
                 val localRevision = local?.optLong("revision", 0L) ?: 0L
                 val localUpdatedAt = local?.optString("clientUpdatedAt") ?: ""
                 val localSource = local?.optString("sourceDeviceId") ?: ""
+                val timestampOrder = if (local == null) 1 else
+                    Instant.parse(updatedAt).compareTo(Instant.parse(localUpdatedAt))
                 val remoteWins = local == null ||
                     revision > localRevision ||
-                    (revision == localRevision && updatedAt > localUpdatedAt) ||
-                    (revision == localRevision && updatedAt == localUpdatedAt && remoteSource > localSource)
+                    (revision == localRevision && timestampOrder > 0) ||
+                    (revision == localRevision && timestampOrder == 0 && remoteSource > localSource)
 
                 if (remoteWins) {
                     val sealed = localBox.seal(
@@ -709,7 +749,7 @@ class SyncRepository(private val context: Context) {
     private suspend fun fetchDevicesInternal(): List<SyncDevice> {
         val prefs = dataStore.data.first()
         val request = authenticatedRequestBuilder(prefs)
-            .url("$baseUrl/v1/sync/devices")
+            .url("${sessionBaseUrl(prefs)}/v1/sync/devices")
             .get()
             .build()
         return httpClient.newCall(request).execute().use { response ->
@@ -730,20 +770,22 @@ class SyncRepository(private val context: Context) {
     }
 
     suspend fun revokeDevice(deviceId: String): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            val prefs = dataStore.data.first()
-            val request = authenticatedRequestBuilder(prefs)
-                .url("$baseUrl/v1/sync/devices/$deviceId/revoke")
-                .post("{}".toRequestBody("application/json".toMediaType()))
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                val body = parseResponseBody(response.body?.string())
-                if (!response.isSuccessful) throw serverError(response.code, body, "revoke_failed")
-                if (body.optBoolean("rotationRequired", false)) {
-                    dataStore.edit { it[KEY_ROTATION_REQUIRED] = true }
+        sessionMutex.withLock {
+            runCatching {
+                val prefs = dataStore.data.first()
+                val request = authenticatedRequestBuilder(prefs)
+                    .url("${sessionBaseUrl(prefs)}/v1/sync/devices/$deviceId/revoke")
+                    .post("{}".toRequestBody("application/json".toMediaType()))
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    val body = parseResponseBody(response.body?.string())
+                    if (!response.isSuccessful) throw serverError(response.code, body, "revoke_failed")
+                    if (body.optBoolean("rotationRequired", false)) {
+                        dataStore.edit { it[KEY_ROTATION_REQUIRED] = true }
+                    }
                 }
+                "设备已吊销。为阻止其解密未来记录，请立即轮换账号加密密钥。"
             }
-            "设备已吊销。为阻止其解密未来记录，请立即轮换账号加密密钥。"
         }
     }
 
@@ -751,66 +793,68 @@ class SyncRepository(private val context: Context) {
         passkey: String,
         recoveryPhrase: String
     ): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            require(passkey.length >= 8) { "请输入当前密码" }
-            require(recoveryPhrase.isNotBlank()) { "轮换密钥需要恢复短语" }
-            val prefs = dataStore.data.first()
-            val accountName = prefs[KEY_SERVER_USERNAME]
-                ?: throw IllegalStateException("账号信息缺失，请重新登录")
-            val passwordSalt = E2eeCrypto.unbase64(
-                prefs[KEY_PASSWORD_SALT] ?: throw IllegalStateException("密码盐缺失")
-            )
-            val recoverySalt = E2eeCrypto.unbase64(
-                prefs[KEY_RECOVERY_SALT] ?: throw IllegalStateException("恢复盐缺失")
-            )
-            val currentEpoch = prefs[KEY_CURRENT_KEY_EPOCH] ?: 0
-            val newEpoch = currentEpoch + 1
-            val newKey = E2eeCrypto.generateAccountKey()
-            val normalizedRecovery = E2eeCrypto.normalizeRecoveryPhrase(recoveryPhrase)
-
-            val passwordWrapped = E2eeCrypto.encrypt(
-                newKey.encoded,
-                E2eeCrypto.deriveWrappingKey(passkey, passwordSalt, "password"),
-                E2eeCrypto.buildKeyAad(accountName, newEpoch, "password")
-            )
-            val recoveryWrapped = E2eeCrypto.encrypt(
-                newKey.encoded,
-                E2eeCrypto.deriveWrappingKey(normalizedRecovery, recoverySalt, "recovery"),
-                E2eeCrypto.buildKeyAad(accountName, newEpoch, "recovery")
-            )
-            val payload = JSONObject()
-                .put("epoch", newEpoch)
-                .put("newEpoch", newEpoch)
-                .put("passwordWrappedKey", passwordWrapped.ciphertextBase64)
-                .put("passwordNonce", passwordWrapped.nonceBase64)
-                .put("recoveryWrappedKey", recoveryWrapped.ciphertextBase64)
-                .put("recoveryNonce", recoveryWrapped.nonceBase64)
-                .put(
-                    "passwordVerifier",
-                    E2eeCrypto.deriveAuthVerifier(passkey, passwordSalt, "password")
+        sessionMutex.withLock {
+            runCatching {
+                require(passkey.length >= 8) { "请输入当前密码" }
+                require(recoveryPhrase.isNotBlank()) { "轮换密钥需要恢复短语" }
+                val prefs = dataStore.data.first()
+                val accountName = prefs[KEY_SERVER_USERNAME]
+                    ?: throw IllegalStateException("账号信息缺失，请重新登录")
+                val passwordSalt = E2eeCrypto.unbase64(
+                    prefs[KEY_PASSWORD_SALT] ?: throw IllegalStateException("密码盐缺失")
                 )
-                .put(
-                    "recoveryVerifier",
-                    E2eeCrypto.deriveAuthVerifier(normalizedRecovery, recoverySalt, "recovery")
+                val recoverySalt = E2eeCrypto.unbase64(
+                    prefs[KEY_RECOVERY_SALT] ?: throw IllegalStateException("恢复盐缺失")
                 )
+                val currentEpoch = prefs[KEY_CURRENT_KEY_EPOCH] ?: 0
+                val newEpoch = currentEpoch + 1
+                val newKey = E2eeCrypto.generateAccountKey()
+                val normalizedRecovery = E2eeCrypto.normalizeRecoveryPhrase(recoveryPhrase)
 
-            val request = authenticatedRequestBuilder(prefs)
-                .url("$baseUrl/v1/sync/keys/rotate")
-                .post(jsonBody(payload))
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                val body = parseResponseBody(response.body?.string())
-                if (!response.isSuccessful) throw serverError(response.code, body, "key_rotation_failed")
-            }
+                val passwordWrapped = E2eeCrypto.encrypt(
+                    newKey.encoded,
+                    E2eeCrypto.deriveWrappingKey(passkey, passwordSalt, "password"),
+                    E2eeCrypto.buildKeyAad(accountName, newEpoch, "password")
+                )
+                val recoveryWrapped = E2eeCrypto.encrypt(
+                    newKey.encoded,
+                    E2eeCrypto.deriveWrappingKey(normalizedRecovery, recoverySalt, "recovery"),
+                    E2eeCrypto.buildKeyAad(accountName, newEpoch, "recovery")
+                )
+                val payload = JSONObject()
+                    .put("epoch", newEpoch)
+                    .put("newEpoch", newEpoch)
+                    .put("passwordWrappedKey", passwordWrapped.ciphertextBase64)
+                    .put("passwordNonce", passwordWrapped.nonceBase64)
+                    .put("recoveryWrappedKey", recoveryWrapped.ciphertextBase64)
+                    .put("recoveryNonce", recoveryWrapped.nonceBase64)
+                    .put(
+                        "passwordVerifier",
+                        E2eeCrypto.deriveAuthVerifier(passkey, passwordSalt, "password")
+                    )
+                    .put(
+                        "recoveryVerifier",
+                        E2eeCrypto.deriveAuthVerifier(normalizedRecovery, recoverySalt, "recovery")
+                    )
 
-            dataStore.edit { p ->
-                val existing = JSONObject(p[KEY_EPOCH_KEYS_JSON] ?: "{}")
-                p[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(existing, mapOf(newEpoch to newKey))
-                p[KEY_CURRENT_KEY_EPOCH] = newEpoch
-                p[KEY_ROTATION_REQUIRED] = false
-                p[KEY_KEY_REFRESH_REQUIRED] = false
+                val request = authenticatedRequestBuilder(prefs)
+                    .url("${sessionBaseUrl(prefs)}/v1/sync/keys/rotate")
+                    .post(jsonBody(payload))
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    val body = parseResponseBody(response.body?.string())
+                    if (!response.isSuccessful) throw serverError(response.code, body, "key_rotation_failed")
+                }
+
+                dataStore.edit { p ->
+                    val existing = JSONObject(p[KEY_EPOCH_KEYS_JSON] ?: "{}")
+                    p[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(existing, mapOf(newEpoch to newKey))
+                    p[KEY_CURRENT_KEY_EPOCH] = newEpoch
+                    p[KEY_ROTATION_REQUIRED] = false
+                    p[KEY_KEY_REFRESH_REQUIRED] = false
+                }
+                "账号加密密钥已轮换到 epoch $newEpoch；被吊销设备无法获取未来密文。"
             }
-            "账号加密密钥已轮换到 epoch $newEpoch；被吊销设备无法获取未来密文。"
         }
     }
 
@@ -818,51 +862,53 @@ class SyncRepository(private val context: Context) {
         currentPassword: String,
         newPassword: String
     ): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            require(currentPassword.length >= 8) { "请输入当前密码" }
-            require(newPassword.length >= 8) { "新密码至少需要 8 个字符" }
-            val prefs = dataStore.data.first()
-            val epochKeys = openEpochKeys(prefs[KEY_EPOCH_KEYS_JSON])
-            require(epochKeys.isNotEmpty()) { "本机没有可用账号密钥" }
-            val newSalt = E2eeCrypto.generateSalt()
-            val wrappingKey = E2eeCrypto.deriveWrappingKey(newPassword, newSalt, "password")
-            val accountName = prefs[KEY_SERVER_USERNAME]
-                ?: throw IllegalStateException("账号信息缺失")
-            val envelopes = JSONArray()
-            for ((epoch, key) in epochKeys) {
-                val wrapped = E2eeCrypto.encrypt(
-                    key.encoded,
-                    wrappingKey,
-                    E2eeCrypto.buildKeyAad(accountName, epoch, "password")
+        sessionMutex.withLock {
+            runCatching {
+                require(currentPassword.length >= 8) { "请输入当前密码" }
+                require(newPassword.length >= 8) { "新密码至少需要 8 个字符" }
+                val prefs = dataStore.data.first()
+                val epochKeys = openEpochKeys(prefs[KEY_EPOCH_KEYS_JSON])
+                require(epochKeys.isNotEmpty()) { "本机没有可用账号密钥" }
+                val newSalt = E2eeCrypto.generateSalt()
+                val wrappingKey = E2eeCrypto.deriveWrappingKey(newPassword, newSalt, "password")
+                val accountName = prefs[KEY_SERVER_USERNAME]
+                    ?: throw IllegalStateException("账号信息缺失")
+                val envelopes = JSONArray()
+                for ((epoch, key) in epochKeys) {
+                    val wrapped = E2eeCrypto.encrypt(
+                        key.encoded,
+                        wrappingKey,
+                        E2eeCrypto.buildKeyAad(accountName, epoch, "password")
+                    )
+                    envelopes.put(
+                        JSONObject()
+                            .put("epoch", epoch)
+                            .put("passwordWrappedKey", wrapped.ciphertextBase64)
+                            .put("passwordNonce", wrapped.nonceBase64)
+                    )
+                }
+                val oldSalt = E2eeCrypto.unbase64(
+                    prefs[KEY_PASSWORD_SALT] ?: throw IllegalStateException("当前密码盐缺失")
                 )
-                envelopes.put(
-                    JSONObject()
-                        .put("epoch", epoch)
-                        .put("passwordWrappedKey", wrapped.ciphertextBase64)
-                        .put("passwordNonce", wrapped.nonceBase64)
-                )
+                val payload = JSONObject()
+                    .put(
+                        "currentPasswordVerifier",
+                        E2eeCrypto.deriveAuthVerifier(currentPassword, oldSalt, "password")
+                    )
+                    .put("passwordSalt", E2eeCrypto.base64(newSalt))
+                    .put("passwordVerifier", E2eeCrypto.deriveAuthVerifier(newPassword, newSalt, "password"))
+                    .put("keyEnvelopes", envelopes)
+                val request = authenticatedRequestBuilder(prefs)
+                    .url("${sessionBaseUrl(prefs)}/v1/sync/auth/change-password")
+                    .post(jsonBody(payload))
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    val body = parseResponseBody(response.body?.string())
+                    if (!response.isSuccessful) throw serverError(response.code, body, "password_change_failed")
+                }
+                dataStore.edit { it[KEY_PASSWORD_SALT] = E2eeCrypto.base64(newSalt) }
+                "密码已更新，全部历史密钥 epoch 仍可解密。"
             }
-            val oldSalt = E2eeCrypto.unbase64(
-                prefs[KEY_PASSWORD_SALT] ?: throw IllegalStateException("当前密码盐缺失")
-            )
-            val payload = JSONObject()
-                .put(
-                    "currentPasswordVerifier",
-                    E2eeCrypto.deriveAuthVerifier(currentPassword, oldSalt, "password")
-                )
-                .put("passwordSalt", E2eeCrypto.base64(newSalt))
-                .put("passwordVerifier", E2eeCrypto.deriveAuthVerifier(newPassword, newSalt, "password"))
-                .put("keyEnvelopes", envelopes)
-            val request = authenticatedRequestBuilder(prefs)
-                .url("$baseUrl/v1/sync/auth/change-password")
-                .post(jsonBody(payload))
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                val body = parseResponseBody(response.body?.string())
-                if (!response.isSuccessful) throw serverError(response.code, body, "password_change_failed")
-            }
-            dataStore.edit { it[KEY_PASSWORD_SALT] = E2eeCrypto.base64(newSalt) }
-            "密码已更新，全部历史密钥 epoch 仍可解密。"
         }
     }
 
@@ -872,114 +918,118 @@ class SyncRepository(private val context: Context) {
         recoveryPhrase: String,
         newPassword: String
     ): Result<SyncAuthResult> = withContext(Dispatchers.IO) {
-        runCatching {
-            require(recoveryPhrase.isNotBlank()) { "请输入恢复短语" }
-            require(newPassword.length >= 8) { "新密码至少需要 8 个字符" }
-            val cleanSchool = schoolId.trim().ifBlank { "demo-school" }
-            val accountName = serverUsername(cleanSchool, username)
-            val known = challenge(accountName) ?: throw IllegalStateException("账号不存在")
-            val normalizedRecovery = E2eeCrypto.normalizeRecoveryPhrase(recoveryPhrase)
-            val recoveryVerifier = E2eeCrypto.deriveAuthVerifier(
-                normalizedRecovery,
-                known.recoverySalt,
-                "recovery"
-            )
-
-            val recoveryRequest = Request.Builder()
-                .url("$baseUrl/v1/sync/auth/recovery")
-                .post(
-                    jsonBody(
-                        JSONObject()
-                            .put("username", accountName)
-                            .put("recoveryVerifier", recoveryVerifier)
-                    )
-                )
-                .build()
-
-            val recoveredKeys = linkedMapOf<Int, SecretKey>()
-            httpClient.newCall(recoveryRequest).execute().use { response ->
-                val body = parseResponseBody(response.body?.string())
-                if (!response.isSuccessful) throw serverError(response.code, body, "recovery_failed")
-                val wrappingKey = E2eeCrypto.deriveWrappingKey(
+        sessionMutex.withLock {
+            runCatching {
+                require(recoveryPhrase.isNotBlank()) { "请输入恢复短语" }
+                require(newPassword.length >= 8) { "新密码至少需要 8 个字符" }
+                val cleanSchool = schoolId.trim().ifBlank { "demo-school" }
+                val accountName = serverUsername(cleanSchool, username)
+                val known = challenge(accountName) ?: throw IllegalStateException("账号不存在")
+                val normalizedRecovery = E2eeCrypto.normalizeRecoveryPhrase(recoveryPhrase)
+                val recoveryVerifier = E2eeCrypto.deriveAuthVerifier(
                     normalizedRecovery,
                     known.recoverySalt,
                     "recovery"
                 )
-                val envelopes = body.optJSONArray("keyEnvelopes") ?: JSONArray()
-                for (i in 0 until envelopes.length()) {
-                    val envelope = envelopes.getJSONObject(i)
-                    val epoch = envelope.getInt("epoch")
-                    val raw = E2eeCrypto.decrypt(
-                        envelope.getString("wrappedKey"),
-                        envelope.getString("nonce"),
-                        wrappingKey,
-                        E2eeCrypto.buildKeyAad(accountName, epoch, "recovery")
+
+                val recoveryRequest = Request.Builder()
+                    .url("$baseUrl/v1/sync/auth/recovery")
+                    .post(
+                        jsonBody(
+                            JSONObject()
+                                .put("username", accountName)
+                                .put("recoveryVerifier", recoveryVerifier)
+                        )
                     )
-                    recoveredKeys[epoch] = javax.crypto.spec.SecretKeySpec(raw, "AES")
+                    .build()
+
+                val recoveredKeys = linkedMapOf<Int, SecretKey>()
+                httpClient.newCall(recoveryRequest).execute().use { response ->
+                    val body = parseResponseBody(response.body?.string())
+                    if (!response.isSuccessful) throw serverError(response.code, body, "recovery_failed")
+                    val wrappingKey = E2eeCrypto.deriveWrappingKey(
+                        normalizedRecovery,
+                        known.recoverySalt,
+                        "recovery"
+                    )
+                    val envelopes = body.optJSONArray("keyEnvelopes") ?: JSONArray()
+                    for (i in 0 until envelopes.length()) {
+                        val envelope = envelopes.getJSONObject(i)
+                        val epoch = envelope.getInt("epoch")
+                        val raw = E2eeCrypto.decrypt(
+                            envelope.getString("wrappedKey"),
+                            envelope.getString("nonce"),
+                            wrappingKey,
+                            E2eeCrypto.buildKeyAad(accountName, epoch, "recovery")
+                        )
+                        recoveredKeys[epoch] = javax.crypto.spec.SecretKeySpec(raw, "AES")
+                    }
                 }
-            }
-            require(recoveredKeys.isNotEmpty()) { "恢复密钥包为空" }
+                require(recoveredKeys.isNotEmpty()) { "恢复密钥包为空" }
 
-            val newSalt = E2eeCrypto.generateSalt()
-            val newWrap = E2eeCrypto.deriveWrappingKey(newPassword, newSalt, "password")
-            val passwordEnvelopes = JSONArray()
-            for ((epoch, key) in recoveredKeys) {
-                val wrapped = E2eeCrypto.encrypt(
-                    key.encoded,
-                    newWrap,
-                    E2eeCrypto.buildKeyAad(accountName, epoch, "password")
+                val newSalt = E2eeCrypto.generateSalt()
+                val newWrap = E2eeCrypto.deriveWrappingKey(newPassword, newSalt, "password")
+                val passwordEnvelopes = JSONArray()
+                for ((epoch, key) in recoveredKeys) {
+                    val wrapped = E2eeCrypto.encrypt(
+                        key.encoded,
+                        newWrap,
+                        E2eeCrypto.buildKeyAad(accountName, epoch, "password")
+                    )
+                    passwordEnvelopes.put(
+                        JSONObject()
+                            .put("epoch", epoch)
+                            .put("passwordWrappedKey", wrapped.ciphertextBase64)
+                            .put("passwordNonce", wrapped.nonceBase64)
+                    )
+                }
+
+                val resetPayload = JSONObject()
+                    .put("username", accountName)
+                    .put("recoveryVerifier", recoveryVerifier)
+                    .put("passwordSalt", E2eeCrypto.base64(newSalt))
+                    .put("passwordVerifier", E2eeCrypto.deriveAuthVerifier(newPassword, newSalt, "password"))
+                    .put("keyEnvelopes", passwordEnvelopes)
+                val resetRequest = Request.Builder()
+                    .url("$baseUrl/v1/sync/auth/reset-password")
+                    .post(jsonBody(resetPayload))
+                    .build()
+                httpClient.newCall(resetRequest).execute().use { response ->
+                    val body = parseResponseBody(response.body?.string())
+                    if (!response.isSuccessful) throw serverError(response.code, body, "password_reset_failed")
+                }
+
+                login(
+                    cleanSchool,
+                    accountName,
+                    newPassword,
+                    recoveryPhrase,
+                    ensureDeviceFingerprint(),
+                    Challenge(newSalt, known.recoverySalt, known.currentKeyEpoch)
                 )
-                passwordEnvelopes.put(
-                    JSONObject()
-                        .put("epoch", epoch)
-                        .put("passwordWrappedKey", wrapped.ciphertextBase64)
-                        .put("passwordNonce", wrapped.nonceBase64)
-                )
             }
-
-            val resetPayload = JSONObject()
-                .put("username", accountName)
-                .put("recoveryVerifier", recoveryVerifier)
-                .put("passwordSalt", E2eeCrypto.base64(newSalt))
-                .put("passwordVerifier", E2eeCrypto.deriveAuthVerifier(newPassword, newSalt, "password"))
-                .put("keyEnvelopes", passwordEnvelopes)
-            val resetRequest = Request.Builder()
-                .url("$baseUrl/v1/sync/auth/reset-password")
-                .post(jsonBody(resetPayload))
-                .build()
-            httpClient.newCall(resetRequest).execute().use { response ->
-                val body = parseResponseBody(response.body?.string())
-                if (!response.isSuccessful) throw serverError(response.code, body, "password_reset_failed")
-            }
-
-            login(
-                cleanSchool,
-                accountName,
-                newPassword,
-                recoveryPhrase,
-                ensureDeviceFingerprint(),
-                Challenge(newSalt, known.recoverySalt, known.currentKeyEpoch)
-            )
         }
     }
 
     suspend fun logout(removeLocalKeyMaterial: Boolean = false) {
-        dataStore.edit { prefs ->
-            prefs[KEY_SYNC_ENABLED] = false
-            prefs.remove(KEY_SYNC_USER_ID)
-            prefs.remove(KEY_DEVICE_ID)
-            prefs.remove(KEY_TOKEN_BOX)
-            prefs.remove(KEY_LAST_SYNC_AT)
-            prefs.remove(KEY_DEVICE_COUNT)
-            prefs.remove(KEY_PULL_CURSOR)
-            prefs[KEY_ROTATION_REQUIRED] = false
-            prefs[KEY_KEY_REFRESH_REQUIRED] = false
-            if (removeLocalKeyMaterial) {
-                prefs.remove(KEY_SERVER_USERNAME)
-                prefs.remove(KEY_PASSWORD_SALT)
-                prefs.remove(KEY_RECOVERY_SALT)
-                prefs.remove(KEY_EPOCH_KEYS_JSON)
-                prefs[KEY_CURRENT_KEY_EPOCH] = 0
+        sessionMutex.withLock {
+            dataStore.edit { prefs ->
+                prefs[KEY_SYNC_ENABLED] = false
+                prefs.remove(KEY_SYNC_USER_ID)
+                prefs.remove(KEY_DEVICE_ID)
+                prefs.remove(KEY_TOKEN_BOX)
+                prefs.remove(KEY_LAST_SYNC_AT)
+                prefs.remove(KEY_DEVICE_COUNT)
+                prefs.remove(KEY_PULL_CURSOR)
+                prefs[KEY_ROTATION_REQUIRED] = false
+                prefs[KEY_KEY_REFRESH_REQUIRED] = false
+                if (removeLocalKeyMaterial) {
+                    prefs.remove(KEY_SERVER_USERNAME)
+                    prefs.remove(KEY_PASSWORD_SALT)
+                    prefs.remove(KEY_RECOVERY_SALT)
+                    prefs.remove(KEY_EPOCH_KEYS_JSON)
+                    prefs[KEY_CURRENT_KEY_EPOCH] = 0
+                }
             }
         }
     }
@@ -1010,6 +1060,9 @@ class SyncRepository(private val context: Context) {
         private val KEY_CURRENT_KEY_EPOCH = intPreferencesKey("e2ee_current_key_epoch")
         private val KEY_EPOCH_KEYS_JSON = stringPreferencesKey("e2ee_epoch_keys_json")
         private val KEY_LOCAL_RECORDS_JSON = stringPreferencesKey("e2ee_local_records_json")
+        private val KEY_LOCAL_OWNER = stringPreferencesKey("e2ee_local_record_owner")
+        private val KEY_ACCOUNT_RECORDS_JSON = stringPreferencesKey("e2ee_account_record_archives")
+        private val KEY_SESSION_BASE_URL = stringPreferencesKey("e2ee_session_base_url")
         private val KEY_PULL_CURSOR = longPreferencesKey("e2ee_pull_cursor")
         private val KEY_ROTATION_REQUIRED = booleanPreferencesKey("e2ee_rotation_required")
         private val KEY_KEY_REFRESH_REQUIRED = booleanPreferencesKey("e2ee_key_refresh_required")

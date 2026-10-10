@@ -451,7 +451,11 @@ class TodayRepository(
                 else json.getInt("dailyEnergyReferenceKcal")
             }.getOrNull()
         }
-        val target = localTarget ?: remote.energy.dailyEnergyReferenceKcal
+        // A saved null is the user's explicit choice to clear the reference.
+        // Only an absent/deleted preference should use the server default.
+        val target = if (preferenceRecord != null && !preferenceRecord.deleted) {
+            localTarget
+        } else remote.energy.dailyEnergyReferenceKcal
         val energySummary = EnergySummaryDto(
             dailyEnergyReferenceKcal = target,
             intakeKcal = nutrition.energyKcal,

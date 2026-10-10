@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 import { zValidator } from "@hono/zod-validator";
 import {
   adminPeSessionSchema,
@@ -21,6 +22,7 @@ import {
   syncChangePasswordSchema,
   syncLoginSchema,
   syncPushSchema,
+  syncRecoverySchema,
   syncRecoveryResetPasswordSchema,
   syncRegisterSchema,
   syncRotateKeySchema
@@ -48,6 +50,11 @@ type AppEnv = {
 
 const app = new Hono<AppEnv>();
 
+app.use("/v1/sync/*", bodyLimit({
+  maxSize: 4 * 1024 * 1024,
+  onError: (c) => c.json({ error: "sync_payload_too_large" }, 413)
+}));
+
 app.get("/", (c) => c.json({
   service: "health2609-api",
   status: "ok",
@@ -61,6 +68,7 @@ app.use("/v1/*", cors({
   allowHeaders: [
     "Content-Type",
     "Authorization",
+    "x-sync-token",
     "x-demo-school",
     "x-demo-participant",
     "x-demo-role",
@@ -92,14 +100,6 @@ app.use("/v1/*", async (c, next) => {
   }
   await next();
 });
-
-// Preserve the existing ciphertext until issue #17 has real authentication,
-// enrollment, recovery and record merging. A heartbeat is not a record backup.
-app.use("/v1/sync/*", async (c) => c.json({
-  error: "sync_not_available",
-  message: "跨设备同步尚未开放，已有云端数据保留。",
-  requestId: c.get("requestId")
-}, 503));
 
 const requireAdmin = (role: string) => role === "admin";
 
@@ -1930,6 +1930,30 @@ async function syncKeyEnvelopes(db: D1Database, userId: string, kind: "password"
   );
 }
 
+// D1 batch is atomic, but a preceding SELECT is not part of that transaction.
+// Fail the entire batch if its credential/epoch snapshot has become stale.
+async function guardedSyncMutation(
+  db: D1Database,
+  condition: string,
+  bindings: (string | number)[],
+  statements: D1PreparedStatement[]
+): Promise<boolean> {
+  const guardId = crypto.randomUUID();
+  try {
+    await db.batch([
+      db.prepare(`INSERT INTO sync_mutation_guards_v2 (id, valid)
+        VALUES (?, CASE WHEN (${condition}) THEN 1 ELSE 0 END)`)
+        .bind(guardId, ...bindings),
+      ...statements,
+      db.prepare("DELETE FROM sync_mutation_guards_v2 WHERE id = ?").bind(guardId)
+    ]);
+    return true;
+  } catch (error) {
+    if (String(error).includes("CHECK constraint failed")) return false;
+    throw error;
+  }
+}
+
 app.get("/v1/sync/auth/challenge", async (c) => {
   const username = (c.req.query("username") || "").trim().toLowerCase();
   if (!username) return c.json({ error: "missing_username" }, 400);
@@ -2050,11 +2074,14 @@ app.post("/v1/sync/auth/login", async (c) => {
     revoked_at: string | null;
   }>();
 
-  const isNewOrRevoked = !existingDevice || existingDevice.revoked_at != null;
+  // A fingerprint is an identifier, not proof of possession of an enrolled device.
+  const priorSession = await authenticateSync(c);
+  const hasDeviceProof = existingDevice?.revoked_at == null && priorSession != null &&
+    priorSession.userId === account.id && priorSession.deviceId === existingDevice?.id;
   const recoveryVerifierHash = body.recoveryVerifier
     ? await sha256Base64(body.recoveryVerifier)
     : null;
-  if (isNewOrRevoked && recoveryVerifierHash !== account.recovery_verifier) {
+  if (!hasDeviceProof && recoveryVerifierHash !== account.recovery_verifier) {
     return c.json({ error: "device_enrollment_requires_recovery" }, 403);
   }
 
@@ -2062,20 +2089,25 @@ app.post("/v1/sync/auth/login", async (c) => {
   const tokenHash = await sha256Base64(token);
   let deviceId = existingDevice?.id || crypto.randomUUID();
 
-  if (existingDevice) {
-    await c.env.DB.prepare(
+  const loginStatement = existingDevice
+    ? c.env.DB.prepare(
       `UPDATE sync_devices_v2
           SET device_name = ?, token_hash = ?, revoked_at = NULL,
               last_seen_at = datetime('now')
         WHERE id = ?`
-    ).bind(body.deviceName, tokenHash, deviceId).run();
-  } else {
-    await c.env.DB.prepare(
+    ).bind(body.deviceName, tokenHash, deviceId)
+    : c.env.DB.prepare(
       `INSERT INTO sync_devices_v2
          (id, user_id, device_fingerprint, device_name, token_hash)
        VALUES (?, ?, ?, ?, ?)`
-    ).bind(deviceId, account.id, body.deviceFingerprint, body.deviceName, tokenHash).run();
-  }
+    ).bind(deviceId, account.id, body.deviceFingerprint, body.deviceName, tokenHash);
+  const loggedIn = await guardedSyncMutation(c.env.DB,
+    `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND password_verifier = ?
+      AND recovery_verifier = ? AND current_key_epoch = ?)
+      ${hasDeviceProof ? "AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)" : ""}`,
+    [account.id, account.password_verifier, account.recovery_verifier, account.current_key_epoch,
+      ...(hasDeviceProof ? [deviceId] : [])], [loginStatement]);
+  if (!loggedIn) return c.json({ error: "account_state_changed" }, 409);
 
   return c.json({
     ok: true,
@@ -2088,11 +2120,12 @@ app.post("/v1/sync/auth/login", async (c) => {
 });
 
 app.post("/v1/sync/auth/recovery", async (c) => {
-  const body = await c.req.json<{ username?: string; recoveryVerifier?: string }>().catch(() => ({} as { username?: string; recoveryVerifier?: string }));
-  const username = (body.username || "").trim().toLowerCase();
-  if (!username || !body.recoveryVerifier) {
+  const parsed = syncRecoverySchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
     return c.json({ error: "missing_recovery_credentials" }, 400);
   }
+  const body = parsed.data;
+  const username = body.username.toLowerCase();
 
   const account = await c.env.DB.prepare(
     `SELECT id, recovery_salt, recovery_verifier, current_key_epoch
@@ -2125,11 +2158,13 @@ app.post("/v1/sync/auth/reset-password", async (c) => {
   const username = body.username.trim().toLowerCase();
 
   const account = await c.env.DB.prepare(
-    `SELECT id, recovery_verifier
+    `SELECT id, recovery_verifier, password_verifier, current_key_epoch
        FROM sync_accounts_v2
       WHERE username = ?
       LIMIT 1`
-  ).bind(username).first<{ id: string; recovery_verifier: string }>();
+  ).bind(username).first<{
+    id: string; recovery_verifier: string; password_verifier: string; current_key_epoch: number;
+  }>();
 
   const recoveryVerifierHash = await sha256Base64(body.recoveryVerifier);
   if (!account || account.recovery_verifier !== recoveryVerifierHash) {
@@ -2162,9 +2197,16 @@ app.post("/v1/sync/auth/reset-password", async (c) => {
         account.id,
         envelope.epoch
       )
-    )
+    ),
+    // Recovery is also an account takeover response: invalidate old sessions.
+    c.env.DB.prepare(`UPDATE sync_devices_v2 SET token_hash = '', revoked_at = datetime('now')
+      WHERE user_id = ?`).bind(account.id)
   ];
-  await c.env.DB.batch(statements);
+  const reset = await guardedSyncMutation(c.env.DB,
+    `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND password_verifier = ?
+      AND recovery_verifier = ? AND current_key_epoch = ?)`,
+    [account.id, account.password_verifier, account.recovery_verifier, account.current_key_epoch], statements);
+  if (!reset) return c.json({ error: "account_state_changed" }, 409);
   return c.json({ ok: true });
 });
 
@@ -2176,8 +2218,8 @@ app.post("/v1/sync/auth/change-password", async (c) => {
   const body = parsed.data;
 
   const account = await c.env.DB.prepare(
-    "SELECT password_verifier FROM sync_accounts_v2 WHERE id = ?"
-  ).bind(auth.userId).first<{ password_verifier: string }>();
+    "SELECT password_verifier, current_key_epoch FROM sync_accounts_v2 WHERE id = ?"
+  ).bind(auth.userId).first<{ password_verifier: string; current_key_epoch: number }>();
   if (
     !account ||
     account.password_verifier !== await sha256Base64(body.currentPasswordVerifier)
@@ -2194,7 +2236,11 @@ app.post("/v1/sync/auth/change-password", async (c) => {
     return c.json({ error: "incomplete_key_epoch_set" }, 409);
   }
 
-  await c.env.DB.batch([
+  const changed = await guardedSyncMutation(c.env.DB,
+    `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND password_verifier = ?
+      AND current_key_epoch = ?)
+      AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)`,
+    [auth.userId, account.password_verifier, account.current_key_epoch, auth.deviceId], [
     c.env.DB.prepare(
       `UPDATE sync_accounts_v2
           SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
@@ -2213,6 +2259,7 @@ app.post("/v1/sync/auth/change-password", async (c) => {
       )
     )
   ]);
+  if (!changed) return c.json({ error: "account_state_changed" }, 409);
   return c.json({ ok: true });
 });
 
@@ -2258,7 +2305,11 @@ app.post("/v1/sync/keys/rotate", async (c) => {
     return c.json({ error: "invalid_rotation_credentials" }, 401);
   }
 
-  await c.env.DB.batch([
+  const rotated = await guardedSyncMutation(c.env.DB,
+    `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND current_key_epoch = ?
+      AND password_verifier = ? AND recovery_verifier = ?)
+      AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)`,
+    [auth.userId, currentEpoch, account.password_verifier, account.recovery_verifier, auth.deviceId], [
     c.env.DB.prepare(
       `INSERT INTO sync_key_epochs_v2
          (user_id, epoch, password_wrapped_key, password_nonce,
@@ -2278,6 +2329,7 @@ app.post("/v1/sync/keys/rotate", async (c) => {
         WHERE id = ?`
     ).bind(body.newEpoch, auth.userId)
   ]);
+  if (!rotated) return c.json({ error: "account_state_changed" }, 409);
 
   return c.json({ ok: true, currentKeyEpoch: body.newEpoch });
 });
@@ -2321,9 +2373,9 @@ app.post("/v1/sync/push", async (c) => {
            server_received_at = datetime('now')
          WHERE excluded.revision > sync_records_v2.revision
             OR (excluded.revision = sync_records_v2.revision
-                AND excluded.client_updated_at > sync_records_v2.client_updated_at)
+                AND julianday(excluded.client_updated_at) > julianday(sync_records_v2.client_updated_at))
             OR (excluded.revision = sync_records_v2.revision
-                AND excluded.client_updated_at = sync_records_v2.client_updated_at
+                AND julianday(excluded.client_updated_at) = julianday(sync_records_v2.client_updated_at)
                 AND excluded.source_device_id > sync_records_v2.source_device_id)`
       ).bind(
         auth.userId,
@@ -2342,12 +2394,18 @@ app.post("/v1/sync/push", async (c) => {
       c.env.DB.prepare(
         `INSERT INTO sync_changes_v2
            (user_id, entity_type, entity_id)
-         VALUES (?, ?, ?)`
+         SELECT ?, ?, ? WHERE changes() > 0`
       ).bind(auth.userId, r.entityType, r.entityId)
     );
   }
 
-  if (statements.length) await c.env.DB.batch(statements);
+  if (statements.length) {
+    const pushed = await guardedSyncMutation(c.env.DB,
+      `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND current_key_epoch = ?)
+        AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)`,
+      [auth.userId, currentKeyEpoch, auth.deviceId], statements);
+    if (!pushed) return c.json({ error: "account_state_changed" }, 409);
+  }
   return c.json({
     ok: true,
     acceptedCount: body.records.length,
@@ -2392,7 +2450,7 @@ app.get("/v1/sync/pull", async (c) => {
       deleted: Boolean(r.deleted),
       clientUpdatedAt: String(r.client_updated_at),
       sourceDeviceId: String(r.source_device_id),
-      serverReceivedAt: String(r.server_received_at)
+      serverReceivedAt: new Date(`${String(r.server_received_at).replace(" ", "T")}Z`).toISOString()
     };
   });
 

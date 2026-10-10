@@ -1,0 +1,85 @@
+name: Device packages
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - apps/android/**
+      - apps/ios/**
+      - .github/workflows/device-release.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: health2609-device-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Package Android (no tests)
+        run: |
+          gradle -p apps/android assembleDebug
+          mkdir -p dist/android
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk dist/android/yicanyidong-android-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-android
+          path: dist/android/*.apk
+          if-no-files-found: error
+          retention-days: 7
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package iPhone/iPad for re-signing (no tests)
+        run: bash apps/ios/build-ipa.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-ios
+          path: dist/ios/*.ipa
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: device-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish only real packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v0.4.0-device.${GITHUB_SHA:0:7}"
+          cp docs/device-install.md release-assets/INSTALL.md
+          (cd release-assets && sha256sum *.apk *.ipa > SHA256SUMS.txt)
+          cat > /tmp/release-notes.md <<'NOTES'
+          Android: debug-signed APK, ready for device installation. Updating an older APK requires the same signer; back up records before any uninstall.
+          iPhone/iPad: unsigned arm64 device IPA for re-signing with a valid matching certificate/profile. Default package does not require HealthKit entitlement; manual and photo flows remain available.
+          HarmonyOS 6 / OpenHarmony: HAP assets are not included in this release. SDK builds and platform-specific signing remain required. A source archive is not an installable HAP.
+          This release was reviewed from source and packaged without running tests. Device behavior has not been verified.
+          NOTES
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --prerelease --title "一餐一动 0.4.0 · Android / iOS 安装包" --notes-file /tmp/release-notes.md
+          fi

@@ -23,6 +23,7 @@ public enum StudentTab: String, CaseIterable, Identifiable {
 
 public struct StudentAppShell: View {
     @ObservedObject var viewModel: TodayViewModel
+    @State private var showSettings = false
     @State private var selectedTab: StudentTab = .today
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -66,6 +67,19 @@ public struct StudentAppShell: View {
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+            }
+            .overlay(alignment: .topTrailing) {
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape.fill")
+                        .padding(12)
+                        .background(M3E.Colors.surfaceContainerHigh, in: Circle())
+                }
+                .accessibilityLabel("设置学校与学生身份")
+                .padding(.top, 64)
+                .padding(.trailing, 18)
+            }
+            .sheet(isPresented: $showSettings) {
+                StudentSettingsView { viewModel.reloadIdentity() }
             }
             .animation(M3E.Motion.expressive, value: useSideRail)
             .ignoresSafeArea(.keyboard, edges: .bottom)
