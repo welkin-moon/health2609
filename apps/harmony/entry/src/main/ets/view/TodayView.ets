@@ -8,6 +8,10 @@ import {
   TodayMenuDto,
   DailySummaryDto,
   DishDto,
+  ConfirmedHomeMealRequest,
+  ManualActivityRequest,
+  EnergyReferenceRequest,
+  ApiWriteResult,
   MealItemRequest,
   ConfirmedHomeMealItemRequest,
   DishAmount,
@@ -16,6 +20,8 @@ import {
   roundOneDecimal,
   calculateServingNutrition
 } from '../model/ApiModels';
+import { PrivateRepository } from '../sync/PrivateRepository';
+import { identifier } from '../sync/PrivateCrypto';
 import { HealthApi } from '../service/HealthApi';
 import { OfflineCacheService } from '../service/OfflineCacheService';
 
@@ -43,6 +49,10 @@ export struct TodayView {
   @State statusMessage: string = '';
   @State statusIsError: boolean = false;
   @State pendingOfflineCount: number = 0;
+  @State privateEnergy: number = 0;
+  @State privateMinutes: number = 0;
+  @State privateCount: number = 0;
+  @State privateReference: number = 2000;
 
   // Menu & Lunch State
   @State menu: TodayMenuDto | null = null;
@@ -84,6 +94,7 @@ export struct TodayView {
     const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
     this.displayDate = `${today.getMonth() + 1}月${today.getDate()}日 ${weekdays[today.getDay()]}`;
 
+    this.refreshPrivateSummary();
     this.loadTodayData();
   }
 
@@ -107,7 +118,7 @@ export struct TodayView {
       this.menu = menuData;
       this.summary = summaryData;
 
-      this.energyReferenceInput = String(summaryData.energy.dailyEnergyReferenceKcal ?? '');
+      this.refreshPrivateSummary();
 
       // Initialize dish amounts
       const amounts = new Map<string, DishAmount>();
@@ -262,7 +273,7 @@ export struct TodayView {
           this.dirtyDishIds = [];
           this.dirtyDishDate = '';
         }
-        // Refresh summary
+        // Refresh school demo summary
         this.summary = await this.refreshSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
       }
@@ -317,21 +328,23 @@ export struct TodayView {
         nutrition: calculateServingNutrition(item.nutritionAtSource, item.sourceGrams && item.grams !== null ? item.grams / item.sourceGrams : 1)
       }));
 
-      const res = await this.healthApi.saveHomeMeal({
+      const request: ConfirmedHomeMealRequest = {
         date: this.currentDate,
         mealSlot: this.homeMealSlot,
         items: items
-      });
+      };
+      await PrivateRepository.getInstance().save('home_meal', this.currentDate + ':' + this.homeMealSlot, JSON.stringify(request));
+      const res: ApiWriteResult = { ok: true };
 
       if (res.ok) {
-        this.statusMessage = res.queued ? '家庭餐已暂存，等待同步' : '家庭餐记录已成功记入今日营养！';
+        this.statusMessage = '家庭餐已加密保存到本机；可到私密记录页手动同步';
         this.statusIsError = false;
         this.homeMealDraft = [];
-        this.summary = await this.refreshSummary();
+        this.refreshPrivateSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
       }
     } catch (e) {
-      this.statusMessage = '家庭餐提交结果未确认，请先刷新汇总；草稿已保留';
+      this.statusMessage = '本地加密保存失败，家庭餐草稿已保留，请重试';
       this.statusIsError = true;
     } finally {
       this.isSavingHomeMeal = false;
@@ -345,22 +358,24 @@ export struct TodayView {
     if (this.isSavingActivity) return;
     this.isSavingActivity = true;
     try {
-      const res = await this.healthApi.saveManualActivity({
+      const request: ManualActivityRequest = {
         date: this.currentDate,
         activityType: this.manualActivityType.trim() || '自主运动',
         durationMinutes: this.manualDurationMinutes,
         intensity: this.manualIntensity
-      });
+      };
+      await PrivateRepository.getInstance().save('manual_activity', this.currentDate + ':' + identifier(), JSON.stringify(request));
+      const res: ApiWriteResult = { ok: true };
 
       if (res.ok) {
-        this.statusMessage = res.queued ? '运动已暂存，等待同步' : `已成功记录 ${this.manualActivityType} ${this.manualDurationMinutes} 分钟！`;
+        this.statusMessage = '运动已加密保存到本机；可到私密记录页手动同步';
         this.statusIsError = false;
         this.isShowManualActivity = false;
-        this.summary = await this.refreshSummary();
+        this.refreshPrivateSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
       }
     } catch (e) {
-      this.statusMessage = '运动提交结果未确认，请先刷新汇总再重试';
+      this.statusMessage = '本地加密保存失败，运动内容已保留，请重试';
       this.statusIsError = true;
     } finally {
       this.isSavingActivity = false;
@@ -402,10 +417,11 @@ export struct TodayView {
 
     this.isSavingReference = true;
     try {
-      const result = await this.healthApi.saveEnergyReference({ dailyEnergyReferenceKcal: kcal });
+      const preference: EnergyReferenceRequest = { dailyEnergyReferenceKcal: kcal };
+      await PrivateRepository.getInstance().save('preference', 'energy_reference', JSON.stringify(preference));
       this.isEditingReference = false;
-      this.summary = await this.refreshSummary();
-      this.statusMessage = result.queued ? '参考热量已暂存，等待同步' : '每日参考热量已更新';
+      this.refreshPrivateSummary();
+      this.statusMessage = '个人参考热量已加密保存到本机';
       this.statusIsError = false;
     } catch (e) {
       this.statusMessage = '参考热量保存失败，请重试';
@@ -413,6 +429,71 @@ export struct TodayView {
     } finally {
       this.isSavingReference = false;
     }
+  }
+
+  private refreshPrivateSummary(): void {
+    let energy = 0, minutes = 0, count = 0, reference = 2000;
+    for (const record of PrivateRepository.getInstance().records()) {
+      if (record.entityType === 'home_meal') {
+        const meal = JSON.parse(record.payloadJson) as ConfirmedHomeMealRequest;
+        if (meal.date === this.currentDate) { count++; for (const item of meal.items) energy += Number(item.nutrition?.energyKcal ?? 0); }
+      } else if (record.entityType === 'manual_activity') {
+        const activity = JSON.parse(record.payloadJson) as ManualActivityRequest;
+        if (activity.date === this.currentDate) { count++; minutes += activity.durationMinutes; }
+      } else if (record.entityType === 'preference' && record.entityId === 'energy_reference') {
+        reference = (JSON.parse(record.payloadJson) as EnergyReferenceRequest).dailyEnergyReferenceKcal ?? 2000;
+      }
+    }
+    this.privateEnergy = Math.round(energy); this.privateMinutes = minutes; this.privateCount = count; this.privateReference = reference;
+    if (!this.isEditingReference) this.energyReferenceInput = String(reference);
+  }
+
+  @Builder
+  PrivateOverview() {
+    Column({ space: 6 }) {
+      Text('今日个人记录').fontSize(20).fontWeight(FontWeight.Medium)
+      Text(`家庭餐 ${this.privateEnergy} 千卡 · 手动运动 ${this.privateMinutes} 分钟 · ${this.privateCount} 条记录`)
+      Text(`个人每日参考 ${this.privateReference} 千卡；先保存到本机，账号页可手动同步与查看历史。`).fontSize(12)
+        // Daily Energy Reference Edit
+        Row() {
+          Text(`修改个人每日参考（${this.privateReference} 千卡）`)
+            .fontSize(M3ETypography.labelMedium)
+            .fontColor(M3EColors.primary)
+            .fontWeight(FontWeight.Medium)
+            .onClick(() => {
+              this.isEditingReference = !this.isEditingReference;
+            })
+        }
+
+        if (this.isEditingReference) {
+          Row({ space: 8 }) {
+            TextInput({
+              placeholder: '每日参考（千卡）',
+              text: this.energyReferenceInput
+            })
+              .type(InputType.Number)
+              .layoutWeight(1)
+              .height(38)
+              .backgroundColor(M3EColors.surfaceContainerHighest)
+              .borderRadius(M3EShapes.buttonRadius)
+              .onChange((val: string) => {
+                this.energyReferenceInput = val;
+              })
+
+            Button(this.isSavingReference ? '...' : '保存')
+              .height(38)
+              .backgroundColor(M3EColors.primary)
+              .fontColor(M3EColors.onPrimary)
+              .borderRadius(M3EShapes.buttonRadius)
+              .onClick(() => {
+                this.saveEnergyReference();
+              })
+          }
+          .width('100%')
+        }
+
+
+    }.width('100%').alignItems(HorizontalAlign.Start).padding(16).backgroundColor(M3EColors.surfaceContainer).borderRadius(M3EShapes.sectionRadius)
   }
 
   async refreshSummary(): Promise<DailySummaryDto | null> {
@@ -425,6 +506,7 @@ export struct TodayView {
       Column({ space: 16 }) {
         // TopBar
         this.TopBar()
+        this.PrivateOverview()
 
         // Status Banner if any
         if (this.statusMessage.length > 0) {
@@ -513,7 +595,8 @@ export struct TodayView {
       .height(42)
       .backgroundColor(M3EColors.surfaceContainerHigh)
       .onClick(() => {
-        this.loadTodayData();
+        this.refreshPrivateSummary();
+    this.loadTodayData();
       })
     }
     .width('100%')
@@ -722,7 +805,7 @@ export struct TodayView {
   @Builder
   HomeMealSection() {
     Column({ space: 14 }) {
-      this.SectionHeader('家庭餐 / 其他餐食', '早餐、晚餐或其他不在学校吃的东西', '照')
+      this.SectionHeader('私密家庭餐 / 其他餐食', '早餐、晚餐或其他不在学校吃的东西', '照')
 
       Column({ space: 12 }) {
         // Slot Selector: 早餐 / 午餐 / 晚餐
@@ -866,7 +949,7 @@ export struct TodayView {
   @Builder
   PhysicalActivitySection() {
     Column({ space: 14 }) {
-      this.SectionHeader('运动', '学校记校内，终端/手机补校外', '动')
+      this.SectionHeader('运动（手动补记保存在私密记录）', '学校记校内，终端/手机补校外', '动')
 
       Column({ space: 14 }) {
         // Activity Minutes Stats Row
@@ -1014,7 +1097,7 @@ export struct TodayView {
   @Builder
   TodayOverviewSection() {
     Column({ space: 14 }) {
-      this.SectionHeader('今日汇总', '能量与运动协同平衡', '总')
+      this.SectionHeader('学校演示汇总', '学校示例统计，与个人加密记录分开', '总')
 
       Column({ space: 14 }) {
         Column({ space: 4 }) {
@@ -1085,46 +1168,6 @@ export struct TodayView {
             .backgroundColor(M3EColors.surfaceContainerHighest)
         }
         .width('100%')
-
-        // Daily Energy Reference Edit
-        Row() {
-          Text(this.summary?.energy?.dailyEnergyReferenceKcal
-            ? `每日参考 ${this.summary.energy.dailyEnergyReferenceKcal} 千卡`
-            : '设置每日参考')
-            .fontSize(M3ETypography.labelMedium)
-            .fontColor(M3EColors.primary)
-            .fontWeight(FontWeight.Medium)
-            .onClick(() => {
-              this.isEditingReference = !this.isEditingReference;
-            })
-        }
-
-        if (this.isEditingReference) {
-          Row({ space: 8 }) {
-            TextInput({
-              placeholder: '每日参考（千卡）',
-              text: this.energyReferenceInput
-            })
-              .type(InputType.Number)
-              .layoutWeight(1)
-              .height(38)
-              .backgroundColor(M3EColors.surfaceContainerHighest)
-              .borderRadius(M3EShapes.buttonRadius)
-              .onChange((val: string) => {
-                this.energyReferenceInput = val;
-              })
-
-            Button(this.isSavingReference ? '...' : '保存')
-              .height(38)
-              .backgroundColor(M3EColors.primary)
-              .fontColor(M3EColors.onPrimary)
-              .borderRadius(M3EShapes.buttonRadius)
-              .onClick(() => {
-                this.saveEnergyReference();
-              })
-          }
-          .width('100%')
-        }
 
         // Evidence-Based Next Action Tip ("下一步建议")
         this.EvidenceBasedTipCard()

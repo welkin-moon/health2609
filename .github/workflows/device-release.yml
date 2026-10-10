@@ -62,6 +62,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Package iPhone/iPad for re-signing (no tests)
+        env:
+          IOS_VERSION: 0.4.2
+          IOS_BUILD_NUMBER: 19
         run: |
           bash apps/ios/build-ipa.sh
           ENABLE_HEALTHKIT=1 bash apps/ios/build-ipa.sh
@@ -88,7 +91,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="v0.4.1-device.${GITHUB_SHA:0:7}"
+          TAG="v0.4.2-device.${GITHUB_SHA:0:7}"
           cp docs/device-install.md release-assets/INSTALL.md
           (cd release-assets && sha256sum *.apk *.ipa > SHA256SUMS.txt)
           cat > /tmp/release-notes.md <<'NOTES'
@@ -100,5 +103,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber
           else
-            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --prerelease --title "一餐一动 0.4.1 · Android / iOS 安装包" --notes-file /tmp/release-notes.md
+            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --prerelease --title "一餐一动 0.4.2 · Android / iOS 安装包" --notes-file /tmp/release-notes.md
           fi

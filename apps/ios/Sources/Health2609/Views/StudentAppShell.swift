@@ -3,6 +3,7 @@ import SwiftUI
 public enum StudentTab: String, CaseIterable, Identifiable {
     case today = "today"
     case privacy = "privacy"
+    case history = "history"
 
     public var id: String { rawValue }
 
@@ -10,6 +11,7 @@ public enum StudentTab: String, CaseIterable, Identifiable {
         switch self {
         case .today: return "今天"
         case .privacy: return "隐私"
+        case .history: return "历史"
         }
     }
 
@@ -17,6 +19,7 @@ public enum StudentTab: String, CaseIterable, Identifiable {
         switch self {
         case .today: return "calendar"
         case .privacy: return "lock.shield.fill"
+        case .history: return "clock.arrow.circlepath"
         }
     }
 }
@@ -45,6 +48,8 @@ public struct StudentAppShell: View {
                         TodayView(viewModel: viewModel)
                     case .privacy:
                         PrivacyView()
+                    case .history:
+                        PrivateHistoryView()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

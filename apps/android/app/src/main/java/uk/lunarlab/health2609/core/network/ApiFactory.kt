@@ -16,6 +16,7 @@ import retrofit2.HttpException
 import retrofit2.converter.gson.GsonConverterFactory
 import uk.lunarlab.health2609.BuildConfig
 import uk.lunarlab.health2609.core.sync.PrivateStorageException
+import uk.lunarlab.health2609.core.sync.SyncTransferException
 
 object DemoIdentity {
     @Volatile
@@ -65,6 +66,7 @@ object ApiFactory {
 
     fun formatErrorMessage(error: Throwable): String {
         if (error is PrivateStorageException) return error.message ?: "本机加密记录无法读取，原始数据已保留。"
+        if (error is SyncTransferException) return error.message ?: "同步未获确认，记录仍保留为待同步。"
         if (error is HttpException) {
             val payload = runCatching {
                 val body = error.response()?.errorBody()?.string() ?: "{}"

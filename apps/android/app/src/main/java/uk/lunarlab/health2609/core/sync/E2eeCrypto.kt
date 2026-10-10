@@ -130,17 +130,26 @@ object E2eeCrypto {
         envelopeVersion: Int,
         keyEpoch: Int,
         revision: Long,
-        clientUpdatedAt: String
-    ): String = listOf(
-        "health2609",
-        "record",
-        "v$envelopeVersion",
-        "epoch=$keyEpoch",
-        "type=$entityType",
-        "id=$entityId",
-        "revision=$revision",
-        "updated=$clientUpdatedAt"
-    ).joinToString("|")
+        clientUpdatedAt: String,
+        deleted: Boolean = false,
+        sourceDeviceId: String? = null
+    ): String {
+        require(envelopeVersion == 1 || envelopeVersion == 2) { "不支持的同步记录版本" }
+        val fields = listOf(
+            "health2609",
+            "record",
+            "v$envelopeVersion",
+            "epoch=$keyEpoch",
+            "type=$entityType",
+            "id=$entityId",
+            "revision=$revision",
+            "updated=$clientUpdatedAt"
+        )
+        return if (envelopeVersion == 1) fields.joinToString("|") else {
+            require(!sourceDeviceId.isNullOrBlank()) { "同步记录缺少来源设备" }
+            (fields + listOf("deleted=$deleted", "sourceDeviceId=$sourceDeviceId")).joinToString("|")
+        }
+    }
 
     /**
      * Optional cross-device preview only. The full-resolution original is never

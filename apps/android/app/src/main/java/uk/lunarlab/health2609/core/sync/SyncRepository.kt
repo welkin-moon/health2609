@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import java.time.Instant
+import java.time.format.DateTimeFormatterBuilder
 import java.util.UUID
 import javax.crypto.SecretKey
 import kotlinx.coroutines.Dispatchers
@@ -64,13 +65,18 @@ data class PrivateSyncRecord(
     val deleted: Boolean
 )
 
+class SyncTransferException(message: String) : IllegalStateException(message)
+
 class PrivateStorageException(cause: Throwable) : IllegalStateException(
     "本机加密记录暂时无法读取，已保留原始数据。请勿清除应用数据；可重新登录后尝试恢复同步。", cause
 )
 
 class SyncRepository(private val context: Context) {
     private val dataStore = context.applicationContext.syncDataStoreV2
-    private val httpClient = OkHttpClient.Builder().build()
+    private val httpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
     private val localBox = DeviceKeyStoreBox()
     private val sessionMutex = Mutex()
 
@@ -472,7 +478,7 @@ class SyncRepository(private val context: Context) {
             val previous = root.optJSONObject(recordKey)
             previous?.let { readLocalRecord(it) }
             val revision = (previous?.optLong("revision", 0L) ?: 0L) + 1L
-            val updatedAt = Instant.now().toString()
+            val updatedAt = DateTimeFormatterBuilder().appendInstant(3).toFormatter().format(Instant.now())
             val sealed = localBox.seal(
                 payloadJson.toByteArray(Charsets.UTF_8),
                 localPayloadAad(entityType, entityId, revision, updatedAt)
@@ -604,6 +610,8 @@ class SyncRepository(private val context: Context) {
                 }
 
                 val currentEpoch = initialPrefs[KEY_CURRENT_KEY_EPOCH] ?: 0
+                val sourceDeviceId = initialPrefs[KEY_DEVICE_ID]
+                    ?: throw IllegalStateException("同步设备信息缺失，请重新登录")
                 val epochKeys = openEpochKeys(initialPrefs[KEY_EPOCH_KEYS_JSON])
                 val currentKey = epochKeys[currentEpoch]
                     ?: throw IllegalStateException("缺少当前账号密钥，请重新输入密码刷新密钥")
@@ -616,41 +624,66 @@ class SyncRepository(private val context: Context) {
                     if (item.optBoolean("dirty", false)) dirtyItems += key to item
                 }
 
-                for (batch in dirtyItems.chunked(200)) {
-                    val records = JSONArray()
-                    for ((_, item) in batch) {
+                var dirtyIndex = 0
+                while (dirtyIndex < dirtyItems.size) {
+                    val batch = mutableListOf<Pair<String, JSONObject>>()
+                    val envelopes = mutableListOf<String>()
+                    // Count the exact UTF-8 JSON wrapper and comma separators.
+                    var payloadBytes = "{\"records\":[]}".toByteArray(Charsets.UTF_8).size
+                    while (dirtyIndex < dirtyItems.size && batch.size < 200) {
+                        val candidate = dirtyItems[dirtyIndex]
+                        val item = candidate.second
                         val local = readLocalRecord(item)
                         val aad = E2eeCrypto.buildRecordAad(
                             local.entityType,
                             local.entityId,
-                            1,
+                            2,
                             currentEpoch,
                             local.revision,
-                            local.clientUpdatedAt
+                            local.clientUpdatedAt,
+                            local.deleted,
+                            sourceDeviceId
                         )
                         val encrypted = E2eeCrypto.encrypt(
                             local.payloadJson.toByteArray(Charsets.UTF_8),
                             currentKey,
                             aad
                         )
-                        records.put(
-                            JSONObject()
+                        if (encrypted.ciphertextBase64.length > MAX_SYNC_CIPHERTEXT_LENGTH) {
+                            throw SyncTransferException("有一条加密记录超过服务器单条记录限制，原始记录已保留为待同步。")
+                        }
+                        val envelopeJson = JSONObject()
                                 .put("entityType", local.entityType)
                                 .put("entityId", local.entityId)
                                 .put("ciphertext", encrypted.ciphertextBase64)
                                 .put("nonce", encrypted.nonceBase64)
                                 .put("aad", aad)
-                                .put("envelopeVersion", 1)
+                                .put("envelopeVersion", 2)
                                 .put("keyEpoch", currentEpoch)
                                 .put("revision", local.revision)
                                 .put("deleted", local.deleted)
+                                .put("sourceDeviceId", sourceDeviceId)
                                 .put("clientUpdatedAt", local.clientUpdatedAt)
-                        )
+                                .toString()
+                        val envelopeBytes = envelopeJson.toByteArray(Charsets.UTF_8).size
+                        if (envelopeBytes + "{\"records\":[]}".toByteArray(Charsets.UTF_8).size > MAX_SYNC_BODY_BYTES) {
+                            throw SyncTransferException("有一条加密记录超过同步大小限制，原始记录已保留，尚未标记为已同步。")
+                        }
+                        val candidateBytes = payloadBytes + envelopeBytes + (if (batch.isEmpty()) 0 else 1)
+                        if (candidateBytes > MAX_SYNC_BODY_BYTES) break
+                        batch.add(candidate)
+                        envelopes.add(envelopeJson)
+                        payloadBytes = candidateBytes
+                        dirtyIndex++
                     }
+
+                    val payloadJson = "{\"records\":[" + envelopes.joinToString(",") + "]}"
+                    // Validate the bytes of the body that will actually be sent.
+                    check(payloadJson.toByteArray(Charsets.UTF_8).size <= MAX_SYNC_BODY_BYTES)
 
                     val request = authenticatedRequestBuilder(initialPrefs)
                         .url("${sessionBaseUrl(initialPrefs)}/v1/sync/push")
-                        .post(jsonBody(JSONObject().put("records", records)))
+                        .post(payloadJson.toRequestBody("application/json".toMediaType()))
                         .build()
                     httpClient.newCall(request).execute().use { response ->
                         val body = parseResponseBody(response.body?.string())
@@ -659,6 +692,15 @@ class SyncRepository(private val context: Context) {
                             throw IllegalStateException("账号密钥已轮换，请重新登录以刷新密钥")
                         }
                         if (!response.isSuccessful) throw serverError(response.code, body, "sync_push_failed")
+                        val acceptedCount = body.opt("acceptedCount")
+                        val confirmedEpoch = body.opt("currentKeyEpoch")
+                        if (response.request.url != request.url ||
+                            body.opt("ok") != true || body.has("error") ||
+                            acceptedCount !is Number || acceptedCount.toDouble() != batch.size.toDouble() ||
+                            confirmedEpoch !is Number || confirmedEpoch.toDouble() != currentEpoch.toDouble()
+                        ) {
+                            throw SyncTransferException("服务器没有返回完整的同步确认，记录仍保留为待同步，请稍后重试。")
+                        }
                     }
 
                     dataStore.edit { prefs ->
@@ -725,8 +767,15 @@ class SyncRepository(private val context: Context) {
                 val updatedAt = remote.getString("clientUpdatedAt")
                 val epoch = remote.getInt("keyEpoch")
                 val envelopeVersion = remote.getInt("envelopeVersion")
+                // v1 keeps its original AAD byte-for-byte. v2 also authenticates
+                // deletion and the source used to resolve equal-version ties.
+                val remoteDeleted = if (envelopeVersion == 1) remote.optBoolean("deleted", false)
+                    else remote.getBoolean("deleted")
+                val remoteSource = if (envelopeVersion == 1) remote.optString("sourceDeviceId")
+                    else remote.getString("sourceDeviceId")
                 val expectedAad = E2eeCrypto.buildRecordAad(
-                    type, id, envelopeVersion, epoch, revision, updatedAt
+                    type, id, envelopeVersion, epoch, revision, updatedAt,
+                    remoteDeleted, remoteSource
                 )
                 val aad = remote.getString("aad")
                 if (aad != expectedAad) throw IllegalStateException("同步记录元数据校验失败")
@@ -744,7 +793,6 @@ class SyncRepository(private val context: Context) {
                 )
                 val recordKey = localRecordKey(type, id)
                 val local = root.optJSONObject(recordKey)
-                val remoteSource = remote.optString("sourceDeviceId")
                 val localRevision = local?.optLong("revision", 0L) ?: 0L
                 val localUpdatedAt = local?.optString("clientUpdatedAt") ?: ""
                 val localSource = local?.optString("sourceDeviceId") ?: ""
@@ -769,7 +817,7 @@ class SyncRepository(private val context: Context) {
                             .put("localNonce", sealed.nonceBase64)
                             .put("revision", revision)
                             .put("clientUpdatedAt", updatedAt)
-                            .put("deleted", remote.optBoolean("deleted", false))
+                            .put("deleted", remoteDeleted)
                             .put("dirty", false)
                             .put("sourceDeviceId", remoteSource)
                     )
@@ -1083,6 +1131,8 @@ class SyncRepository(private val context: Context) {
     }
 
     companion object {
+        private const val MAX_SYNC_BODY_BYTES = 4 * 1024 * 1024
+        private const val MAX_SYNC_CIPHERTEXT_LENGTH = 1_000_000
         private const val TOKEN_AAD = "health2609|local-token|v1"
 
         private val KEY_SYNC_ENABLED = booleanPreferencesKey("e2ee_sync_enabled")

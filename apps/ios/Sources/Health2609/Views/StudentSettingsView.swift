@@ -18,7 +18,8 @@ struct StudentSettingsView: View {
                         .font(.footnote)
                 }
                 Section("个人跨设备同步") {
-                    Text("此 iOS 版本提供校园记录接口，尚未提供 Android 私密日记的加密恢复与同步。请勿把演示身份当作登录账号。")
+                    NavigationLink("私密账号、加密同步与设备管理") { AccountSyncView() }
+                    Text("校园演示身份与私密同步账号相互独立。家庭餐、手动运动和能量偏好先保存到本机加密日记。")
                         .font(.footnote)
                 }
                 Section("Apple 健康") {

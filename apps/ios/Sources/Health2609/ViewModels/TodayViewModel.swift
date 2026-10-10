@@ -63,6 +63,9 @@ public final class TodayViewModel: ObservableObject {
     private let healthKit: HealthKitManager
     private var refreshTask: Task<Void, Never>?
     private var windowsLoaded = false
+    private var campusSummary: DailySummaryDto?
+    private var journalObserver: AnyCancellable?
+    private let privateSync = PrivateSyncState.shared
 
     public init(
         api: HealthApiClient = HealthApi.shared,
@@ -77,7 +80,15 @@ public final class TodayViewModel: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd"
         self.date = formatter.string(from: Date())
 
+        journalObserver = NotificationCenter.default.publisher(for: .privateJournalChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updatePrivateSummary() }
         refresh()
+    }
+
+    private func updatePrivateSummary() {
+        summary = PrivateSummary.compose(date: date, campus: campusSummary, menu: menu, records: privateSync.records)
+        energyReferenceInput = summary?.energy.dailyEnergyReferenceKcal.map { String($0) } ?? ""
     }
 
     // MARK: - Computed Properties
@@ -175,10 +186,10 @@ public final class TodayViewModel: ObservableObject {
                 guard !Task.isCancelled, self.date == requestedDate else { return }
                 self.windowsLoaded = true
                 self.menu = menuResult
-                self.summary = summaryResult
+                self.campusSummary = summaryResult
+                self.updatePrivateSummary()
                 self.schoolWindows = windowsResult.windows
 
-                self.energyReferenceInput = summaryResult.energy.dailyEnergyReferenceKcal.map { String($0) } ?? ""
 
                 // Initialize amounts for each dish
                 for dish in menuResult.dishes {
@@ -191,7 +202,8 @@ public final class TodayViewModel: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 self.loading = false
-                self.message = error.localizedDescription
+                self.updatePrivateSummary()
+                self.message = "校园数据加载失败，本机私密记录仍可使用：" + error.localizedDescription
             }
         }
     }
@@ -200,6 +212,7 @@ public final class TodayViewModel: ObservableObject {
         amounts = [:]
         menu = nil
         summary = nil
+        campusSummary = nil
         schoolWindows = []
         homeMealDraft = []
         homeMealNotes = []
@@ -274,8 +287,10 @@ public final class TodayViewModel: ObservableObject {
                     durationMinutes: manualActivityMinutes,
                     intensity: manualActivityIntensity
                 )
-                _ = try await api.saveManualActivity(request: req)
-                await refreshSummary(successMessage: "运动记录已加入今天")
+                try await privateSync.repository.enqueue("manual_activity", id: date + ":" + UUID().uuidString.lowercased(), payload: req)
+                await privateSync.reload()
+                self.savingActivity = false
+                self.message = "运动已保存到本机私密日记，可在账号页面同步"
             } catch {
                 self.savingActivity = false
                 self.message = "运动保存失败: \(error.localizedDescription)"
@@ -314,8 +329,10 @@ public final class TodayViewModel: ObservableObject {
                     steps: aggregate.steps,
                     activeEnergyKcal: aggregate.activeEnergyKcal
                 )
-                _ = try await api.saveOutsideSchoolActivity(request: req)
-                await refreshSummary(successMessage: "Apple 健康校外运动已同步 (已排除在校时段)")
+                try await privateSync.repository.enqueue("outside_activity", id: date, payload: req)
+                await privateSync.reload()
+                self.syncingPhoneActivity = false
+                self.message = "Apple 健康校外汇总已保存到本机（已排除在校时段）"
             } catch {
                 self.syncingPhoneActivity = false
                 self.message = "健康数据同步失败: \(error.localizedDescription)"
@@ -414,10 +431,12 @@ public final class TodayViewModel: ObservableObject {
                     mealSlot: homeMealSlot,
                     items: confirmedItems
                 )
-                _ = try await api.saveHomeMeal(request: req)
+                try await privateSync.repository.enqueue("home_meal", id: date + ":" + homeMealSlot, payload: req)
                 self.homeMealDraft = []
                 self.homeMealNotes = []
-                await refreshSummary(successMessage: "家庭餐已成功确认并记入今日记录")
+                await privateSync.reload()
+                self.savingHomeMeal = false
+                self.message = "家庭餐已保存到本机私密日记，可在历史中查看"
             } catch {
                 self.savingHomeMeal = false
                 self.message = "家庭餐保存失败: \(error.localizedDescription)"
@@ -443,8 +462,10 @@ public final class TodayViewModel: ObservableObject {
 
         Task {
             do {
-                _ = try await api.saveEnergyReference(request: EnergyReferenceRequest(dailyEnergyReferenceKcal: kcal))
-                await refreshSummary(successMessage: "每日参考能量已更新")
+                try await privateSync.repository.enqueue("preference", id: "energy_reference", payload: EnergyReferenceRequest(dailyEnergyReferenceKcal: kcal))
+                await privateSync.reload()
+                self.savingEnergyReference = false
+                self.message = "每日参考能量已保存到本机私密日记"
             } catch {
                 self.savingEnergyReference = false
                 self.message = "参考能量保存失败: \(error.localizedDescription)"
@@ -455,7 +476,10 @@ public final class TodayViewModel: ObservableObject {
     private func refreshSummary(successMessage: String) async {
         do {
             let updated = try await api.todaySummary(date: date)
-            self.summary = updated
+            self.campusSummary = updated
+            // Refresh persisted campus lunch portions so private summary includes the saved meal.
+            self.menu = try await api.todayMenu(date: date, mealSlot: "lunch")
+            self.updatePrivateSummary()
             self.savingMeal = false
             self.savingActivity = false
             self.savingHomeMeal = false

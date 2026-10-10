@@ -4,6 +4,7 @@
  */
 
 import { M3EColors, M3EShapes, M3ETypography, BreakpointType } from '../theme/M3ETheme';
+import { PrivateAccountView } from './PrivateAccountView';
 import { TodayView } from './TodayView';
 import { PrivacyView } from './PrivacyView';
 
@@ -15,6 +16,7 @@ interface NavDestination {
 
 const NAV_DESTINATIONS: NavDestination[] = [
   { key: 'today', label: '今天', iconChar: '历' },
+  { key: 'account', label: '私密记录', iconChar: '账' },
   { key: 'privacy', label: '隐私', iconChar: '盾' }
 ];
 
@@ -32,7 +34,9 @@ export struct AdaptiveStudentAppShell {
         Stack({ alignContent: Alignment.Bottom }) {
           // Main Body View
           Column() {
-            if (this.selectedDestination === 'privacy') {
+            if (this.selectedDestination === 'account') {
+              PrivateAccountView()
+            } else if (this.selectedDestination === 'privacy') {
               PrivacyView()
             } else {
               TodayView()
