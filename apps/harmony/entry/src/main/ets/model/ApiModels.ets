@@ -20,6 +20,8 @@ export interface DishDto {
   name: string;
   standardServingGrams: number | null;
   nutritionPerServing: NutritionDto | null;
+  savedServingMultiplier?: number | null;
+  savedConsumedGrams?: number | null;
 }
 
 export interface TodayMenuDto {
@@ -30,8 +32,8 @@ export interface TodayMenuDto {
 
 export interface MealItemRequest {
   dishId: string;
-  servingMultiplier?: number | null;
-  consumedGrams?: number | null;
+  servingMultiplier?: number;
+  consumedGrams?: number;
 }
 
 export interface MealConsumptionRequest {
@@ -55,8 +57,8 @@ export interface SchoolDayWindowsDto {
 export interface OutsideSchoolActivityRequest {
   date: string;
   exerciseMinutes: number;
-  steps?: number | null;
-  activeEnergyKcal?: number | null;
+  steps?: number;
+  activeEnergyKcal?: number;
 }
 
 export interface ManualActivityRequest {

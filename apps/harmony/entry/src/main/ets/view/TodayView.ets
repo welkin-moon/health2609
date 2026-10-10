@@ -47,6 +47,8 @@ export struct TodayView {
   // Menu & Lunch State
   @State menu: TodayMenuDto | null = null;
   @State dishAmounts: Map<string, DishAmount> = new Map<string, DishAmount>();
+  @State dirtyDishIds: string[] = [];
+  @State dirtyDishDate: string = '';
   @State showExactGramsMap: Map<string, boolean> = new Map<string, boolean>();
   @State isSavingMeal: boolean = false;
   @State lunchTotals: NutritionTotals = new NutritionTotals();
@@ -89,36 +91,63 @@ export struct TodayView {
    * Loads today's menu, summary, and pending queue count
    */
   async loadTodayData() {
+    const requestedDate = this.currentDate;
+    if (this.dirtyDishDate !== requestedDate) {
+      this.dirtyDishIds = [];
+      this.dirtyDishDate = '';
+    }
     this.isLoading = true;
     this.statusMessage = '';
     try {
-      const menuData = await this.healthApi.getTodayMenu(this.currentDate, 'lunch');
-      this.menu = menuData;
-      const summaryData = await this.healthApi.getTodaySummary(this.currentDate);
+      const menuData = await this.healthApi.getTodayMenu(requestedDate, 'lunch');
+      const summaryData = await this.healthApi.getTodaySummary(requestedDate);
+
+      if (requestedDate !== this.currentDate) return;
 
       this.menu = menuData;
       this.summary = summaryData;
 
-      if (summaryData.energy.dailyEnergyReferenceKcal) {
-        this.energyReferenceInput = String(summaryData.energy.dailyEnergyReferenceKcal);
-      }
+      this.energyReferenceInput = String(summaryData.energy.dailyEnergyReferenceKcal ?? '');
 
       // Initialize dish amounts
       const amounts = new Map<string, DishAmount>();
+      const retainedDirtyDishIds: string[] = [];
       if (menuData && menuData.dishes) {
         for (const dish of menuData.dishes) {
-          amounts.set(dish.id, this.dishAmounts.get(dish.id) || new DishAmount(0.0, 0));
+          const current = this.dishAmounts.get(dish.id);
+          const isDirty = this.dirtyDishIds.includes(dish.id);
+          if (current && isDirty) {
+            amounts.set(dish.id, current);
+            retainedDirtyDishIds.push(dish.id);
+            continue;
+          }
+
+          const savedGrams = dish.savedConsumedGrams ?? null;
+          let savedMultiplier = dish.savedServingMultiplier ?? null;
+          if (savedMultiplier === null) {
+            savedMultiplier = savedGrams !== null && dish.standardServingGrams !== null && dish.standardServingGrams > 0
+              ? savedGrams / dish.standardServingGrams
+              : 0;
+          }
+          const restoredGrams = savedGrams !== null
+            ? savedGrams
+            : savedMultiplier > 0 && dish.standardServingGrams !== null
+              ? Math.round(dish.standardServingGrams * savedMultiplier)
+              : null;
+          amounts.set(dish.id, new DishAmount(savedMultiplier, restoredGrams));
         }
       }
       this.dishAmounts = amounts;
+      this.dirtyDishIds = retainedDirtyDishIds;
       this.calculateLunchTotals();
 
       this.pendingOfflineCount = await this.cacheService.getPendingCount();
     } catch (err) {
+      if (requestedDate !== this.currentDate) return;
       this.statusMessage = '无法加载今日数据，请检查网络或登录后重试';
       this.statusIsError = true;
     } finally {
-      this.isLoading = false;
+      if (requestedDate === this.currentDate) this.isLoading = false;
     }
   }
 
@@ -155,18 +184,27 @@ export struct TodayView {
    * Portion chip selected
    */
   onPortionSelect(dish: DishDto, portion: number) {
-    const current = this.dishAmounts.get(dish.id) || new DishAmount();
+    if (this.isSavingMeal) return;
     const grams = dish.standardServingGrams ? Math.round(dish.standardServingGrams * portion) : null;
     const updated = new Map<string, DishAmount>(this.dishAmounts);
     updated.set(dish.id, new DishAmount(portion, grams));
     this.dishAmounts = updated;
+    this.markDishDirty(dish.id);
     this.calculateLunchTotals();
+  }
+
+  markDishDirty(dishId: string) {
+    this.dirtyDishDate = this.currentDate;
+    if (!this.dirtyDishIds.includes(dishId)) {
+      this.dirtyDishIds = this.dirtyDishIds.concat(dishId);
+    }
   }
 
   /**
    * Custom grams entered
    */
   onGramsChange(dish: DishDto, gramsStr: string) {
+    if (this.isSavingMeal) return;
     const grams = Number(gramsStr);
     const validGrams = !Number.isFinite(grams) || grams < 0 ? null : grams;
     let multiplier = 0;
@@ -176,6 +214,7 @@ export struct TodayView {
     const updated = new Map<string, DishAmount>(this.dishAmounts);
     updated.set(dish.id, new DishAmount(multiplier, validGrams));
     this.dishAmounts = updated;
+    this.markDishDirty(dish.id);
     this.calculateLunchTotals();
   }
 
@@ -184,16 +223,31 @@ export struct TodayView {
    */
   async saveLunch() {
     if (!this.menu || this.isSavingMeal) return;
+    for (const dish of this.menu.dishes) {
+      const amount = this.dishAmounts.get(dish.id);
+      if (amount && amount.consumedGrams !== null) {
+        const maxGrams = dish.standardServingGrams === null
+          ? 5000
+          : Math.min(5000, dish.standardServingGrams * 5);
+        if (amount.consumedGrams > maxGrams) {
+          this.statusMessage = `${dish.name}的分量不能超过 ${maxGrams} 克（最多5份），请调整后再保存`;
+          this.statusIsError = true;
+          return;
+        }
+      }
+    }
     this.isSavingMeal = true;
     try {
-      const items: MealItemRequest[] = this.menu.dishes.map((d: DishDto): MealItemRequest => {
+      const items: MealItemRequest[] = [];
+      for (const d of this.menu.dishes) {
         const amt = this.dishAmounts.get(d.id) || new DishAmount();
-        return {
+        const item: MealItemRequest = {
           dishId: d.id,
-          servingMultiplier: amt.servingMultiplier,
-          consumedGrams: amt.consumedGrams
+          servingMultiplier: amt.servingMultiplier
         };
-      });
+        if (amt.consumedGrams !== null) item.consumedGrams = amt.consumedGrams;
+        items.push(item);
+      }
 
       const res = await this.healthApi.saveMeal({
         date: this.currentDate,
@@ -204,6 +258,10 @@ export struct TodayView {
       if (res.ok) {
         this.statusMessage = res.queued ? '午餐已暂存，等待同步' : '午餐记录已成功保存！';
         this.statusIsError = false;
+        if (!res.queued) {
+          this.dirtyDishIds = [];
+          this.dirtyDishDate = '';
+        }
         // Refresh summary
         this.summary = await this.refreshSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
@@ -320,7 +378,9 @@ export struct TodayView {
       this.pendingOfflineCount = await this.cacheService.getPendingCount();
       this.statusMessage = syncedCount > 0
         ? `已同步 ${syncedCount} 条离线数据并刷新运动记录`
-        : '终端运动数据已是最新';
+        : this.pendingOfflineCount > 0
+          ? `还有 ${this.pendingOfflineCount} 条记录等待同步`
+          : '终端运动数据已是最新';
       this.statusIsError = false;
     } catch (e) {
       this.statusMessage = '同步检查完成';
@@ -525,7 +585,7 @@ export struct TodayView {
       Column({ space: 3 }) {
         Text(dish.name)
           .fontSize(M3ETypography.titleMedium)
-          .fontWeight(FontWeight.SemiBold)
+          .fontWeight(FontWeight.Medium)
           .fontColor(M3EColors.onSurface)
 
         Row({ space: 8 }) {
@@ -576,6 +636,7 @@ export struct TodayView {
             .type(InputType.Number)
             .height(40)
             .layoutWeight(1)
+            .enabled(!this.isSavingMeal)
             .backgroundColor(M3EColors.surfaceContainerHigh)
             .borderRadius(M3EShapes.buttonRadius)
             .onChange((value: string) => {
@@ -615,6 +676,7 @@ export struct TodayView {
           : M3EColors.surfaceContainerHigh
       )
       .borderRadius(M3EShapes.chipRadius)
+      .enabled(!this.isSavingMeal)
       .onClick(() => {
         this.onPortionSelect(dish, option.value);
       })
@@ -626,7 +688,7 @@ export struct TodayView {
       Column({ space: 4 }) {
         Text('午餐合计')
           .fontSize(M3ETypography.labelLarge)
-          .fontWeight(FontWeight.SemiBold)
+          .fontWeight(FontWeight.Medium)
           .fontColor(M3EColors.onTertiaryContainer)
 
         Text(`${Math.round(this.lunchTotals.energyKcal)} 千卡 · 蛋白 ${this.lunchTotals.proteinG}g · 脂肪 ${this.lunchTotals.fatG}g · 碳水 ${this.lunchTotals.carbohydrateG}g`)
@@ -638,7 +700,7 @@ export struct TodayView {
 
       Button(this.isSavingMeal ? '保存中...' : '保存午餐记录')
         .fontSize(M3ETypography.labelMedium)
-        .fontWeight(FontWeight.SemiBold)
+        .fontWeight(FontWeight.Medium)
         .backgroundColor(M3EColors.primary)
         .fontColor(M3EColors.onPrimary)
         .borderRadius(M3EShapes.buttonRadius)
@@ -851,7 +913,7 @@ export struct TodayView {
           Text(this.isShowManualActivity ? '收起补记' : '补记一次运动')
             .fontSize(M3ETypography.labelMedium)
             .fontColor(M3EColors.primary)
-            .fontWeight(FontWeight.SemiBold)
+            .fontWeight(FontWeight.Medium)
             .onClick(() => {
               this.isShowManualActivity = !this.isShowManualActivity;
             })
@@ -882,7 +944,7 @@ export struct TodayView {
             Row() {
               Text(`运动时长: ${this.manualDurationMinutes} 分钟`)
                 .fontSize(M3ETypography.bodyMedium)
-                .fontWeight(FontWeight.SemiBold)
+                .fontWeight(FontWeight.Medium)
             }
             .width('100%')
 
@@ -1003,7 +1065,7 @@ export struct TodayView {
           Row() {
             Text(`运动 ${this.summary?.activity?.totalMinutes ?? 0} / ${this.summary?.activity?.targetMinutes ?? 120} 分钟`)
               .fontSize(M3ETypography.labelMedium)
-              .fontWeight(FontWeight.SemiBold)
+              .fontWeight(FontWeight.Medium)
 
             Blank()
 
@@ -1126,7 +1188,7 @@ export struct TodayView {
       Column({ space: 2 }) {
         Text(title)
           .fontSize(M3ETypography.titleLarge)
-          .fontWeight(FontWeight.SemiBold)
+          .fontWeight(FontWeight.Medium)
           .fontColor(M3EColors.onSurface)
 
         Text(subtitle)

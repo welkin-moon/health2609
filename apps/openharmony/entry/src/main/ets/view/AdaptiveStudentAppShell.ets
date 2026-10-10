@@ -90,7 +90,7 @@ export struct AdaptiveStudentAppShell {
       if (this.selectedDestination === dest.key) {
         Text(dest.label)
           .fontSize(M3ETypography.labelLarge)
-          .fontWeight(FontWeight.SemiBold)
+          .fontWeight(FontWeight.Medium)
           .fontColor(M3EColors.onSecondaryContainer)
       }
     }

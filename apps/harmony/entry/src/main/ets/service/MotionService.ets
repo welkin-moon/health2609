@@ -74,7 +74,7 @@ export class MotionService {
     }
     hilog.info(0x2609, 'MotionService', 'Observed outside-school steps: %{public}d', steps);
     // A pedometer is not an exercise-duration or active-energy measurement.
-    return { date: date, exerciseMinutes: 0, steps: steps, activeEnergyKcal: null };
+    return { date: date, exerciseMinutes: 0, steps: steps };
   }
 
   public async syncAndSaveOutsideSchoolMotion(date: string): Promise<OutsideSchoolActivityRequest> {

@@ -95,7 +95,7 @@ export struct PrivacyView {
       Column({ space: 5 }) {
         Text(title)
           .fontSize(M3ETypography.titleMedium)
-          .fontWeight(FontWeight.SemiBold)
+          .fontWeight(FontWeight.Medium)
           .fontColor(M3EColors.onSurface)
 
         Text(body)
