@@ -37,18 +37,30 @@ export const syncRecoverySchema = z.object({
   recoveryVerifier: verifierSchema
 });
 
-export const syncRecordEnvelopeSchema = z.object({
+const syncRecordFields = z.object({
   entityType: z.string().trim().min(1).max(64),
   entityId: z.string().trim().min(1).max(160),
   ciphertext: opaqueBase64Schema,
   nonce: opaqueBase64Schema,
   aad: z.string().min(1).max(1000),
-  envelopeVersion: z.literal(1),
   keyEpoch: z.number().int().min(1).max(1_000_000),
   revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
-  deleted: z.boolean().default(false),
   clientUpdatedAt: z.string().datetime({ offset: true })
 });
+
+const sourceDeviceIdSchema = z.string().min(1).max(200);
+const syncRecordV1Schema = syncRecordFields.extend({
+  envelopeVersion: z.literal(1).default(1),
+  deleted: z.boolean().default(false)
+});
+const syncRecordV2Schema = syncRecordFields.extend({
+  envelopeVersion: z.literal(2),
+  // These fields are authenticated in v2; missing values must not be defaulted.
+  deleted: z.boolean(),
+  sourceDeviceId: sourceDeviceIdSchema
+});
+
+export const syncRecordEnvelopeSchema = z.union([syncRecordV1Schema, syncRecordV2Schema]);
 
 export const syncPushSchema = z.object({
   records: z.array(syncRecordEnvelopeSchema).max(200)
@@ -88,10 +100,22 @@ export type SyncRecordEnvelope = z.infer<typeof syncRecordEnvelopeSchema>;
 export type SyncPushInput = z.infer<typeof syncPushSchema>;
 
 
-export const syncPulledRecordSchema = syncRecordEnvelopeSchema.extend({
-  sourceDeviceId: z.string().min(1).max(200),
+const pulledRecordFields = {
+  sourceDeviceId: sourceDeviceIdSchema,
   serverReceivedAt: z.string().datetime({ offset: true })
-});
+};
+export const syncPulledRecordSchema = z.union([
+  syncRecordV1Schema.extend(pulledRecordFields),
+  syncRecordV2Schema.extend(pulledRecordFields)
+]);
+
+/** Preserve the original timestamp text: it is part of authenticated bytes. */
+export function syncRecordAad(record: SyncRecordEnvelope): string {
+  const base = `health2609|record|v${record.envelopeVersion}|epoch=${record.keyEpoch}|type=${record.entityType}|id=${record.entityId}|revision=${record.revision}|updated=${record.clientUpdatedAt}`;
+  return record.envelopeVersion === 2
+    ? `${base}|deleted=${record.deleted ? "true" : "false"}|sourceDeviceId=${record.sourceDeviceId}`
+    : base;
+}
 
 export type SyncVersionStamp = {
   revision: number;

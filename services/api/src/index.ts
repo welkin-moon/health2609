@@ -24,6 +24,7 @@ import {
   syncPushSchema,
   syncRecoverySchema,
   syncRecoveryResetPasswordSchema,
+  syncRecordAad,
   syncRegisterSchema,
   syncRotateKeySchema
 } from "@health2609/contracts/sync";
@@ -2343,6 +2344,13 @@ app.post("/v1/sync/push", async (c) => {
   const parsed = syncPushSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "invalid_sync_payload" }, 400);
   const body = parsed.data;
+
+  // V2 authenticates the tombstone and source identity. Do not overwrite those
+  // fields after accepting an envelope whose AAD names a different device.
+  if (body.records.some((record) => record.envelopeVersion === 2 &&
+      (record.sourceDeviceId !== auth.deviceId || record.aad !== syncRecordAad(record)))) {
+    return c.json({ error: "invalid_sync_record_metadata" }, 400);
+  }
 
   const account = await c.env.DB.prepare(
     "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"

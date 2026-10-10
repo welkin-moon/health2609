@@ -31,7 +31,17 @@ Android 先写入本地 journal，本地 journal 由 Android Keystore 中不可�
 
 ## Envelope
 
-当前 envelopeVersion = 1。记录 AAD 包含 envelope version、key epoch、entity type、entity id、revision 和 clientUpdatedAt。AES-GCM 会认证密文和 AAD；任意一项被改写都会导致解密失败。未知 envelope 版本默认拒绝，不进行宽松降级解析。
+新客户端写入 `envelopeVersion = 2`，读取兼容历史版本 1 和 2，拒绝其他版本。版本 2 的记录 AAD 精确包含 envelope version、key epoch、entity type、entity id、revision、原始 clientUpdatedAt 字符串、deleted 布尔值和 sourceDeviceId。AES-GCM 认证密文与这些 AAD 字节；修改任意受认证字段会导致解密失败。
+
+```text
+health2609|record|v2|epoch=<N>|type=<type>|id=<id>|revision=<R>|updated=<原始时间字符串>|deleted=true或false|sourceDeviceId=<已认证设备ID>
+```
+
+其中删除值只能是小写 `true` 或 `false`；不能把“true或false”作为实际 AAD。后端要求版本 2 请求显式提供 JSON 布尔值 deleted 和非空 sourceDeviceId，并要求 sourceDeviceId 等于 Bearer 所属设备、aad 等于元数据生成的规范字符串，否则拒绝写入。
+
+历史版本 1 的 AAD 和密文保持原样；其 AAD 不含 deleted 与 sourceDeviceId，因此这些历史字段没有 AES-GCM 完整性保护。版本 2 的新增保护不追溯修复版本 1，也不认证 userId、serverReceivedAt。本机 journal 的完整性保护是另一层要求，不能由网络 envelope 代替。后端为旧客户端保留版本 1 写入兼容；未提供 envelopeVersion 的旧请求默认按版本 1 解析。
+
+跨平台字节格式、字段名和迁移边界见 [sync-native-interop.md](sync-native-interop.md)。
 
 ## 设备认证
 
@@ -39,13 +49,15 @@ Android 先写入本地 journal，本地 journal 由 Android Keystore 中不可�
 
 所有 push / pull / device / key 管理接口都要求 Bearer device token。旧版可以伪造的 x-sync-user-id 不再作为认证依据。
 
-新设备即使知道账号密码，也必须额外证明持有恢复短语。被吊销设备重新加入同样需要恢复短语。
+新设备即使知道账号密码，也必须额外证明持有恢复短语。被吊销设备重新加入同样需要恢复短语。既有设备免恢复短语重新登录时，必须附带该账号、该设备当前有效的 Bearer；fingerprint 只是安装标识，不能代替设备持有证明。登录会替换该设备 token，客户端须安全保存返回的新 token。写入的原子 guard 同时检查凭据、epoch 和原 token，避免认证后被吊销或被其他登录替换的旧 token 继续修改数据。
 
 ## 增量同步与冲突
 
 D1 使用单调递增 change_id 作为增量 cursor。客户端只 pull 上次 cursor 之后的变化。
 
-同一 (user, entityType, entityId) 的冲突顺序固定为：revision 大者优先；相同时 clientUpdatedAt 较新者优先；两者仍相同时 sourceDeviceId 字典序较大者优先。客户端和 Worker 使用同一顺序，避免两个设备反复覆盖产生振荡。
+同一 (user, entityType, entityId) 的冲突顺序固定为：revision 大者优先；相同时 clientUpdatedAt 代表的时刻较新者优先；两者仍相同时 sourceDeviceId 字典序较大者优先。新写入统一使用 UTC 毫秒时间戳，保留历史/拉取记录的原始字符串用于 AAD。Android Instant、JavaScript Date 与 SQLite 的亚毫秒精度存在历史差异，不能把旧数据的不同精度视为已验证一致。
+
+push 成功响应的 acceptedCount 是提交条数，不表示每条都赢得冲突。客户端只清除仍等于提交版本的 dirty 标记，随后拉取服务器的获胜版本。pull 页面必须全部校验、解密和持久化后才前进 cursor；缺密钥、认证失败或存储错误时保留原 cursor。页面重放和重复实体应幂等处理。每批最多 200 条，HTTP 请求体最多 4 MiB；批次超限不能清除 dirty。
 
 ## 吊销与轮换
 
@@ -59,26 +71,28 @@ D1 使用单调递增 change_id 作为增量 cursor。客户端只 pull 上次 c
 
 普通改密码在已授权设备上完成：本机已经持有历史 epoch key；为新密码生成新 salt / wrapping key；重新包装所有历史 epoch key；Worker 原子替换密码 verifier 和 password-wrapped envelopes。
 
-忘记密码时必须使用恢复短语：恢复短语解开所有 recovery-wrapped epoch key；端侧选择新密码并重新包装全部 epoch；Worker 不需要、也得不到任何明文账号密钥。
+忘记密码时必须使用恢复短语：恢复短语解开所有 recovery-wrapped epoch key；端侧选择新密码并重新包装全部 epoch；Worker 不需要、也得不到任何明文账号密钥。恢复重置不要求旧密码，并吊销全部既有设备会话；之后需要用新密码和恢复短语重新加入。改密码、恢复重置和轮换在数据库事务内检查原始凭据/epoch 状态，冲突时整批失败而不是写入不一致的密钥包。
 
 如果用户同时丢失所有仍持有账号 epoch key 的受信设备和恢复短语，历史 E2EE 数据不可恢复。这是端到端加密的设计结果，服务器没有后门恢复能力。
 
 ## 退出
 
-普通退出只撤销本机在线会话，不主动销毁本机账号密钥，便于重新登录。“退出并清除本机账号密钥”会删除本机 token 和已解包的账号 epoch key。UI 在执行前明确提示：若没有其他受信设备或恢复短语，之后无法恢复云端历史密文。
+Android 普通退出停用本机同步并删除本机 token，不主动销毁本机 journal 与账号 epoch key；这不是服务器端设备吊销，服务器中的 token 不会因本地退出操作自动失效。再次加入没有现有 Bearer 的设备时仍需恢复短语。“退出并清除本机账号密钥”会另外删除已解包的账号 epoch key。不要清除 journal 作为错误恢复；用户需保留受信设备或恢复短语以便恢复云端历史密文。
 
 ## 威胁模型
 
-保护范围：D1 数据库泄露不能直接得到家庭餐、手动运动、个人偏好等 E2EE 明文；修改 ciphertext、nonce 或 AAD 会被 AES-GCM 拒绝；伪造 user id 不能读取他人同步数据；被吊销设备无法继续获取新记录或新 key epoch；单纯取得 Android DataStore 文件不能直接得到 device token 或账号 epoch key。
+保护范围：D1 数据库泄露不能直接得到家庭餐、手动运动、个人偏好等 E2EE 明文；修改 ciphertext、nonce 或受认证 AAD 会被 AES-GCM 拒绝；版本 2 额外认证 deleted/sourceDeviceId，历史版本 1 保留前述元数据完整性限制；伪造 user id 不能读取他人同步数据；被吊销 token 不能继续获取新记录或新 key epoch；单纯取得 Android DataStore 文件不能直接得到 device token 或账号 epoch key。
 
 不保护：已解锁且被完全控制的受信终端可以读取该终端当前可访问的明文；截图、键盘记录器或恶意无障碍服务可能窃取用户主动输入的密码/恢复短语；Worker 在学校可读公共/统计接口中处理的数据不属于 E2EE 私密 journal；流量时间、密文大小、entity type/id、revision 和更新时间属于同步所需最小元数据。
 
 ## 版本迁移
 
-新协议使用独立的 sync_*_v2 D1 表，不复用旧 0012 的不一致 schema。这样已部署数据库可以安全向前迁移，而无需猜测旧字段含义。
+同步服务使用独立的 sync_*_v2 D1 表，不复用旧 0012 的不一致 schema。迁移 0013 建表，0014 增加事务状态 guard。表名中的 v2 是服务版本，不等于记录 envelopeVersion；同一表可以保存 envelope 1 和 2，本轮 envelope 2 不需要新增数据库迁移。0012 旧密文没有自动导入、账号也没有自动重命名；原学校前缀用户名须按实际原用户名读取，不能默默改为无前缀的新账号。
 
 旧 Android 版本曾保存 e2ee_passkey_cached；新客户端迁移路径只执行删除，不再写入该字段。
 
 ## 验收
 
-CI 覆盖 register/login/recovery/rotation schema、envelope version fail-closed、AES-GCM 正常解密和篡改拒绝、deterministic conflict ordering、Bearer token 身份认证、Android Keystore 本机密钥保护、密码/通行密钥不落 DataStore，以及设备吊销后的 key rotation 要求。
+本轮问题发现和修复依据为源码推理，没有运行测试，也没有完成原生设备间同步验收。仓库保留 `tests/e2ee_sync.test.mjs` 的 schema、通用 AES-GCM 和源码断言；本轮仅维护其中版本 2 契约相关期望，未执行它们。源码字符串断言不能证明 Worker 鉴权的运行效果、Android Keystore 真实行为、跨平台 Unicode PBKDF2 兼容性或设备吊销后实际密钥访问。
+
+发布验收应区分生产构建/类型检查、协议向量与真实安装同步结果；生产构建通过也不等于后两项已验证。不得依据本轮源码审查声称 iOS/Harmony 与 Android 的实际双向同步已测试通过。

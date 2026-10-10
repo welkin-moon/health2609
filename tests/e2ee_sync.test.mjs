@@ -7,6 +7,7 @@ import {
   syncLoginSchema,
   syncPushSchema,
   syncRecordEnvelopeSchema,
+  syncRecordAad,
   syncRegisterSchema,
   syncRotateKeySchema
 } from "../packages/contracts/src/sync.ts";
@@ -68,8 +69,21 @@ describe("E2EE sync v2 contracts", () => {
     };
     assert.equal(syncRecordEnvelopeSchema.safeParse(record).success, true);
     assert.equal(syncPushSchema.safeParse({ records: [record] }).success, true);
+    const v2 = { ...record, envelopeVersion: 2, sourceDeviceId: "device-a" };
+    v2.aad = syncRecordAad(v2);
+    assert.equal(syncRecordEnvelopeSchema.safeParse(v2).success, true);
+    assert.equal(syncPushSchema.safeParse({ records: [v2] }).success, true);
     assert.equal(
       syncRecordEnvelopeSchema.safeParse({ ...record, envelopeVersion: 2 }).success,
+      false,
+      "v2 requires an explicit source device"
+    );
+    const noDeleted = { ...v2 };
+    delete noDeleted.deleted;
+    assert.equal(syncRecordEnvelopeSchema.safeParse(noDeleted).success, false);
+    assert.equal(syncRecordEnvelopeSchema.safeParse({ ...v2, deleted: "false" }).success, false);
+    assert.equal(
+      syncRecordEnvelopeSchema.safeParse({ ...v2, envelopeVersion: 3 }).success,
       false,
       "unsupported envelope versions must fail closed"
     );
