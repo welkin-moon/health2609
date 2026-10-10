@@ -6,7 +6,7 @@ OUTPUT_DIR="${IOS_OUTPUT_DIR:-$REPO_DIR/dist/ios}"
 DERIVED_DIR="${IOS_DERIVED_DIR:-$IOS_DIR/.build-device}"
 command -v xcodebuild >/dev/null || { echo 'Xcode on macOS is required.' >&2; exit 1; }
 mkdir -p "$OUTPUT_DIR"
-EXTRA_SETTINGS=()
+EXTRA_SETTINGS=("CODE_SIGN_ENTITLEMENTS=")
 VARIANT=resign
 if [[ "${ENABLE_HEALTHKIT:-0}" == 1 ]]; then
   VARIANT=healthkit
