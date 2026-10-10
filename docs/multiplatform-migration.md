@@ -7,9 +7,9 @@
 | 平台 | 工程与功能 | 安装包要求 | 未完成项 |
 | --- | --- | --- | --- |
 | Android | 主学生端，Health Connect、本地优先 E2EE journal | Gradle debug 签名 APK | 本版未做真机验证；旧账号升级可能需要恢复短语 |
-| iOS/iPadOS | SwiftUI Xcode 应用，真实照片选择/相机，手动运动和菜单记录 | 默认 arm64 unsigned IPA 重签后安装；可选 HealthKit 版 | 需要有效证书/profile；完整 E2EE journal 未实现 |
-| HarmonyOS | ArkUI Stage，真实照片上传，诚实的离线状态 | 华为 SDK Hvigor HAP 构建；市售机需华为设备签名 | Hvigor release 构建已成功、真实 unsigned HAP 已发布；市售机签名仍缺设备授权材料；完整 E2EE、历史健康数据适配及个人身份接入未完成 |
-| OpenHarmony/开鸿 | 独立目标与相同核心业务源码 | OpenHarmony API 12 release HAP 已真实构建并发布；仍需对应签名 | 不能拿开鸿包替代市售鸿蒙签名；同样未完成全量 E2EE 和历史健康数据适配 |
+| iOS/iPadOS | SwiftUI Xcode 应用，真实照片选择/相机，本地加密日记、账号/恢复/设备/密钥管理与手动同步 | 默认 arm64 unsigned IPA 重签后安装；可选 HealthKit 版 | 需要有效证书/profile；未在个人设备重签安装验证 |
+| HarmonyOS | ArkUI Stage，真实照片上传，HUKS 本机加密日记、账号和手动 E2EE 同步 | 华为 SDK Hvigor HAP 构建；市售机需华为设备签名 | Hvigor release 构建已成功、真实 unsigned HAP 已发布；市售机签名仍缺设备授权材料；系统历史健康数据适配未完成 |
+| OpenHarmony/开鸿 | 独立目标与相同核心业务源码 | OpenHarmony API 12 release HAP 已真实构建并发布；仍需对应签名 | 不能拿开鸿包替代市售鸿蒙签名；系统历史健康数据适配和真机验证未完成 |
 | 管理端/Worker | TypeScript 与共享 contracts，学校菜单/课程/汇总 | Web 静态包与 Worker bundle | 学校侧仍为演示身份，与私密同步账号分离 |
 
 ## 发布构建
@@ -21,11 +21,11 @@
 - `.github/workflows/hap-build.yml`：从华为工具仓获取指定版本工具并校验下载 SHA-256，实际执行两个平台 Hvigor 构建。构建失败时不生成替代资产。
 - `tools/build-hap.mjs`：支持 SDK 环境和隔离签名；签名 profile 需要授权设备与匹配 bundle。
 
-详见 [device-install.md](device-install.md)。完整 Android 私密同步设计见 [e2ee-sync.md](e2ee-sync.md)。
+详见 [device-install.md](device-install.md)。私密同步设计见 [e2ee-sync.md](e2ee-sync.md)。
 
 ## 已发布的实际产物
 
 - [Android APK 与两种 iOS arm64 IPA（0.4.1）](https://github.com/welkin-moon/health2609/releases/tag/v0.4.1-device.14998ae)。IPA 分普通重签版与 HealthKit 版。
 - [HarmonyOS / OpenHarmony unsigned release HAP（0.4.1）](https://github.com/welkin-moon/health2609/releases/tag/v0.4.1-hap.d60cac8)。[实际构建日志](https://github.com/welkin-moon/health2609/actions/runs/38033668035)确认两个平台 `BUILD SUCCESSFUL`。市售机签名及真机运行仍未验证。
 
-后端同步修复与 D1 mutation guard 迁移已部署。上述产物仅确认编译打包成功，没有执行测试或真机验证。
+后端同步修复、D1 mutation guard 迁移与 v2 认证元数据校验已部署。新写入使用 v2，保留历史 v1 读取。三端私密记录支持账户隔离、离线保存、完整同步确认、按字节分批及跨端活动汇总。上述产物仅确认编译打包成功，没有执行测试或真机验证。

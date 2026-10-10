@@ -66,6 +66,8 @@ public final class TodayViewModel: ObservableObject {
     private var campusSummary: DailySummaryDto?
     private var journalObserver: AnyCancellable?
     private let privateSync = PrivateSyncState.shared
+    private var displayedPrivateOwner = ""
+    private var displayedPrivateGeneration = 0
 
     public init(
         api: HealthApiClient = HealthApi.shared,
@@ -87,6 +89,19 @@ public final class TodayViewModel: ObservableObject {
     }
 
     private func updatePrivateSummary() {
+        if !displayedPrivateOwner.isEmpty &&
+            (displayedPrivateOwner != privateSync.owner || displayedPrivateGeneration != privateSync.generation) {
+            homeMealDraft = []
+            homeMealNotes = []
+        }
+        displayedPrivateOwner = privateSync.owner
+        displayedPrivateGeneration = privateSync.generation
+        guard privateSync.storageReady else {
+            summary = nil
+            energyReferenceInput = ""
+            message = privateSync.message ?? "私密日记尚未加载，暂不显示个人汇总"
+            return
+        }
         summary = PrivateSummary.compose(date: date, campus: campusSummary, menu: menu, records: privateSync.records)
         energyReferenceInput = summary?.energy.dailyEnergyReferenceKcal.map { String($0) } ?? ""
     }
@@ -354,6 +369,8 @@ public final class TodayViewModel: ObservableObject {
 
     public func analyzeHomeMeal(imageData: Data) {
         guard !analyzingHomeMeal else { return }
+        let expectedOwner = privateSync.owner
+        let expectedGeneration = privateSync.generation
         #if canImport(UIKit)
         guard let image = UIImage(data: imageData) else {
             message = "无法读取照片，请重新选择"
@@ -375,6 +392,11 @@ public final class TodayViewModel: ObservableObject {
         Task {
             do {
                 let result = try await api.analyzeHomeMeal(imageData: jpegData, mimeType: "image/jpeg", fileName: "meal.jpg")
+                guard privateSync.owner == expectedOwner, privateSync.generation == expectedGeneration else {
+                    self.analyzingHomeMeal = false
+                    self.message = "识别期间账号已改变，请在当前账号下重新选择照片。"
+                    return
+                }
                 self.homeMealDraft = result.items.map { item in
                     HomeMealDraftItem(
                         name: item.name,
@@ -505,17 +527,9 @@ public final class TodayViewModel: ObservableObject {
             self.menu = try await api.todayMenu(date: date, mealSlot: "lunch")
             self.updatePrivateSummary()
             self.savingMeal = false
-            self.savingActivity = false
-            self.savingHomeMeal = false
-            self.savingEnergyReference = false
-            self.syncingPhoneActivity = false
             self.message = successMessage
         } catch {
             self.savingMeal = false
-            self.savingActivity = false
-            self.savingHomeMeal = false
-            self.savingEnergyReference = false
-            self.syncingPhoneActivity = false
             self.message = "\(successMessage)，但汇总刷新失败"
         }
     }

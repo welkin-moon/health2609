@@ -109,7 +109,7 @@ jobs:
           cat > /tmp/hap-notes.md <<'NOTES'
           Real Hvigor release-mode HarmonyOS / OpenHarmony HAPs, unsigned. These are compiler-produced packages, not source archives.
           Huawei commercial HarmonyOS 6 devices require a HarmonyOS certificate and matching profile authorizing the target UDID. OpenHarmony signing is not a substitute. Unsigned packages cannot be installed as distributed.
-          Build and source review only; no tests or device validation were run. Full private E2EE journal and historical health data migration remain incomplete on these ports.
+          Includes HUKS-protected local private journals, encrypted account synchronization, device revocation/key rotation/password recovery, and portable private activity summaries. New writes use authenticated v2 envelopes; legacy v1 records remain readable. Build and source review only; no tests or device validation were run. Native historical health-provider integration and commercial-device signing/install remain incomplete.
           NOTES
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/* --clobber

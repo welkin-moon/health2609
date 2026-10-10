@@ -181,9 +181,14 @@ actor PrivateSyncRepository {
             // Preserve anonymous collisions rather than silently discarding them.
             value.accounts[anonymous] = remaining
         }
+        var installed = session
+        if let pendingEpoch = value.pendingRotation[owner] {
+            if installed.currentKeyEpoch > pendingEpoch { value.pendingRotation.removeValue(forKey: owner) }
+            else { installed.rotationRequired = true }
+        }
         value.generation += 1
         value.owner = owner
-        value.session = session
+        value.session = installed
         try commit(value)
     }
     func register(server rawServer: String, username rawName: String, password: String, importAnonymous: Bool) async throws -> String {
@@ -363,7 +368,7 @@ actor PrivateSyncRepository {
         try enterOperation(); defer { operationBusy = false }
         let initial = try load()
         let session = try requireSession(initial)
-        guard !session.rotationRequired else { throw SyncFailure("已吊销设备，请先轮换密钥，再上传新的私密记录") }
+        guard !session.rotationRequired, initial.pendingRotation[initial.owner] == nil else { throw SyncFailure("已吊销设备，请先轮换密钥，再上传新的私密记录") }
         let owner = initial.owner
         guard let key = session.epochKeys[String(session.currentKeyEpoch)] else { throw SyncFailure("当前加密密钥不可用，请重新登录") }
         // Pull first so a remote winner does not get overwritten by a stale local batch.
@@ -420,6 +425,7 @@ actor PrivateSyncRepository {
         try await write(server: session.serverURL, path: "/v1/sync/devices/\(id)/revoke", body: [:], token: session.token)
         var value = try load()
         value.session?.rotationRequired = true
+        value.pendingRotation[value.owner] = session.currentKeyEpoch
         try commit(value)
     }
     func rotate(password: String, recoveryPhrase: String) async throws {
@@ -444,6 +450,9 @@ actor PrivateSyncRepository {
         value.session?.passwordSalt = known.passwordSalt
         value.session?.recoverySalt = known.recoverySalt
         value.session?.rotationRequired = false
+        if let pendingEpoch = value.pendingRotation[value.owner], newEpoch > pendingEpoch {
+            value.pendingRotation.removeValue(forKey: value.owner)
+        }
         try commit(value)
     }
     private func passwordEnvelopes(_ keys: [String: Data], password: String, salt: Data, username: String) throws -> [[String: Any]] {

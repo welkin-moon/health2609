@@ -239,6 +239,9 @@ class SyncRepository(private val context: Context) {
             // ever pushing one account's pending records into another account.
             val previousOwner = prefs[KEY_LOCAL_OWNER]
                 ?: prefs[KEY_SERVER_USERNAME]?.let { "$serviceUrl|$it" }
+            val rotations = pendingRotations(prefs)
+            val pendingEpoch = rotations.optJSONObject(owner)?.getInt("epoch")
+            if (pendingEpoch != null && currentKeyEpoch > pendingEpoch) rotations.remove(owner)
             if (previousOwner != null && previousOwner != owner) {
                 val archives = readStorageObject(prefs[KEY_ACCOUNT_RECORDS_JSON])
                 archives.put(previousOwner, readRecordJournal(prefs[KEY_LOCAL_RECORDS_JSON]))
@@ -264,7 +267,8 @@ class SyncRepository(private val context: Context) {
             prefs[KEY_CURRENT_KEY_EPOCH] = currentKeyEpoch
             prefs[KEY_DEVICE_FINGERPRINT] = fingerprint
             prefs[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(JSONObject(), epochKeys)
-            prefs[KEY_ROTATION_REQUIRED] = false
+            prefs[KEY_PENDING_ROTATIONS_JSON] = rotations.toString()
+            prefs[KEY_ROTATION_REQUIRED] = rotations.has(owner)
             prefs[KEY_KEY_REFRESH_REQUIRED] = false
         }
     }
@@ -576,6 +580,17 @@ class SyncRepository(private val context: Context) {
         throw PrivateStorageException(error)
     }
 
+    private fun pendingRotations(prefs: androidx.datastore.preferences.core.Preferences): JSONObject {
+        val rotations = readStorageObject(prefs[KEY_PENDING_ROTATIONS_JSON])
+        // Migrate the old active-account boolean before account changes/logout.
+        val owner = prefs[KEY_LOCAL_OWNER]
+        val epoch = prefs[KEY_CURRENT_KEY_EPOCH] ?: 0
+        if (prefs[KEY_ROTATION_REQUIRED] == true && owner != null && epoch > 0 && !rotations.has(owner)) {
+            rotations.put(owner, JSONObject().put("epoch", epoch))
+        }
+        return rotations
+    }
+
     private fun localRecordKey(entityType: String, entityId: String) =
         "$entityType\\u001F$entityId"
 
@@ -610,6 +625,11 @@ class SyncRepository(private val context: Context) {
                 }
 
                 val currentEpoch = initialPrefs[KEY_CURRENT_KEY_EPOCH] ?: 0
+                val owner = initialPrefs[KEY_LOCAL_OWNER]
+                    ?: throw IllegalStateException("同步账号信息缺失，请重新登录")
+                if (initialPrefs[KEY_ROTATION_REQUIRED] == true || pendingRotations(initialPrefs).has(owner)) {
+                    throw SyncTransferException("已吊销设备，须先轮换账号加密密钥再同步；待同步记录仍保存在本机。")
+                }
                 val sourceDeviceId = initialPrefs[KEY_DEVICE_ID]
                     ?: throw IllegalStateException("同步设备信息缺失，请重新登录")
                 val epochKeys = openEpochKeys(initialPrefs[KEY_EPOCH_KEYS_JSON])
@@ -868,8 +888,22 @@ class SyncRepository(private val context: Context) {
                 httpClient.newCall(request).execute().use { response ->
                     val body = parseResponseBody(response.body?.string())
                     if (!response.isSuccessful) throw serverError(response.code, body, "revoke_failed")
-                    if (body.optBoolean("rotationRequired", false)) {
-                        dataStore.edit { it[KEY_ROTATION_REQUIRED] = true }
+                    // A successful revocation requires rotation even if its
+                    // confirmation body is malformed; never resume old-key pushes.
+                    dataStore.edit { p ->
+                        val owner = p[KEY_LOCAL_OWNER] ?: throw IllegalStateException("账号信息缺失")
+                        val rotations = pendingRotations(p)
+                        val reportedEpoch = body.opt("currentKeyEpoch")
+                        val revocationEpoch = if (reportedEpoch is Number &&
+                            reportedEpoch.toDouble() in 1.0..1_000_000.0 &&
+                            reportedEpoch.toDouble() % 1.0 == 0.0
+                        ) reportedEpoch.toInt() else Int.MAX_VALUE
+                        rotations.put(owner, JSONObject().put("epoch", revocationEpoch))
+                        p[KEY_PENDING_ROTATIONS_JSON] = rotations.toString()
+                        p[KEY_ROTATION_REQUIRED] = true
+                    }
+                    if (body.opt("ok") != true || body.opt("rotationRequired") != true) {
+                        throw SyncTransferException("吊销响应未完整确认；为保护未来记录，请先刷新账号并轮换密钥。")
                     }
                 }
                 "设备已吊销。为阻止其解密未来记录，请立即轮换账号加密密钥。"
@@ -932,12 +966,19 @@ class SyncRepository(private val context: Context) {
                 httpClient.newCall(request).execute().use { response ->
                     val body = parseResponseBody(response.body?.string())
                     if (!response.isSuccessful) throw serverError(response.code, body, "key_rotation_failed")
+                    val confirmedEpoch = body.opt("currentKeyEpoch")
+                    if (body.opt("ok") != true || confirmedEpoch !is Number || confirmedEpoch.toDouble() != newEpoch.toDouble()) {
+                        throw SyncTransferException("密钥轮换未获完整确认，请重新登录刷新密钥；待同步记录仍在本机。")
+                    }
                 }
 
                 dataStore.edit { p ->
                     val existing = readStorageObject(p[KEY_EPOCH_KEYS_JSON])
                     p[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(existing, mapOf(newEpoch to newKey))
                     p[KEY_CURRENT_KEY_EPOCH] = newEpoch
+                    val rotations = pendingRotations(p)
+                    p[KEY_LOCAL_OWNER]?.let { rotations.remove(it) }
+                    p[KEY_PENDING_ROTATIONS_JSON] = rotations.toString()
                     p[KEY_ROTATION_REQUIRED] = false
                     p[KEY_KEY_REFRESH_REQUIRED] = false
                 }
@@ -1102,6 +1143,7 @@ class SyncRepository(private val context: Context) {
     suspend fun logout(removeLocalKeyMaterial: Boolean = false) {
         sessionMutex.withLock {
             dataStore.edit { prefs ->
+                prefs[KEY_PENDING_ROTATIONS_JSON] = pendingRotations(prefs).toString()
                 prefs[KEY_SYNC_ENABLED] = false
                 prefs.remove(KEY_SYNC_USER_ID)
                 prefs.remove(KEY_DEVICE_ID)
@@ -1155,6 +1197,7 @@ class SyncRepository(private val context: Context) {
         private val KEY_SESSION_BASE_URL = stringPreferencesKey("e2ee_session_base_url")
         private val KEY_PULL_CURSOR = longPreferencesKey("e2ee_pull_cursor")
         private val KEY_ROTATION_REQUIRED = booleanPreferencesKey("e2ee_rotation_required")
+        private val KEY_PENDING_ROTATIONS_JSON = stringPreferencesKey("e2ee_pending_account_rotations")
         private val KEY_KEY_REFRESH_REQUIRED = booleanPreferencesKey("e2ee_key_refresh_required")
         private val KEY_LEGACY_PASSKEY_CACHED = stringPreferencesKey("e2ee_passkey_cached")
     }

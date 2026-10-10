@@ -48,8 +48,9 @@ struct PrivateVault: Codable {
     var accounts: [String: [String: PrivateJournalRecord]] = [:]
     var cursors: [String: Int64] = [:]
     var lastSync: [String: String] = [:]
+    var pendingRotation: [String: Int] = [:]
     private enum CodingKeys: String, CodingKey {
-        case version, generation, owner, session, accounts, cursors, lastSync
+        case version, generation, owner, session, accounts, cursors, lastSync, pendingRotation
     }
     init() {}
     init(from decoder: Decoder) throws {
@@ -61,6 +62,7 @@ struct PrivateVault: Codable {
         accounts = try c.decode([String: [String: PrivateJournalRecord]].self, forKey: .accounts)
         cursors = try c.decode([String: Int64].self, forKey: .cursors)
         lastSync = try c.decode([String: String].self, forKey: .lastSync)
+        pendingRotation = try c.decodeIfPresent([String: Int].self, forKey: .pendingRotation) ?? [:]
     }
 }
 struct SyncChallenge: Decodable {

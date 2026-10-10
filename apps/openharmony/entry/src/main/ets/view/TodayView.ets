@@ -10,6 +10,7 @@ import {
   DishDto,
   ConfirmedHomeMealRequest,
   ManualActivityRequest,
+  OutsideSchoolActivityRequest,
   EnergyReferenceRequest,
   ApiWriteResult,
   MealItemRequest,
@@ -51,6 +52,7 @@ export struct TodayView {
   @State pendingOfflineCount: number = 0;
   @State privateEnergy: number = 0;
   @State privateMinutes: number = 0;
+  @State privateActiveEnergy: number = 0;
   @State privateCount: number = 0;
   @State privateReference: number = 2000;
 
@@ -432,7 +434,7 @@ export struct TodayView {
   }
 
   private refreshPrivateSummary(): void {
-    let energy = 0, minutes = 0, count = 0, reference = 2000;
+    let energy = 0, minutes = 0, wearableMinutes = 0, activeEnergy = 0, count = 0, reference = 2000;
     for (const record of PrivateRepository.getInstance().records()) {
       if (record.entityType === 'home_meal') {
         const meal = JSON.parse(record.payloadJson) as ConfirmedHomeMealRequest;
@@ -440,11 +442,14 @@ export struct TodayView {
       } else if (record.entityType === 'manual_activity') {
         const activity = JSON.parse(record.payloadJson) as ManualActivityRequest;
         if (activity.date === this.currentDate) { count++; minutes += activity.durationMinutes; }
+      } else if (record.entityType === 'outside_activity') {
+        const activity = JSON.parse(record.payloadJson) as OutsideSchoolActivityRequest;
+        if (activity.date === this.currentDate) { count++; wearableMinutes = Math.max(wearableMinutes, activity.exerciseMinutes); activeEnergy = Math.max(activeEnergy, activity.activeEnergyKcal ?? 0); }
       } else if (record.entityType === 'preference' && record.entityId === 'energy_reference') {
         reference = (JSON.parse(record.payloadJson) as EnergyReferenceRequest).dailyEnergyReferenceKcal ?? 2000;
       }
     }
-    this.privateEnergy = Math.round(energy); this.privateMinutes = minutes; this.privateCount = count; this.privateReference = reference;
+    this.privateEnergy = Math.round(energy); this.privateMinutes = Math.max(minutes, wearableMinutes); this.privateActiveEnergy = Math.round(activeEnergy); this.privateCount = count; this.privateReference = reference;
     if (!this.isEditingReference) this.energyReferenceInput = String(reference);
   }
 
@@ -452,7 +457,8 @@ export struct TodayView {
   PrivateOverview() {
     Column({ space: 6 }) {
       Text('今日个人记录').fontSize(20).fontWeight(FontWeight.Medium)
-      Text(`家庭餐 ${this.privateEnergy} 千卡 · 手动运动 ${this.privateMinutes} 分钟 · ${this.privateCount} 条记录`)
+      Text(`家庭餐 ${this.privateEnergy} 千卡 · 个人运动 ${this.privateMinutes} 分钟 · ${this.privateCount} 条记录`)
+      Text(`运动取手动补记与设备记录的较大值；设备活动消耗 ${this.privateActiveEnergy} 千卡。`).fontSize(12)
       Text(`个人每日参考 ${this.privateReference} 千卡；先保存到本机，账号页可手动同步与查看历史。`).fontSize(12)
         // Daily Energy Reference Edit
         Row() {
@@ -949,7 +955,7 @@ export struct TodayView {
   @Builder
   PhysicalActivitySection() {
     Column({ space: 14 }) {
-      this.SectionHeader('运动（手动补记保存在私密记录）', '学校记校内，终端/手机补校外', '动')
+      this.SectionHeader('学校演示运动 / 私密补记', '学校统计为示例；个人运动见顶部与私密记录', '动')
 
       Column({ space: 14 }) {
         // Activity Minutes Stats Row

@@ -114,14 +114,14 @@ class TodayRepository(
         val sync = syncRepository
         if (sync != null) {
             sync.enqueuePrivateRecord(
-            entityType = "outside_activity",
-            entityId = date,
-            payloadJson = JSONObject()
-                .put("date", date)
-                .put("exerciseMinutes", exerciseMinutes)
-                .put("steps", steps ?: JSONObject.NULL)
-                .put("activeEnergyKcal", activeEnergyKcal ?: JSONObject.NULL)
-                .toString()
+                entityType = "outside_activity",
+                entityId = date,
+                payloadJson = JSONObject()
+                    .put("date", date)
+                    .put("exerciseMinutes", exerciseMinutes)
+                    .put("steps", steps ?: JSONObject.NULL)
+                    .put("activeEnergyKcal", activeEnergyKcal ?: JSONObject.NULL)
+                    .toString()
             )
             return
         }

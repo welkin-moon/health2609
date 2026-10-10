@@ -2,7 +2,7 @@ import common from '@ohos.app.ability.common';
 import preferences from '@ohos.data.preferences';
 import fs from '@ohos.file.fs';
 import http from '@ohos.net.http';
-import { ConfirmedHomeMealRequest, ManualActivityRequest, EnergyReferenceRequest } from '../model/ApiModels';
+import { ConfirmedHomeMealRequest, ManualActivityRequest, EnergyReferenceRequest, OutsideSchoolActivityRequest } from '../model/ApiModels';
 import { CipherBox, encode, decode, base64, unbase64, random, identifier, hash, derive, keyAad, recordAad, seal, open, ensureLocalKey, localSeal, localOpen } from './PrivateCrypto';
 
 export interface PrivateRecord {
@@ -25,6 +25,15 @@ interface RemoteRecord {
   clientUpdatedAt: string; sourceDeviceId?: string;
 }
 interface PushRequest { records: RemoteRecord[]; }
+export interface PrivateDevice { id: string; deviceName: string; lastSeenAt: string; revokedAt: string | null; current: boolean; }
+interface DevicesResponse { devices: PrivateDevice[]; }
+interface ControlResponse { ok: boolean; currentKeyEpoch?: number; rotationRequired?: boolean; }
+interface RecoveryResponse { recoverySalt: string; currentKeyEpoch: number; keyEnvelopes: KeyEnvelope[]; }
+interface RecoveryRequest { username: string; recoveryVerifier: string; }
+interface PasswordEnvelope { epoch: number; passwordWrappedKey: string; passwordNonce: string; }
+interface ChangePasswordRequest { currentPasswordVerifier: string; passwordSalt: string; passwordVerifier: string; keyEnvelopes: PasswordEnvelope[]; }
+interface ResetPasswordRequest { username: string; recoveryVerifier: string; passwordSalt: string; passwordVerifier: string; keyEnvelopes: PasswordEnvelope[]; }
+interface RotateRequest extends WrappedEpoch { newEpoch: number; passwordVerifier: string; recoveryVerifier: string; }
 interface PullResponse { records: RemoteRecord[]; nextCursor: number; hasMore: boolean; currentKeyEpoch: number; }
 interface WriteResponse { ok: boolean; acceptedCount: number; currentKeyEpoch: number; }
 interface Identity { server: string; username: string; }
@@ -45,6 +54,11 @@ export function validatePayload(type: string, value: string, writing: boolean = 
     const activity = JSON.parse(value) as ManualActivityRequest;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(activity.date) || typeof activity.activityType !== 'string' || !activity.activityType.trim() || !Number.isFinite(activity.durationMinutes) || activity.durationMinutes < 0 || activity.durationMinutes > 1440 || !['light', 'moderate', 'vigorous'].includes(activity.intensity)) throw new Error('运动记录无效');
     if (writing && (!Number.isInteger(activity.durationMinutes) || activity.durationMinutes < 1 || activity.durationMinutes > 600 || activity.activityType.length > 80)) throw new Error('运动时长需为1至600整数分钟');
+  } else if (type === 'outside_activity') {
+    const activity = JSON.parse(value) as OutsideSchoolActivityRequest;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(activity.date) || !Number.isInteger(activity.exerciseMinutes) || activity.exerciseMinutes < 0 || activity.exerciseMinutes > 1440) throw new Error('设备运动记录无效');
+    if (activity.steps !== null && activity.steps !== undefined && (!Number.isInteger(activity.steps) || activity.steps < 0)) throw new Error('设备步数无效');
+    if (activity.activeEnergyKcal !== null && activity.activeEnergyKcal !== undefined && (!Number.isFinite(activity.activeEnergyKcal) || activity.activeEnergyKcal < 0)) throw new Error('设备活动消耗无效');
   } else if (type === 'preference') {
     const preference = JSON.parse(value) as EnergyReferenceRequest;
     if (preference.dailyEnergyReferenceKcal !== null && preference.dailyEnergyReferenceKcal !== undefined && (!Number.isFinite(preference.dailyEnergyReferenceKcal) || Number(preference.dailyEnergyReferenceKcal) < 500 || Number(preference.dailyEnergyReferenceKcal) > 6000)) throw new Error('能量偏好记录无效');
@@ -65,8 +79,10 @@ export class PrivateState {
   cursor: number = 0;
   records: PrivateRecord[] = [];
   lastSync: string = '';
+  rotationRequired: boolean = false;
+  pendingRotationEpoch: number = 0;
 }
-class ApiError extends Error { code: number; constructor(code: number) { super(`同步服务器拒绝请求 (${code})；新设备登录需恢复短语，密钥更新需重新登录`); this.code = code; } }
+class ApiError extends Error { code: number; constructor(code: number) { super(`服务拒绝请求 (${code})`); this.code = code; } }
 
 export class PrivateRepository {
   private static singleton: PrivateRepository = new PrivateRepository();
@@ -133,6 +149,8 @@ export class PrivateRepository {
     }
     state.pendingRecovery = state.pendingRecovery || '';
     state.pendingRecoverySalt = state.pendingRecoverySalt || '';
+    state.rotationRequired = state.rotationRequired === true;
+    if (!Number.isSafeInteger(state.pendingRotationEpoch)) state.pendingRotationEpoch = state.rotationRequired ? -1 : 0;
     return state;
   }
   private async persist(state: PrivateState): Promise<void> {
@@ -219,6 +237,7 @@ export class PrivateRepository {
         candidate.keys = keys;
       }
       if (!response.token || !response.deviceId || !response.userId || !Number.isSafeInteger(response.currentKeyEpoch)) throw new Error('登录响应不完整');
+      if (candidate.rotationRequired && candidate.pendingRotationEpoch > 0 && response.currentKeyEpoch > candidate.pendingRotationEpoch) { candidate.rotationRequired = false; candidate.pendingRotationEpoch = 0; }
       candidate.token = response.token; candidate.deviceId = response.deviceId; candidate.userId = response.userId; candidate.epoch = response.currentKeyEpoch;
       if (!candidate.keys.some((key: EpochKey) => key.epoch === candidate.epoch)) throw new Error('账号缺少当前加密密钥');
       await this.persist(candidate);
@@ -227,6 +246,126 @@ export class PrivateRepository {
       await this.config.put('identity', JSON.stringify(identity)); await this.config.flush();
       this.state = candidate;
       return phrase;
+    });
+  }
+  private requireSession(): PrivateState {
+    this.requireReady(); const value = this.snapshot();
+    if (!value.token) throw new Error('请先登录账号');
+    return value;
+  }
+  private normalizeRecovery(value: string): string {
+    const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!/^[0-9A-F]{40}$/.test(normalized)) throw new Error('请填写完整的40位恢复短语');
+    return normalized;
+  }
+  private async challenge(state: PrivateState): Promise<Challenge> {
+    const value = await this.request<Challenge>(state.server, '/v1/sync/auth/challenge?username=' + encodeURIComponent(state.username), http.RequestMethod.GET);
+    if (!Number.isSafeInteger(value.currentKeyEpoch) || value.currentKeyEpoch < 1 || value.currentKeyEpoch > 1000000) throw new Error('账号密钥版本无效');
+    return value;
+  }
+  private async unwrap(envelopes: KeyEnvelope[], key: Uint8Array, username: string, kind: string): Promise<EpochKey[]> {
+    if (!Array.isArray(envelopes) || envelopes.length < 1 || envelopes.length > 1000) throw new Error('账号密钥包无效');
+    const keys: EpochKey[] = [];
+    for (const envelope of envelopes) {
+      if (!Number.isSafeInteger(envelope.epoch) || envelope.epoch < 1 || envelope.epoch > 1000000 || keys.some((item: EpochKey) => item.epoch === envelope.epoch)) throw new Error('账号密钥版本重复或无效');
+      const raw = await open({ ciphertext: envelope.wrappedKey, nonce: envelope.nonce }, key, keyAad(username, envelope.epoch, kind));
+      if (raw.length !== 32) throw new Error('账号密钥长度无效');
+      keys.push({ epoch: envelope.epoch, key: base64(raw) });
+    }
+    return keys;
+  }
+  private async passwordEnvelopes(keys: EpochKey[], password: string, salt: string, username: string): Promise<PasswordEnvelope[]> {
+    if (password.length < 8) throw new Error('新密码至少8字符');
+    const wrap = await derive(password, salt, 'password-wrap'), envelopes: PasswordEnvelope[] = [];
+    for (const key of keys) {
+      const box = await seal(unbase64(key.key), wrap, keyAad(username, key.epoch, 'password'));
+      envelopes.push({ epoch: key.epoch, passwordWrappedKey: box.ciphertext, passwordNonce: box.nonce });
+    }
+    return envelopes;
+  }
+  public async devices(): Promise<PrivateDevice[]> {
+    return this.exclusive(async () => {
+      const state = this.requireSession();
+      const result = await this.request<DevicesResponse>(state.server, '/v1/sync/devices', http.RequestMethod.GET, '', state.token);
+      if (!Array.isArray(result.devices)) throw new Error('设备列表格式无效');
+      for (const device of result.devices) {
+        if (typeof device.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(device.id) || typeof device.deviceName !== 'string' || typeof device.lastSeenAt !== 'string' || typeof device.current !== 'boolean' || (device.revokedAt !== null && typeof device.revokedAt !== 'string')) throw new Error('设备列表格式无效');
+      }
+      return result.devices;
+    });
+  }
+  public async revoke(deviceId: string): Promise<void> {
+    await this.exclusive(async () => {
+      const state = this.requireSession();
+      if (!/^[A-Za-z0-9_-]{1,200}$/.test(deviceId) || deviceId === state.deviceId) throw new Error('不能在本机撤销当前设备');
+      // Remember the protection requirement before the server mutation. A lost
+      // response must never permit further writes with a potentially exposed key.
+      const previousRequired = state.rotationRequired, previousEpoch = state.pendingRotationEpoch;
+      state.rotationRequired = true; state.pendingRotationEpoch = -1; await this.commit(state);
+      try {
+        const result = await this.request<ControlResponse>(state.server, '/v1/sync/devices/' + encodeURIComponent(deviceId) + '/revoke', http.RequestMethod.POST, '{}', state.token);
+        if (result.ok !== true || result.rotationRequired !== true || !Number.isSafeInteger(result.currentKeyEpoch) || Number(result.currentKeyEpoch) < 1 || Number(result.currentKeyEpoch) > 1000000) throw new Error('撤销结果未确认，请刷新设备列表并轮换密钥');
+        state.pendingRotationEpoch = Number(result.currentKeyEpoch); await this.commit(state);
+      } catch (error) {
+        if (error instanceof ApiError && [400, 401, 403, 404, 409, 422, 429].includes(error.code)) {
+          state.rotationRequired = previousRequired; state.pendingRotationEpoch = previousEpoch; await this.commit(state);
+          throw new Error(`设备撤销请求被拒绝 (${error.code})；此请求未更改设备状态`);
+        }
+        throw new Error('撤销结果未确认，请刷新设备列表，并完成密钥轮换');
+      }
+    });
+  }
+  public async rotate(password: string, recovery: string): Promise<void> {
+    await this.exclusive(async () => {
+      const state = this.requireSession(), known = await this.challenge(state);
+      if (password.length < 8) throw new Error('请输入当前密码');
+      if (known.currentKeyEpoch !== state.epoch || state.epoch >= 1000000) throw new Error('账号密钥已变化，请重新登录');
+      const phrase = this.normalizeRecovery(recovery), epoch = state.epoch + 1, raw = random(32);
+      const passwordBox = await seal(raw, await derive(password, known.passwordSalt, 'password-wrap'), keyAad(state.username, epoch, 'password'));
+      const recoveryBox = await seal(raw, await derive(phrase, known.recoverySalt, 'recovery-wrap'), keyAad(state.username, epoch, 'recovery'));
+      const payload: RotateRequest = { epoch: epoch, newEpoch: epoch, passwordWrappedKey: passwordBox.ciphertext, passwordNonce: passwordBox.nonce,
+        recoveryWrappedKey: recoveryBox.ciphertext, recoveryNonce: recoveryBox.nonce,
+        passwordVerifier: base64(await derive(password, known.passwordSalt, 'password-auth')), recoveryVerifier: base64(await derive(phrase, known.recoverySalt, 'recovery-auth')) };
+      const result = await this.request<ControlResponse>(state.server, '/v1/sync/keys/rotate', http.RequestMethod.POST, JSON.stringify(payload), state.token);
+      if (result.ok !== true || result.currentKeyEpoch !== epoch) throw new Error('密钥轮换结果未确认，请重新登录');
+      state.keys.push({ epoch: epoch, key: base64(raw) }); state.epoch = epoch; state.rotationRequired = false; state.pendingRotationEpoch = 0;
+      await this.commit(state);
+    });
+  }
+  public async changePassword(current: string, password: string): Promise<void> {
+    await this.exclusive(async () => {
+      const state = this.requireSession(), known = await this.challenge(state);
+      if (current.length < 8 || password.length < 8) throw new Error('当前密码与新密码至少8字符');
+      const wrapped = await this.request<RecoveryResponse>(state.server, '/v1/sync/keys', http.RequestMethod.GET, '', state.token);
+      if (wrapped.currentKeyEpoch !== known.currentKeyEpoch) throw new Error('账号密钥已变化，请重新登录');
+      const keys = await this.unwrap(wrapped.keyEnvelopes, await derive(current, known.passwordSalt, 'password-wrap'), state.username, 'password');
+      const salt = base64(random(16));
+      const payload: ChangePasswordRequest = { currentPasswordVerifier: base64(await derive(current, known.passwordSalt, 'password-auth')),
+        passwordSalt: salt, passwordVerifier: base64(await derive(password, salt, 'password-auth')),
+        keyEnvelopes: await this.passwordEnvelopes(keys, password, salt, state.username) };
+      const result = await this.request<ControlResponse>(state.server, '/v1/sync/auth/change-password', http.RequestMethod.POST, JSON.stringify(payload), state.token);
+      if (result.ok !== true) throw new Error('密码修改结果未确认，请用新旧密码确认登录');
+      state.keys = keys; state.epoch = wrapped.currentKeyEpoch; await this.commit(state);
+    });
+  }
+  public async resetPassword(server: string, username: string, recovery: string, password: string): Promise<void> {
+    await this.exclusive(async () => {
+      this.requireReady(); const service = this.validateServer(server), account = username.trim().toLowerCase();
+      if (account.length < 3 || account.length > 160 || password.length < 8) throw new Error('需要正确账号和至少8字符的新密码');
+      const phrase = this.normalizeRecovery(recovery), target = await this.load(service, account), known = await this.challenge(target);
+      const verifier = base64(await derive(phrase, known.recoverySalt, 'recovery-auth'));
+      const recoveryRequest: RecoveryRequest = { username: account, recoveryVerifier: verifier };
+      const recovered = await this.request<RecoveryResponse>(service, '/v1/sync/auth/recovery', http.RequestMethod.POST, JSON.stringify(recoveryRequest));
+      if (recovered.recoverySalt !== known.recoverySalt || recovered.currentKeyEpoch !== known.currentKeyEpoch) throw new Error('账号状态已变化，请重新恢复');
+      const keys = await this.unwrap(recovered.keyEnvelopes, await derive(phrase, known.recoverySalt, 'recovery-wrap'), account, 'recovery');
+      const salt = base64(random(16));
+      const payload: ResetPasswordRequest = { username: account, recoveryVerifier: verifier, passwordSalt: salt,
+        passwordVerifier: base64(await derive(password, salt, 'password-auth')), keyEnvelopes: await this.passwordEnvelopes(keys, password, salt, account) };
+      const result = await this.request<ControlResponse>(service, '/v1/sync/auth/reset-password', http.RequestMethod.POST, JSON.stringify(payload));
+      if (result.ok !== true) throw new Error('重设密码结果未确认，请用新旧密码确认登录');
+      target.token = ''; target.keys = keys; target.epoch = recovered.currentKeyEpoch;
+      await this.persist(target);
+      if (this.owner(target) === this.owner(this.state)) this.state = target;
     });
   }
   public async acknowledgeRecovery(): Promise<void> {
@@ -268,6 +407,7 @@ export class PrivateRepository {
       this.requireReady();
       const candidate = this.snapshot();
       if (!candidate.token) throw new Error('请先登录账号；本地记录不会自动上传');
+      if (candidate.rotationRequired) throw new Error('撤销设备后需先轮换密钥，再同步新记录');
       const currentKey = candidate.keys.find((entry: EpochKey) => entry.epoch === candidate.epoch);
       if (!currentKey) throw new Error('缺少当前密钥，请重新登录');
       const dirty = candidate.records.filter((entry: PrivateRecord) => entry.dirty);

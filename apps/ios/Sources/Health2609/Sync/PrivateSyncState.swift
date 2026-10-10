@@ -36,12 +36,19 @@ final class PrivateSyncState: ObservableObject {
             loggedIn = snapshot.session != nil
             rotationRequired = snapshot.session?.rotationRequired ?? false
             lastSync = snapshot.lastSync
-            if snapshot.session != nil { recoveryNotice = try await repository.savedRegistrationPhrase() }
+            if snapshot.session != nil {
+                do { recoveryNotice = try await repository.savedRegistrationPhrase() }
+                catch {
+                    recoveryNotice = nil
+                    message = "日记已读取，但注册短语暂时无法读取：" + error.localizedDescription
+                }
+            }
             storageReady = true
             NotificationCenter.default.post(name: .privateJournalChanged, object: nil)
         } catch {
             storageReady = false
             message = error.localizedDescription
+            NotificationCenter.default.post(name: .privateJournalChanged, object: nil)
             // Never display a failed read as an empty successfully loaded journal.
         }
     }

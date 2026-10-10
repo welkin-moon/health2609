@@ -97,7 +97,8 @@ jobs:
           cat > /tmp/release-notes.md <<'NOTES'
           Android: signed APK, ready for device installation; artifact name identifies private release signing or temporary debug signing. Updating an older APK requires the same signer; preserve the old app and records until backup is confirmed.
           iPhone/iPad: unsigned arm64 device IPA for re-signing with a valid matching certificate/profile. Default resign package does not require HealthKit entitlement; manual and photo flows remain available. The optional healthkit IPA requires a profile authorizing HealthKit.
-          HarmonyOS 6 / OpenHarmony: HAP assets are not included in this release. SDK builds and platform-specific signing remain required. A source archive is not an installable HAP.
+          Android/iOS include account-isolated encrypted local journals, portable private activity summaries, manual encrypted sync, recovery/password/device/key controls, and authenticated v2 records with legacy v1 reads. Queued edits stay bound to their initiating account; pending key rotation survives account logout.
+          HarmonyOS 6 / OpenHarmony: real compiler-produced HAPs are published separately by the HAP workflow and require platform-specific signing for installation.
           This release was reviewed from source and packaged without running tests. Device behavior has not been verified.
           NOTES
           if gh release view "$TAG" >/dev/null 2>&1; then

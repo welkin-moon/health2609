@@ -79,7 +79,7 @@ public struct PrivacyView: View {
             iconColor: M3E.Colors.secondary,
             title: "手机只补校外运动",
             bodyText: "先在手机本地沙盒中排除学校设置的在校时段，再汇总当天运动。",
-            detailText: "上传到云端的仅是当天汇总数值，绝不收集任何实时 GPS 轨迹。"
+            detailText: "汇总先保存在本机加密日记；手动同步时上传密文，不收集实时 GPS 轨迹。"
         )
 
         PrivacyCard(
@@ -87,7 +87,7 @@ public struct PrivacyView: View {
             iconColor: M3E.Colors.tertiary,
             title: "餐食照片由你确认",
             bodyText: "照片先用来智能识别食物，名称和分量均可自主修改，确认后才会记入当天。",
-            detailText: "仅保存确认后的标准化营养素结果，服务端不持久化原始个人餐食照片。"
+            detailText: "你选择的照片会发往识别服务。确认后的营养记录保存在本机，加密同步不包含原始照片。"
         )
 
         PrivacyCard(

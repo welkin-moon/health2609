@@ -109,7 +109,7 @@ struct PrivateHistoryView: View {
                 if sync.records.isEmpty && sync.storageReady {
                     Text("尚无私密记录。今天页面的家庭餐和手动运动会先保存到这里。")
                 }
-                ForEach(sync.records) { record in
+                ForEach(sync.storageReady ? sync.records : []) { record in
                     VStack(alignment: .leading, spacing: 5) {
                         Text(title(record)).font(.headline)
                         Text(details(record)).font(.subheadline)

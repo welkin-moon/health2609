@@ -426,7 +426,7 @@ fun LoginSyncDialog(
                                                     }
                                             }
                                         },
-                                        enabled = !isProcessing,
+                                        enabled = !isProcessing && !syncState.rotationRequired && !syncState.keyRefreshRequired,
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         if (isProcessing) {
