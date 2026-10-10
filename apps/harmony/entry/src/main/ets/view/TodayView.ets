@@ -107,7 +107,7 @@ export struct TodayView {
       const amounts = new Map<string, DishAmount>();
       if (menuData && menuData.dishes) {
         for (const dish of menuData.dishes) {
-          amounts.set(dish.id, new DishAmount(0.0, 0));
+          amounts.set(dish.id, this.dishAmounts.get(dish.id) || new DishAmount(0.0, 0));
         }
       }
       this.dishAmounts = amounts;
@@ -342,10 +342,10 @@ export struct TodayView {
 
     this.isSavingReference = true;
     try {
-      await this.healthApi.saveEnergyReference({ dailyEnergyReferenceKcal: kcal });
+      const result = await this.healthApi.saveEnergyReference({ dailyEnergyReferenceKcal: kcal });
       this.isEditingReference = false;
       this.summary = await this.refreshSummary();
-      this.statusMessage = '每日参考热量已更新';
+      this.statusMessage = result.queued ? '参考热量已暂存，等待同步' : '每日参考热量已更新';
       this.statusIsError = false;
     } catch (e) {
       this.statusMessage = '参考热量保存失败，请重试';

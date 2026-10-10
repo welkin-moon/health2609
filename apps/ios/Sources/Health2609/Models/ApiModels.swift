@@ -167,6 +167,20 @@ public struct EnergyReferenceRequest: Codable, Hashable, Sendable {
     public init(dailyEnergyReferenceKcal: Int?) {
         self.dailyEnergyReferenceKcal = dailyEnergyReferenceKcal
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case dailyEnergyReferenceKcal
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let kcal = dailyEnergyReferenceKcal {
+            try container.encode(kcal, forKey: .dailyEnergyReferenceKcal)
+        } else {
+            // The contract requires this key with JSON null to clear the reference.
+            try container.encodeNil(forKey: .dailyEnergyReferenceKcal)
+        }
+    }
 }
 
 // MARK: - Summary & Analytics DTOs

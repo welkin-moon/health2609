@@ -1856,6 +1856,7 @@ app.get("/v1/admin/stats/overview", async (c) => {
 type SyncAuth = {
   userId: string;
   deviceId: string;
+  tokenHash: string;
 };
 
 function syncTokenFromRequest(c: Context<AppEnv>): string | null {
@@ -1900,11 +1901,13 @@ async function authenticateSync(c: Context<AppEnv>): Promise<SyncAuth | null> {
   ).bind(tokenHash).first<{ id: string; user_id: string }>();
   if (!row) return null;
 
-  await c.env.DB.prepare(
-    "UPDATE sync_devices_v2 SET last_seen_at = datetime('now') WHERE id = ?"
-  ).bind(row.id).run();
+  const seen = await c.env.DB.prepare(
+    `UPDATE sync_devices_v2 SET last_seen_at = datetime('now')
+      WHERE id = ? AND token_hash = ? AND revoked_at IS NULL`
+  ).bind(row.id, tokenHash).run();
+  if (!seen.meta.changes) return null;
 
-  return { userId: row.user_id, deviceId: row.id };
+  return { userId: row.user_id, deviceId: row.id, tokenHash };
 }
 
 async function syncKeyEnvelopes(db: D1Database, userId: string, kind: "password" | "recovery") {
@@ -2104,9 +2107,9 @@ app.post("/v1/sync/auth/login", async (c) => {
   const loggedIn = await guardedSyncMutation(c.env.DB,
     `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND password_verifier = ?
       AND recovery_verifier = ? AND current_key_epoch = ?)
-      ${hasDeviceProof ? "AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)" : ""}`,
+      ${hasDeviceProof ? "AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND token_hash = ? AND revoked_at IS NULL)" : ""}`,
     [account.id, account.password_verifier, account.recovery_verifier, account.current_key_epoch,
-      ...(hasDeviceProof ? [deviceId] : [])], [loginStatement]);
+      ...(hasDeviceProof && priorSession ? [deviceId, priorSession.tokenHash] : [])], [loginStatement]);
   if (!loggedIn) return c.json({ error: "account_state_changed" }, 409);
 
   return c.json({
@@ -2239,8 +2242,8 @@ app.post("/v1/sync/auth/change-password", async (c) => {
   const changed = await guardedSyncMutation(c.env.DB,
     `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND password_verifier = ?
       AND current_key_epoch = ?)
-      AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)`,
-    [auth.userId, account.password_verifier, account.current_key_epoch, auth.deviceId], [
+      AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND token_hash = ? AND revoked_at IS NULL)`,
+    [auth.userId, account.password_verifier, account.current_key_epoch, auth.deviceId, auth.tokenHash], [
     c.env.DB.prepare(
       `UPDATE sync_accounts_v2
           SET password_salt = ?, password_verifier = ?, updated_at = datetime('now')
@@ -2308,8 +2311,8 @@ app.post("/v1/sync/keys/rotate", async (c) => {
   const rotated = await guardedSyncMutation(c.env.DB,
     `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND current_key_epoch = ?
       AND password_verifier = ? AND recovery_verifier = ?)
-      AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)`,
-    [auth.userId, currentEpoch, account.password_verifier, account.recovery_verifier, auth.deviceId], [
+      AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND token_hash = ? AND revoked_at IS NULL)`,
+    [auth.userId, currentEpoch, account.password_verifier, account.recovery_verifier, auth.deviceId, auth.tokenHash], [
     c.env.DB.prepare(
       `INSERT INTO sync_key_epochs_v2
          (user_id, epoch, password_wrapped_key, password_nonce,
@@ -2402,8 +2405,8 @@ app.post("/v1/sync/push", async (c) => {
   if (statements.length) {
     const pushed = await guardedSyncMutation(c.env.DB,
       `EXISTS(SELECT 1 FROM sync_accounts_v2 WHERE id = ? AND current_key_epoch = ?)
-        AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND revoked_at IS NULL)`,
-      [auth.userId, currentKeyEpoch, auth.deviceId], statements);
+        AND EXISTS(SELECT 1 FROM sync_devices_v2 WHERE id = ? AND token_hash = ? AND revoked_at IS NULL)`,
+      [auth.userId, currentKeyEpoch, auth.deviceId, auth.tokenHash], statements);
     if (!pushed) return c.json({ error: "account_state_changed" }, 409);
   }
   return c.json({
@@ -2502,10 +2505,16 @@ app.post("/v1/sync/devices/:deviceId/revoke", async (c) => {
   const result = await c.env.DB.prepare(
     `UPDATE sync_devices_v2
         SET revoked_at = datetime('now'), token_hash = ''
-      WHERE id = ? AND user_id = ? AND revoked_at IS NULL`
-  ).bind(deviceId, auth.userId).run();
+      WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+        AND EXISTS(SELECT 1 FROM sync_devices_v2 requester
+          WHERE requester.id = ? AND requester.user_id = ?
+            AND requester.token_hash = ? AND requester.revoked_at IS NULL)`
+  ).bind(deviceId, auth.userId, auth.deviceId, auth.userId, auth.tokenHash).run();
 
-  if (!result.meta.changes) return c.json({ error: "device_not_found" }, 404);
+  if (!result.meta.changes) {
+    if (!await authenticateSync(c)) return c.json({ error: "unauthorized" }, 401);
+    return c.json({ error: "device_not_found" }, 404);
+  }
 
   const account = await c.env.DB.prepare(
     "SELECT current_key_epoch FROM sync_accounts_v2 WHERE id = ?"

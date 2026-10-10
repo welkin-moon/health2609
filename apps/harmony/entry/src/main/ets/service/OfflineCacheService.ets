@@ -53,35 +53,52 @@ export class OfflineCacheService {
         this.isInitialized = true;
         hilog.info(DOMAIN, TAG, 'Preferences store initialized successfully');
       } catch (err) {
+        this.preferencesInstance = null;
+        this.isInitialized = false;
         hilog.warn(DOMAIN, TAG, 'Preferences init failed, falling back to memory cache: %{public}s', JSON.stringify(err));
+      } finally {
+        this.initialization = null;
       }
   }
 
   private async putString(key: string, value: string): Promise<void> {
+    const previous = await this.getString(key);
     if (this.preferencesInstance) {
       try {
         await this.preferencesInstance.put(key, value);
         await this.preferencesInstance.flush();
       } catch (e) {
-        hilog.error(DOMAIN, TAG, 'Error persisting key %{public}s: %{public}s', key, JSON.stringify(e));
-        throw e;
+        // Preferences.put mutates its own memory before flush. Restore that
+        // state too so a failed queue write is not visible as acknowledged.
+        try {
+          if (previous === null) await this.preferencesInstance.delete(key);
+          else await this.preferencesInstance.put(key, previous);
+          await this.preferencesInstance.flush();
+        } catch (rollbackError) {
+          hilog.error(DOMAIN, TAG, 'Preferences rollback failed for %{public}s', key);
+        }
+        this.memoryCache.set(key, previous || '');
+        throw new Error('本地记录未能可靠保存，请重试');
       }
     }
     this.memoryCache.set(key, value);
   }
 
   private async getString(key: string): Promise<string | null> {
+    if (this.memoryCache.has(key)) return this.memoryCache.get(key) || null;
     if (this.preferencesInstance) {
       try {
-        const val = await this.preferencesInstance.get(key, '');
-        if (typeof val === 'string' && val.length > 0) {
-          return val;
+        const value = await this.preferencesInstance.get(key, '');
+        if (typeof value === 'string' && value.length > 0) {
+          this.memoryCache.set(key, value);
+          return value;
         }
       } catch (e) {
-        hilog.warn(DOMAIN, TAG, 'Error reading key %{public}s: %{public}s', key, JSON.stringify(e));
+        hilog.warn(DOMAIN, TAG, 'Error reading key %{public}s', key);
+        throw new Error('本地存储读取失败，请重试');
       }
     }
-    return this.memoryCache.get(key) || null;
+    return null;
   }
 
   /* -------------------------------------------------------------------------- */
@@ -95,7 +112,7 @@ export class OfflineCacheService {
   }
 
   public async getCachedMenu(date: string, mealSlot: string = 'lunch'): Promise<TodayMenuDto | null> {
-    const key = `menu_${date}`;
+    const key = `menu_${date}_${mealSlot}`;
     const raw = await this.getString(key);
     if (!raw) {
       return null;
@@ -154,7 +171,7 @@ export class OfflineCacheService {
     try {
       return JSON.parse(raw) as PendingOfflineRecord[];
     } catch (e) {
-      return [];
+      throw new Error('离线队列无法读取，已保留原始记录');
     }
   }
 

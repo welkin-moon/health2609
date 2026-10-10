@@ -95,7 +95,7 @@ export class HealthApi {
         `v1/today/menu?date=${encodeURIComponent(date)}&mealSlot=${encodeURIComponent(mealSlot)}`,
         http.RequestMethod.GET
       );
-      await this.offlineCache.saveCachedMenu(date, data);
+      await this.offlineCache.saveCachedMenu(date, data).catch(() => {});
       return data;
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'Failed to fetch menu from network, checking cache: %{public}s', JSON.stringify(err));
@@ -116,7 +116,7 @@ export class HealthApi {
         `v1/today/summary?date=${encodeURIComponent(date)}`,
         http.RequestMethod.GET
       );
-      await this.offlineCache.saveCachedSummary(date, data);
+      await this.offlineCache.saveCachedSummary(date, data).catch(() => {});
       return data;
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'Failed to fetch summary from network, checking cache: %{public}s', JSON.stringify(err));
@@ -242,7 +242,7 @@ export class HealthApi {
 
   /**
    * AI Analysis of Home Meal photograph
-   * Supports multipart/binary or simulated AI model recognition for campus terminals
+   * Uploads a real selected JPEG/PNG through multipart HTTP
    */
   public async analyzeHomeMeal(): Promise<HomeMealAnalysisResultDto> {
     const options = new photoAccessHelper.PhotoSelectOptions();
@@ -325,14 +325,12 @@ export class HealthApi {
       try {
         if (record.endpointType === 'meal') {
           await this.requestJson<ApiWriteResult>('v1/meals/consumption', http.RequestMethod.POST, {}, record.payloadJson);
-        } else if (record.endpointType === 'activity_manual') {
-          await this.requestJson<ApiWriteResult>('v1/activity/manual', http.RequestMethod.POST, {}, record.payloadJson);
+
         } else if (record.endpointType === 'activity_outside') {
           await this.requestJson<ApiWriteResult>('v1/activity/outside-school', http.RequestMethod.POST, {}, record.payloadJson);
         } else if (record.endpointType === 'energy_ref') {
           await this.requestJson<ApiWriteResult>('v1/preferences/energy-reference', http.RequestMethod.PUT, {}, record.payloadJson);
-        } else if (record.endpointType === 'home_meal') {
-          await this.requestJson<ApiWriteResult>('v1/home-meals', http.RequestMethod.POST, {}, record.payloadJson);
+
         } else {
           break;
         }

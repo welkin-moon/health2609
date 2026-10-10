@@ -178,9 +178,7 @@ public final class TodayViewModel: ObservableObject {
                 self.summary = summaryResult
                 self.schoolWindows = windowsResult.windows
 
-                if let refKcal = summaryResult.energy.dailyEnergyReferenceKcal {
-                    self.energyReferenceInput = "\(refKcal)"
-                }
+                self.energyReferenceInput = summaryResult.energy.dailyEnergyReferenceKcal.map { String($0) } ?? ""
 
                 // Initialize amounts for each dish
                 for dish in menuResult.dishes {
@@ -429,8 +427,14 @@ public final class TodayViewModel: ObservableObject {
 
     public func saveEnergyReference() {
         guard !savingEnergyReference else { return }
-        guard let kcal = Int(energyReferenceInput), (500...6000).contains(kcal) else {
-            message = "参考能量请输入 500–6000 kcal 之间的数值"
+        let trimmed = energyReferenceInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kcal: Int?
+        if trimmed.isEmpty {
+            kcal = nil
+        } else if let value = Int(trimmed), (500...6000).contains(value) {
+            kcal = value
+        } else {
+            message = "参考能量请输入 500–6000 kcal 之间的数值，留空可清除"
             return
         }
 
