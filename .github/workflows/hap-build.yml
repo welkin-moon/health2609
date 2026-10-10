@@ -55,6 +55,13 @@ jobs:
         run: |
           npm config set registry https://repo.huaweicloud.com/repository/npm/
           npm config set @ohos:registry https://repo.harmonyos.com/npm/
+      - name: Resolve an available Hvigor 5 plugin
+        shell: bash
+        run: |
+          npm view @ohos/hvigor-ohos-plugin versions --json > "$RUNNER_TEMP/hvigor-versions.json"
+          VERSION="$(node -e 'const fs=require("fs");const vs=JSON.parse(fs.readFileSync(process.argv[1],"utf8")).filter(v=>/^5\.\d+\.\d+$/.test(v));vs.sort((a,b)=>{const x=a.split(".").map(Number),y=b.split(".").map(Number);return x[1]-y[1]||x[2]-y[2]});if(!vs.length)process.exit(1);console.log(vs[vs.length-1])' "$RUNNER_TEMP/hvigor-versions.json")"
+          echo "HVIGOR_PLUGIN_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Selected Hvigor 5 plugin: $VERSION"
       - name: Build real unsigned HAP (no tests)
         run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.0 --version-code 17
       - uses: actions/upload-artifact@v4

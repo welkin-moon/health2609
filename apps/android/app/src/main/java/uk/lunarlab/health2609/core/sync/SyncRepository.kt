@@ -64,6 +64,10 @@ data class PrivateSyncRecord(
     val deleted: Boolean
 )
 
+class PrivateStorageException(cause: Throwable) : IllegalStateException(
+    "本机加密记录暂时无法读取，已保留原始数据。请勿清除应用数据；可重新登录后尝试恢复同步。", cause
+)
+
 class SyncRepository(private val context: Context) {
     private val dataStore = context.applicationContext.syncDataStoreV2
     private val httpClient = OkHttpClient.Builder().build()
@@ -101,9 +105,6 @@ class SyncRepository(private val context: Context) {
         // schoolId is retained in the local app context only.
         return username.trim().lowercase()
     }
-
-    private fun localUsername(serverUsername: String): String =
-        serverUsername.substringAfter(":")
 
     private fun deviceName(): String =
         listOf(Build.BRAND, Build.MODEL).filter { it.isNotBlank() }.joinToString(" ")
@@ -188,15 +189,16 @@ class SyncRepository(private val context: Context) {
 
     private fun openEpochKeys(raw: String?): MutableMap<Int, SecretKey> {
         val out = linkedMapOf<Int, SecretKey>()
-        if (raw.isNullOrBlank()) return out
-        val json = runCatching { JSONObject(raw) }.getOrElse { return out }
+        if (raw == null) return out
+        val json = readStorageObject(raw)
         val iterator = json.keys()
         while (iterator.hasNext()) {
             val name = iterator.next()
-            val epoch = name.toIntOrNull() ?: continue
-            val item = json.optJSONObject(name) ?: continue
+            val epoch = name.toIntOrNull()?.takeIf { it > 0 }
+                ?: throw PrivateStorageException(IllegalStateException("invalid key epoch"))
+            val item = json.getJSONObject(name)
             val aad = "health2609|local-epoch-key|v1|$epoch"
-            runCatching {
+            try {
                 val bytes = localBox.open(
                     EncryptedPayload(
                         item.getString("ciphertext"),
@@ -205,6 +207,8 @@ class SyncRepository(private val context: Context) {
                     aad
                 )
                 out[epoch] = javax.crypto.spec.SecretKeySpec(bytes, "AES")
+            } catch (error: Exception) {
+                throw PrivateStorageException(error)
             }
         }
         return out
@@ -230,9 +234,10 @@ class SyncRepository(private val context: Context) {
             val previousOwner = prefs[KEY_LOCAL_OWNER]
                 ?: prefs[KEY_SERVER_USERNAME]?.let { "$serviceUrl|$it" }
             if (previousOwner != null && previousOwner != owner) {
-                val archives = JSONObject(prefs[KEY_ACCOUNT_RECORDS_JSON] ?: "{}")
-                archives.put(previousOwner, JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}"))
-                prefs[KEY_LOCAL_RECORDS_JSON] = archives.optJSONObject(owner)?.toString() ?: "{}"
+                val archives = readStorageObject(prefs[KEY_ACCOUNT_RECORDS_JSON])
+                archives.put(previousOwner, readRecordJournal(prefs[KEY_LOCAL_RECORDS_JSON]))
+                val restored = if (archives.has(owner)) archives.getJSONObject(owner).toString() else null
+                prefs[KEY_LOCAL_RECORDS_JSON] = readRecordJournal(restored).toString()
                 archives.remove(owner)
                 prefs[KEY_ACCOUNT_RECORDS_JSON] = archives.toString()
                 prefs.remove(KEY_PULL_CURSOR)
@@ -243,7 +248,7 @@ class SyncRepository(private val context: Context) {
             prefs[KEY_SESSION_BASE_URL] = serviceUrl
             prefs[KEY_SYNC_ENABLED] = true
             prefs[KEY_SYNC_SCHOOL_ID] = schoolId
-            prefs[KEY_SYNC_USERNAME] = localUsername(accountName)
+            prefs[KEY_SYNC_USERNAME] = accountName
             prefs[KEY_SERVER_USERNAME] = accountName
             prefs[KEY_SYNC_USER_ID] = userId
             prefs[KEY_DEVICE_ID] = deviceId
@@ -462,11 +467,10 @@ class SyncRepository(private val context: Context) {
         require(entityId.length in 1..160) { "invalid entityId" }
         val fingerprint = ensureDeviceFingerprint()
         dataStore.edit { prefs ->
-            val root = runCatching {
-                JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
-            }.getOrElse { JSONObject() }
+            val root = readRecordJournal(prefs[KEY_LOCAL_RECORDS_JSON])
             val recordKey = localRecordKey(entityType, entityId)
             val previous = root.optJSONObject(recordKey)
+            previous?.let { readLocalRecord(it) }
             val revision = (previous?.optLong("revision", 0L) ?: 0L) + 1L
             val updatedAt = Instant.now().toString()
             val sealed = localBox.seal(
@@ -491,19 +495,19 @@ class SyncRepository(private val context: Context) {
     }
 
     suspend fun getPrivateRecord(entityType: String, entityId: String): PrivateSyncRecord? {
-        val root = JSONObject(dataStore.data.first()[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+        val root = readRecordJournal(dataStore.data.first()[KEY_LOCAL_RECORDS_JSON])
         val item = root.optJSONObject(localRecordKey(entityType, entityId)) ?: return null
-        return decodeLocalRecord(item)
+        return readLocalRecord(item)
     }
 
     suspend fun listPrivateRecords(entityType: String? = null): List<PrivateSyncRecord> {
-        val root = JSONObject(dataStore.data.first()[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+        val root = readRecordJournal(dataStore.data.first()[KEY_LOCAL_RECORDS_JSON])
         val out = mutableListOf<PrivateSyncRecord>()
         val iterator = root.keys()
         while (iterator.hasNext()) {
             val item = root.optJSONObject(iterator.next()) ?: continue
             if (entityType != null && item.optString("entityType") != entityType) continue
-            runCatching { decodeLocalRecord(item) }.getOrNull()?.let(out::add)
+            out.add(readLocalRecord(item))
         }
         return out
     }
@@ -528,6 +532,42 @@ class SyncRepository(private val context: Context) {
             updatedAt,
             item.optBoolean("deleted", false)
         )
+    }
+
+    private fun readStorageObject(raw: String?): JSONObject = try {
+        JSONObject(raw ?: "{}").also { root ->
+            val keys = root.keys()
+            while (keys.hasNext()) root.getJSONObject(keys.next())
+        }
+    } catch (error: Exception) {
+        throw PrivateStorageException(error)
+    }
+
+    private fun readRecordJournal(raw: String?): JSONObject = try {
+        readStorageObject(raw).also { root ->
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val item = root.getJSONObject(key)
+                require(key == localRecordKey(item.getString("entityType"), item.getString("entityId")))
+                require(item.getLong("revision") > 0)
+                Instant.parse(item.getString("clientUpdatedAt"))
+                item.getString("localCiphertext")
+                item.getString("localNonce")
+                item.getBoolean("dirty")
+                item.getBoolean("deleted")
+            }
+        }
+    } catch (error: PrivateStorageException) {
+        throw error
+    } catch (error: Exception) {
+        throw PrivateStorageException(error)
+    }
+
+    private fun readLocalRecord(item: JSONObject): PrivateSyncRecord = try {
+        decodeLocalRecord(item)
+    } catch (error: Exception) {
+        throw PrivateStorageException(error)
     }
 
     private fun localRecordKey(entityType: String, entityId: String) =
@@ -567,7 +607,7 @@ class SyncRepository(private val context: Context) {
                 val epochKeys = openEpochKeys(initialPrefs[KEY_EPOCH_KEYS_JSON])
                 val currentKey = epochKeys[currentEpoch]
                     ?: throw IllegalStateException("缺少当前账号密钥，请重新输入密码刷新密钥")
-                val localRoot = JSONObject(initialPrefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+                val localRoot = readRecordJournal(initialPrefs[KEY_LOCAL_RECORDS_JSON])
                 val dirtyItems = mutableListOf<Pair<String, JSONObject>>()
                 val iterator = localRoot.keys()
                 while (iterator.hasNext()) {
@@ -579,7 +619,7 @@ class SyncRepository(private val context: Context) {
                 for (batch in dirtyItems.chunked(200)) {
                     val records = JSONArray()
                     for ((_, item) in batch) {
-                        val local = decodeLocalRecord(item)
+                        val local = readLocalRecord(item)
                         val aad = E2eeCrypto.buildRecordAad(
                             local.entityType,
                             local.entityId,
@@ -622,7 +662,7 @@ class SyncRepository(private val context: Context) {
                     }
 
                     dataStore.edit { prefs ->
-                        val root = JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+                        val root = readRecordJournal(prefs[KEY_LOCAL_RECORDS_JSON])
                         for ((key, pushed) in batch) {
                             val current = root.optJSONObject(key) ?: continue
                             if (current.optLong("revision") == pushed.optLong("revision") &&
@@ -675,7 +715,7 @@ class SyncRepository(private val context: Context) {
         if (records.length() == 0) return
         var missingKeyEpoch = false
         dataStore.edit { prefs ->
-            val root = JSONObject(prefs[KEY_LOCAL_RECORDS_JSON] ?: "{}")
+            val root = readRecordJournal(prefs[KEY_LOCAL_RECORDS_JSON])
             val epochKeys = openEpochKeys(prefs[KEY_EPOCH_KEYS_JSON])
             for (i in 0 until records.length()) {
                 val remote = records.getJSONObject(i)
@@ -847,7 +887,7 @@ class SyncRepository(private val context: Context) {
                 }
 
                 dataStore.edit { p ->
-                    val existing = JSONObject(p[KEY_EPOCH_KEYS_JSON] ?: "{}")
+                    val existing = readStorageObject(p[KEY_EPOCH_KEYS_JSON])
                     p[KEY_EPOCH_KEYS_JSON] = sealEpochKeys(existing, mapOf(newEpoch to newKey))
                     p[KEY_CURRENT_KEY_EPOCH] = newEpoch
                     p[KEY_ROTATION_REQUIRED] = false

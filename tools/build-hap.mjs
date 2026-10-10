@@ -66,7 +66,6 @@ try {
   if (process.env.HVIGOR_PLUGIN_VERSION) {
     const path = join(staging, 'hvigor', 'hvigor-config.json5');
     const config = JSON.parse(readFileSync(path, 'utf8'));
-    config.modelVersion = process.env.HVIGOR_PLUGIN_VERSION;
     config.dependencies['@ohos/hvigor-ohos-plugin'] = process.env.HVIGOR_PLUGIN_VERSION;
     writeFileSync(path, JSON.stringify(config, null, 2));
   }
