@@ -23,6 +23,56 @@ function tool(name, override, relative) {
 }
 const hvigor = tool('hvigorw', 'HVIGOR_EXECUTABLE', 'hvigor/bin');
 const ohpm = tool('ohpm', 'OHPM_EXECUTABLE', 'ohpm/bin');
+// The plugin uses Hvigor's internal APIs, not merely its public major version.
+// Match the engine shipped in the selected SDK instead of installing latest 5.x.
+function packageInventory(root) {
+  const packages = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const dir = pending.pop();
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      // Symlinks can escape the SDK and create recursive walks; skip them.
+      if (entry.isDirectory()) pending.push(path);
+      else if (entry.isFile() && entry.name === 'package.json') {
+        try {
+          const metadata = JSON.parse(readFileSync(path, 'utf8'));
+          if (['@ohos/hvigor', '@ohos/hvigor-ohos-plugin'].includes(metadata.name)) {
+            packages.push({ path, ...metadata });
+          }
+        } catch { /* Non-package JSON is irrelevant to engine selection. */ }
+      }
+    }
+  }
+  return packages;
+}
+let hvigorVersion;
+let pluginVersion = process.env.HVIGOR_PLUGIN_VERSION;
+if (tools) {
+  const hvigorDir = join(tools, 'hvigor');
+  if (!existsSync(hvigorDir)) throw new Error('SDK Hvigor directory missing: ' + hvigorDir);
+  const inventory = packageInventory(hvigorDir);
+  const engines = inventory.filter(pkg => pkg.name === '@ohos/hvigor');
+  const preferredPath = join(hvigorDir, 'node_modules', '@ohos', 'hvigor', 'package.json');
+  const preferred = engines.find(pkg => pkg.path === preferredPath);
+  const versions = [...new Set(engines.map(pkg => pkg.version))];
+  if (!preferred && versions.length !== 1) {
+    throw new Error('Cannot identify a unique SDK @ohos/hvigor engine. Found: ' +
+      engines.map(pkg => pkg.version + ' at ' + pkg.path).join(', ') +
+      '. Use a complete Huawei Command Line Tools SDK bundle.');
+  }
+  hvigorVersion = (preferred || engines[0]).version;
+  if (!/^\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(hvigorVersion)) {
+    throw new Error('SDK Hvigor package has an invalid version: ' + hvigorVersion);
+  }
+  if (pluginVersion && pluginVersion !== hvigorVersion) {
+    throw new Error('HVIGOR_PLUGIN_VERSION=' + pluginVersion + ' differs from SDK Hvigor ' +
+      hvigorVersion + '. Remove the override or use a matching SDK; major-version matching is insufficient.');
+  }
+  pluginVersion = hvigorVersion;
+  console.log('Using SDK @ohos/hvigor@' + hvigorVersion + ' and matching @ohos/hvigor-ohos-plugin@' + pluginVersion);
+}
+
 const profile = JSON.parse(readFileSync(join(repo, 'apps', platform, 'build-profile.json5'), 'utf8'));
 const product = profile.app.products[0];
 if (process.env.HAP_COMPILE_SDK_VERSION) product.compileSdkVersion = platform === 'openharmony'
@@ -63,10 +113,10 @@ try {
     product.signingConfig = 'device';
   }
   writeFileSync(join(staging, 'build-profile.json5'), JSON.stringify(profile, null, 2));
-  if (process.env.HVIGOR_PLUGIN_VERSION) {
+  if (pluginVersion) {
     const path = join(staging, 'hvigor', 'hvigor-config.json5');
     const config = JSON.parse(readFileSync(path, 'utf8'));
-    config.dependencies['@ohos/hvigor-ohos-plugin'] = process.env.HVIGOR_PLUGIN_VERSION;
+    config.dependencies['@ohos/hvigor-ohos-plugin'] = pluginVersion;
     writeFileSync(path, JSON.stringify(config, null, 2));
   }
   const appFile = join(staging, 'AppScope', 'app.json5');
@@ -90,7 +140,7 @@ try {
   writeFileSync(target + '.sha256', createHash('sha256').update(readFileSync(target)).digest('hex') + '  ' + filename + '\n');
   writeFileSync(join(out, 'build-info.json'), JSON.stringify({ platform, version, versionCode, signed,
     bundleName: app.app.bundleName, compileSdkVersion: product.compileSdkVersion,
-    compatibleSdkVersion: product.compatibleSdkVersion, installableOnCommercialHarmony: platform === 'harmony' && signed,
+    compatibleSdkVersion: product.compatibleSdkVersion, hvigorVersion, pluginVersion, installableOnCommercialHarmony: platform === 'harmony' && signed,
     signingNote: signed ? 'Profile must authorize the target device UDID and match the bundle name.' : 'Requires device-authorized signing before installation.'
   }, null, 2));
   console.log(`Packaged ${target}`);
