@@ -6,16 +6,16 @@ ArkTS / ArkUI Stage 工程，最低 API 12。设备必须提供兼容 API 12 的
 
 ## 构建
 
-安装包含 API 12 的 OpenHarmony SDK、ohpm 与 Hvigor，设置 `OHOS_SDK_HOME`、`HVIGOR_EXECUTABLE`、`OHPM_EXECUTABLE`。如安装不同 Hvigor 主版本，设置匹配的 `HVIGOR_PLUGIN_VERSION`。
+安装包含 API 12 的 OpenHarmony SDK、ohpm 与 Hvigor，设置 `OHOS_SDK_HOME`、`HVIGOR_EXECUTABLE`、`OHPM_EXECUTABLE`。通过 Command Line Tools 目录构建时会自动匹配引擎与插件的精确版本；独立工具环境则需要提供配套的 `HVIGOR_PLUGIN_VERSION`。
 
 ```sh
-node tools/build-hap.mjs --platform openharmony --version-name 1.0.1 --version-code 1000001
+node tools/build-hap.mjs --platform openharmony --version-name 0.4.1 --version-code 18
 ```
 
 真实 release HAP 输出到 `dist/openharmony`，缺少 SDK 或编译失败会停止。签名时设置 `HAP_CERT_PATH`、`HAP_PROFILE_PATH`、`HAP_KEYSTORE_PATH`、`HAP_KEY_ALIAS`、`HAP_KEY_PASSWORD`、`HAP_STORE_PASSWORD` 并加 `--signed`；证书与 profile 必须被该设备系统信任。
 
 ```sh
-hdc install dist/openharmony/health2609-openharmony-1.0.1-signed.hap
+hdc install dist/openharmony/health2609-openharmony-0.4.1-signed.hap
 hdc shell aa start -a EntryAbility -b org.openharmony.health2609
 ```
 

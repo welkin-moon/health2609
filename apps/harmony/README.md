@@ -12,10 +12,10 @@ ArkTS / ArkUI Stage 工程，最低 API 12。使用 HarmonyOS SDK 单独构建�
 
 ```sh
 export HARMONY_COMMANDLINE_TOOLS=/absolute/path/to/command-line-tools
-node tools/build-hap.mjs --platform harmony --version-name 1.0.1 --version-code 1000001
+node tools/build-hap.mjs --platform harmony --version-name 0.4.1 --version-code 18
 ```
 
-默认 API 12；使用更新 SDK 时设置 `HAP_COMPILE_SDK_VERSION` 为已安装的 HarmonyOS SDK 版本字符串，例如 `6.0.0(20)`，兼容 API 仍为 12。如工具目录不符合上述布局，设置 `HVIGOR_EXECUTABLE` 和 `OHPM_EXECUTABLE` 为真实执行文件路径。SDK 可通过 `HOS_SDK_HOME` 提供。若使用不同 Hvigor 主版本，`HVIGOR_PLUGIN_VERSION` 应与安装的插件版本一致。
+默认 API 12；使用更新 SDK 时设置 `HAP_COMPILE_SDK_VERSION` 为已安装的 HarmonyOS SDK 版本字符串，例如 `6.0.0(20)`，兼容 API 仍为 12。如工具目录不符合上述布局，设置 `HVIGOR_EXECUTABLE` 和 `OHPM_EXECUTABLE` 为真实执行文件路径。HarmonyOS SDK 可通过 `DEVECO_SDK_HOME` 提供；使用 `HARMONY_COMMANDLINE_TOOLS` 时脚本自动设置它。脚本会读取 Command Line Tools 中 Hvigor 的精确版本，自动匹配同版本插件；`HVIGOR_PLUGIN_VERSION` 不能覆盖为与引擎不一致的版本。
 
 脚本会执行真实 `ohpm install` 和 release `assembleHap`，输出至 `dist/harmony`；缺少 SDK/构建工具或编译失败会停止，不会用源码压缩包冒充 HAP。
 
@@ -30,9 +30,9 @@ node tools/build-hap.mjs --platform harmony --version-name 1.0.1 --version-code 
 - `HAP_KEYSTORE_PATH`、`HAP_KEY_ALIAS`、`HAP_KEY_PASSWORD`、`HAP_STORE_PASSWORD`：签名密钥配置。
 
 ```sh
-node tools/build-hap.mjs --platform harmony --signed --version-name 1.0.1 --version-code 1000001
+node tools/build-hap.mjs --platform harmony --signed --version-name 0.4.1 --version-code 18
 hdc list targets
-hdc install dist/harmony/health2609-harmony-1.0.1-signed.hap
+hdc install dist/harmony/health2609-harmony-0.4.1-signed.hap
 hdc shell aa start -a EntryAbility -b uk.lunarlab.health2609.harmony
 ```
 

@@ -9,7 +9,7 @@ on:
       - tools/build-hap.mjs
       - .github/workflows/hap-build.yml
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: health2609-hap-${{ github.ref }}
   cancel-in-progress: true
@@ -76,11 +76,43 @@ jobs:
           cat "$HARMONY_COMMANDLINE_TOOLS/hvigor/hvigor/package.json"
           cat "$HARMONY_COMMANDLINE_TOOLS/hvigor/hvigor-ohos-plugin/package.json"
           cat "$HARMONY_COMMANDLINE_TOOLS/sdk/default/sdk-pkg.json"
+          find "$HARMONY_COMMANDLINE_TOOLS/sdk/default/openharmony" -maxdepth 2 -name '*package*.json' -print -exec cat {} \;
       - name: Build real unsigned HAP (no tests)
-        run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.0 --version-code 17
+        run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.1 --version-code 18
       - uses: actions/upload-artifact@v4
         with:
           name: health2609-${{ matrix.platform }}-unsigned-hap
           path: dist/${{ matrix.platform }}/*
           if-no-files-found: error
           retention-days: 7
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: hap
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: health2609-*-unsigned-hap
+          path: hap-assets
+      - name: Publish compiler-produced HAPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find hap-assets -type f \( -name '*.hap' -o -name '*.sha256' \) -exec cp {} release-assets/ \;
+          test "$(find release-assets -name '*.hap' | wc -l)" -eq 2
+          cp docs/device-install.md release-assets/INSTALL.md
+          TAG="v0.4.1-hap.${GITHUB_SHA:0:7}"
+          cat > /tmp/hap-notes.md <<'NOTES'
+          Real Hvigor release-mode HarmonyOS / OpenHarmony HAPs, unsigned. These are compiler-produced packages, not source archives.
+          Huawei commercial HarmonyOS 6 devices require a HarmonyOS certificate and matching profile authorizing the target UDID. OpenHarmony signing is not a substitute. Unsigned packages cannot be installed as distributed.
+          Build and source review only; no tests or device validation were run. Full private E2EE journal and historical health data migration remain incomplete on these ports.
+          NOTES
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* --target "$GITHUB_SHA" --prerelease --title "一餐一动 0.4.1 · 未签名鸿蒙 / 开鸿 HAP" --notes-file /tmp/hap-notes.md
+          fi

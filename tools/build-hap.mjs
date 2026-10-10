@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // This performs an SDK build. It never substitutes a source zip for a HAP.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,9 +78,10 @@ const product = profile.app.products[0];
 if (process.env.HAP_COMPILE_SDK_VERSION) product.compileSdkVersion = platform === 'openharmony'
   ? Number(process.env.HAP_COMPILE_SDK_VERSION) : process.env.HAP_COMPILE_SDK_VERSION;
 const staging = mkdtempSync(join(tmpdir(), `health2609-${platform}-`));
+const buildEnv = { ...process.env };
 function run(executable, params) {
   const result = spawnSync(executable, params, {
-    cwd: staging, env: process.env, stdio: 'inherit', shell: process.platform === 'win32'
+    cwd: staging, env: buildEnv, stdio: 'inherit', shell: process.platform === 'win32'
   });
   if (result.error) throw new Error(`Cannot execute ${executable}: ${result.error.message}. Install Huawei Command Line Tools / the OpenHarmony SDK first.`);
   if (result.status !== 0) throw new Error(`${executable} exited ${result.status}`);
@@ -95,11 +96,43 @@ try {
   cpSync(join(repo, 'apps', platform), staging, { recursive: true,
     filter: path => !/[\\/](build|node_modules|\.hvigor|oh_modules)([\\/]|$)/.test(path) && !path.endsWith('local.properties')
   });
-  if (tools && !process.env.HOS_SDK_HOME && !process.env.OHOS_SDK_HOME) {
+  if (tools) {
     const sdk = join(tools, 'sdk');
     if (!existsSync(sdk)) throw new Error('Command Line Tools SDK directory missing');
-    writeFileSync(join(staging, 'local.properties'), `sdk.dir=${sdk.replaceAll('\\', '/')}\n`);
+    if (!buildEnv.DEVECO_SDK_HOME) buildEnv.DEVECO_SDK_HOME = sdk;
+    if (platform === 'harmony') {
+      writeFileSync(join(staging, 'local.properties'), 'sdk.dir=' + buildEnv.DEVECO_SDK_HOME.replaceAll('\\', '/') + '\n');
+    } else if (!buildEnv.OHOS_SDK_HOME) {
+      // The Huawei bundle carries its embedded OpenHarmony components flat
+      // under sdk/default/openharmony. The standalone OH SDK manager instead
+      // expects an API-indexed root: <sdk>/12/{ets,js,native,toolchains,...}.
+      // Project it without modifying or deleting the shared verified SDK cache.
+      const components = join(sdk, 'default', 'openharmony');
+      const names = ['ets', 'js', 'native', 'toolchains', 'previewer'];
+      if (!existsSync(components)) throw new Error('Embedded OpenHarmony SDK missing: ' + components);
+      const metadataFile = join(components, 'ets', 'oh-uni-package.json');
+      if (!existsSync(metadataFile)) throw new Error('OpenHarmony ets SDK component metadata missing: ' + metadataFile);
+      const metadata = JSON.parse(readFileSync(metadataFile, 'utf8'));
+      const api = Number(metadata.apiVersion ?? metadata.data?.apiVersion);
+      if (!Number.isSafeInteger(api) || api <= 0) throw new Error('Cannot determine embedded OpenHarmony SDK API version');
+      if (Number(product.compileSdkVersion) !== api) throw new Error('OpenHarmony compile API ' + product.compileSdkVersion + ' does not match embedded SDK API ' + api);
+      const sdkRoot = join(staging, '.sdk');
+      const apiRoot = join(sdkRoot, String(api));
+      mkdirSync(apiRoot, { recursive: true });
+      for (const name of names) {
+        const source = join(components, name);
+        if (!existsSync(source)) {
+          if (name === 'previewer' || name === 'native') continue;
+          throw new Error('OpenHarmony SDK component missing: ' + source);
+        }
+        symlinkSync(source, join(apiRoot, name), process.platform === 'win32' ? 'junction' : 'dir');
+      }
+      buildEnv.OHOS_SDK_HOME = sdkRoot;
+      writeFileSync(join(staging, 'local.properties'), 'sdk.dir=' + sdkRoot.replaceAll('\\', '/') + '\n');
+      console.log('Projected embedded OpenHarmony API ' + api + ' SDK into an isolated API-indexed root');
+    }
   }
+
   if (signed) {
     const required = ['HAP_CERT_PATH','HAP_PROFILE_PATH','HAP_KEYSTORE_PATH','HAP_KEY_ALIAS','HAP_KEY_PASSWORD','HAP_STORE_PASSWORD'];
     for (const name of required) if (!process.env[name]) throw new Error(`Signed device package requires ${name}`);

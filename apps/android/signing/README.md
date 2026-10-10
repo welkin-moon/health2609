@@ -21,3 +21,10 @@ Use the same private certificate for subsequent `assembleRelease` builds and
 increase `versionCode` for device updates. CI may obtain these values from
 GitHub Secrets. Without all four values, release signing remains unconfigured;
 the project does not silently substitute a public key.
+
+The device packaging workflow uses `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`
+repository secrets. It decodes the keystore only into the runner's private
+temporary directory, removes it after packaging, and publishes only the APK.
+If the keystore secret is absent, the workflow explicitly publishes a debug
+APK instead. Keep the keystore in private storage; never commit it.
