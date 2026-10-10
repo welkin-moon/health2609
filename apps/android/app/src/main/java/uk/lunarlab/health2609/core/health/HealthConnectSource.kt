@@ -103,9 +103,9 @@ class HealthConnectSource(
     suspend fun getDiagnostics(): String {
         val status = sdkStatus()
         val statusText = when (status) {
-            HealthConnectClient.SDK_AVAILABLE -> "SDK_AVAILABLE (1)"
-            HealthConnectClient.SDK_UNAVAILABLE -> "SDK_UNAVAILABLE (2)"
-            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED (3)"
+            HealthConnectClient.SDK_AVAILABLE -> "SDK_AVAILABLE ($status)"
+            HealthConnectClient.SDK_UNAVAILABLE -> "SDK_UNAVAILABLE ($status)"
+            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED ($status)"
             else -> "UNKNOWN ($status)"
         }
         val granted = if (status == HealthConnectClient.SDK_AVAILABLE) {

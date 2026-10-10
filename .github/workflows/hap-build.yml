@@ -30,7 +30,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: actions/cache/restore@v4
+        id: sdk-cache
+        with:
+          path: ${{ runner.temp }}/harmony-tools
+          key: harmony-commandline-linux-5.0.3.906-v1
       - name: Obtain Huawei command line SDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -42,6 +48,15 @@ jobs:
           printf '%s  %s\n' "$CHECKSUM" /tmp/harmony-tools.zip | sha256sum --check
           unzip -q /tmp/harmony-tools.zip -d "$RUNNER_TEMP/harmony-tools"
           rm /tmp/harmony-tools.zip
+      - uses: actions/cache/save@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/harmony-tools
+          key: harmony-commandline-linux-5.0.3.906-v1
+      - name: Select SDK executables
+        shell: bash
+        run: |
+          set -euo pipefail
           HVIGOR="$(find "$RUNNER_TEMP/harmony-tools" -path '*/hvigor/bin/hvigorw' -print -quit)"
           OHPM="$(find "$RUNNER_TEMP/harmony-tools" -path '*/ohpm/bin/ohpm' -print -quit)"
           test -n "$HVIGOR" && test -n "$OHPM"
@@ -58,8 +73,9 @@ jobs:
       - name: Inspect bundled build tool versions
         shell: bash
         run: |
-          find "$HARMONY_COMMANDLINE_TOOLS/hvigor" -maxdepth 5 -name package.json -print
-          find "$HARMONY_COMMANDLINE_TOOLS/sdk" -maxdepth 4 -name '*sdk*.json' -print
+          cat "$HARMONY_COMMANDLINE_TOOLS/hvigor/hvigor/package.json"
+          cat "$HARMONY_COMMANDLINE_TOOLS/hvigor/hvigor-ohos-plugin/package.json"
+          cat "$HARMONY_COMMANDLINE_TOOLS/sdk/default/sdk-pkg.json"
       - name: Build real unsigned HAP (no tests)
         run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.0 --version-code 17
       - uses: actions/upload-artifact@v4
