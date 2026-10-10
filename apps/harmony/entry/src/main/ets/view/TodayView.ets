@@ -409,7 +409,7 @@ export struct TodayView {
    */
   async saveEnergyReference() {
     const kcal = Number(this.energyReferenceInput);
-    if (!Number.isFinite(kcal) || kcal < 500 || kcal > 6000) {
+    if (!Number.isInteger(kcal) || kcal < 500 || kcal > 6000) {
       this.statusMessage = '请输入合理的每日能量参考（500 - 6000 千卡）';
       this.statusIsError = true;
       return;

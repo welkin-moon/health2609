@@ -13,6 +13,7 @@ final class PrivateSyncState: ObservableObject {
     @Published private(set) var username: String?
     @Published private(set) var loggedIn = false
     @Published private(set) var owner = ""
+    @Published private(set) var generation = 0
     @Published private(set) var lastSync: String?
     @Published private(set) var devices: [SyncDevice] = []
     @Published private(set) var busy = false
@@ -28,6 +29,7 @@ final class PrivateSyncState: ObservableObject {
             let snapshot = try await repository.snapshot()
             records = snapshot.records
             owner = snapshot.owner
+            generation = snapshot.generation
             let scope = snapshot.owner.split(separator: "|", maxSplits: 1).map(String.init)
             serverURL = snapshot.session?.serverURL ?? scope.first ?? PrivateSyncRepository.defaultServer
             username = snapshot.session?.username ?? (scope.count == 2 && scope[1].hasPrefix("account:") ? String(scope[1].dropFirst(8)) : nil)
@@ -127,8 +129,10 @@ final class PrivateSyncState: ObservableObject {
         }
     }
     func delete(_ id: String) {
+        let expectedOwner = owner
+        let expectedGeneration = generation
         perform {
-            try await self.repository.deleteRecord(id: id)
+            try await self.repository.deleteRecord(id: id, expectedOwner: expectedOwner, expectedGeneration: expectedGeneration)
             return "已在本机删除记录；下次同步会同步删除状态。"
         }
     }

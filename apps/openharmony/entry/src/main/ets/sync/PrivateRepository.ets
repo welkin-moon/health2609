@@ -28,23 +28,26 @@ interface PushRequest { records: RemoteRecord[]; }
 interface PullResponse { records: RemoteRecord[]; nextCursor: number; hasMore: boolean; currentKeyEpoch: number; }
 interface WriteResponse { ok: boolean; acceptedCount: number; currentKeyEpoch: number; }
 interface Identity { server: string; username: string; }
-export function validatePayload(type: string, value: string): void {
+export function validatePayload(type: string, value: string, writing: boolean = false): void {
   if (typeof value !== 'string' || value.length > 262144) throw new Error('个人记录内容无效');
   const parsed = JSON.parse(value) as Object;
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('个人记录内容无效');
   if (type === 'home_meal') {
     const meal = JSON.parse(value) as ConfirmedHomeMealRequest;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(meal.date) || !['breakfast', 'lunch', 'dinner', 'snack'].includes(meal.mealSlot) || !Array.isArray(meal.items)) throw new Error('家庭餐记录无效');
+    if (writing && (!['breakfast', 'lunch', 'dinner'].includes(meal.mealSlot) || meal.items.length < 1 || meal.items.length > 30)) throw new Error('家庭餐需选择三餐之一，食物最多30项');
     for (const item of meal.items) {
-      if (typeof item.name !== 'string' || !item.name.trim() || !Number.isFinite(item.grams) || item.grams === null || item.grams < 0) throw new Error('家庭餐食物内容无效');
+      if (typeof item.name !== 'string' || !item.name.trim() || (item.grams !== null && item.grams !== undefined && (!Number.isFinite(item.grams) || item.grams < 0))) throw new Error('家庭餐食物内容无效');
+      if (writing && (item.name.length > 120 || (item.grams !== null && item.grams !== undefined && item.grams > 5000))) throw new Error('家庭餐食物超出范围');
       if (item.nutrition && item.nutrition.energyKcal !== null && item.nutrition.energyKcal !== undefined && (!Number.isFinite(item.nutrition.energyKcal) || Number(item.nutrition.energyKcal) < 0)) throw new Error('家庭餐营养内容无效');
     }
   } else if (type === 'manual_activity') {
     const activity = JSON.parse(value) as ManualActivityRequest;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(activity.date) || typeof activity.activityType !== 'string' || !activity.activityType.trim() || !Number.isFinite(activity.durationMinutes) || activity.durationMinutes < 0 || activity.durationMinutes > 1440 || !['light', 'moderate', 'vigorous'].includes(activity.intensity)) throw new Error('运动记录无效');
+    if (writing && (!Number.isInteger(activity.durationMinutes) || activity.durationMinutes < 1 || activity.durationMinutes > 600 || activity.activityType.length > 80)) throw new Error('运动时长需为1至600整数分钟');
   } else if (type === 'preference') {
     const preference = JSON.parse(value) as EnergyReferenceRequest;
-    if (preference.dailyEnergyReferenceKcal !== null && (!Number.isFinite(preference.dailyEnergyReferenceKcal) || Number(preference.dailyEnergyReferenceKcal) < 500 || Number(preference.dailyEnergyReferenceKcal) > 6000)) throw new Error('能量偏好记录无效');
+    if (preference.dailyEnergyReferenceKcal !== null && preference.dailyEnergyReferenceKcal !== undefined && (!Number.isFinite(preference.dailyEnergyReferenceKcal) || Number(preference.dailyEnergyReferenceKcal) < 500 || Number(preference.dailyEnergyReferenceKcal) > 6000)) throw new Error('能量偏好记录无效');
   }
 }
 export class PrivateState {
@@ -56,6 +59,7 @@ export class PrivateState {
   deviceId: string = '';
   token: string = '';
   pendingRecovery: string = '';
+  pendingRecoverySalt: string = '';
   epoch: number = 0;
   keys: EpochKey[] = [];
   cursor: number = 0;
@@ -128,6 +132,7 @@ export class PrivateRepository {
       validatePayload(record.entityType, record.payloadJson);
     }
     state.pendingRecovery = state.pendingRecovery || '';
+    state.pendingRecoverySalt = state.pendingRecoverySalt || '';
     return state;
   }
   private async persist(state: PrivateState): Promise<void> {
@@ -168,7 +173,7 @@ export class PrivateRepository {
       if (account.length < 3 || account.length > 160 || password.length < 8) throw new Error('用户名至少3字符，密码至少8字符');
       let challenge: Challenge | null = null;
       try { challenge = await this.request<Challenge>(service, '/v1/sync/auth/challenge?username=' + encodeURIComponent(account), http.RequestMethod.GET); }
-      catch (error) { if (!(error instanceof ApiError) || error.code !== 404) throw error; }
+      catch (error) { if (!(error instanceof ApiError) || error.code !== 404) throw error as Error; }
       const candidate = await this.load(service, account);
       let phrase = candidate.pendingRecovery;
       let response: AuthResponse;
@@ -178,6 +183,7 @@ export class PrivateRepository {
         phrase = parts.join('-');
         candidate.pendingRecovery = phrase;
         const passwordSalt = base64(random(16)), recoverySalt = base64(random(16)), key = random(32);
+        candidate.pendingRecoverySalt = recoverySalt;
         const passwordBox = await seal(key, await derive(password, passwordSalt, 'password-wrap'), keyAad(account, 1, 'password'));
         const recoveryBox = await seal(key, await derive(raw, recoverySalt, 'recovery-wrap'), keyAad(account, 1, 'recovery'));
         const envelope: WrappedEpoch = { epoch: 1, passwordWrappedKey: passwordBox.ciphertext, passwordNonce: passwordBox.nonce, recoveryWrappedKey: recoveryBox.ciphertext, recoveryNonce: recoveryBox.nonce };
@@ -190,10 +196,18 @@ export class PrivateRepository {
         await this.persist(candidate);
         response = await this.request<AuthResponse>(service, '/v1/sync/auth/register', http.RequestMethod.POST, JSON.stringify(payload));
       } else {
+        // A pending registration can race another device. Only reuse its
+        // recovery material when the server still has that enrollment salt.
+        if (candidate.pendingRecovery && candidate.pendingRecoverySalt !== challenge.recoverySalt) {
+          candidate.pendingRecovery = ''; candidate.pendingRecoverySalt = ''; phrase = '';
+        }
         const payload: LoginRequest = { username: account, passwordVerifier: base64(await derive(password, challenge.passwordSalt, 'password-auth')), deviceFingerprint: candidate.fingerprint, deviceName: 'HarmonyOS / OpenHarmony' };
         const enrollment = recovery.trim() || candidate.pendingRecovery;
         if (enrollment) payload.recoveryVerifier = base64(await derive(enrollment.toUpperCase().replace(/[^A-Z0-9]/g, ''), challenge.recoverySalt, 'recovery-auth'));
         response = await this.request<AuthResponse>(service, '/v1/sync/auth/login', http.RequestMethod.POST, JSON.stringify(payload), candidate.token);
+        if (recovery.trim() && candidate.pendingRecovery.toUpperCase().replace(/[^A-Z0-9]/g, '') !== recovery.toUpperCase().replace(/[^A-Z0-9]/g, '')) {
+          candidate.pendingRecovery = ''; candidate.pendingRecoverySalt = ''; phrase = '';
+        }
         const wrappingKey = await derive(password, challenge.passwordSalt, 'password-wrap');
         if (!Array.isArray(response.keyEnvelopes) || response.keyEnvelopes.length === 0) throw new Error('账号缺少加密密钥包');
         const keys: EpochKey[] = [];
@@ -218,7 +232,7 @@ export class PrivateRepository {
   public async acknowledgeRecovery(): Promise<void> {
     await this.exclusive(async () => {
       this.requireReady();
-      const candidate = this.snapshot(); candidate.pendingRecovery = '';
+      const candidate = this.snapshot(); candidate.pendingRecovery = ''; candidate.pendingRecoverySalt = '';
       await this.commit(candidate);
     });
   }
@@ -233,10 +247,12 @@ export class PrivateRepository {
     });
   }
   public async save(entityType: string, entityId: string, payloadJson: string, deleted: boolean = false): Promise<void> {
+    const expectedOwner = this.owner(this.state);
     await this.exclusive(async () => {
       this.requireReady();
+      if (expectedOwner !== this.owner(this.state)) throw new Error('账号已切换，内容未保存，请在正确账号重新确认');
       if (!/^[a-z0-9_-]{1,64}$/.test(entityType) || entityId.length === 0 || entityId.length > 160) throw new Error('记录标识无效');
-      validatePayload(entityType, payloadJson);
+      validatePayload(entityType, payloadJson, !deleted);
       const candidate = this.snapshot();
       const index = candidate.records.findIndex((record: PrivateRecord) => record.entityType === entityType && record.entityId === entityId);
       const revision = index < 0 ? 1 : candidate.records[index].revision + 1;
@@ -287,7 +303,7 @@ export class PrivateRepository {
         const previousCursor = candidate.cursor;
         for (const remote of page.records) {
           if ((remote.envelopeVersion !== 1 && remote.envelopeVersion !== 2) || !Number.isSafeInteger(remote.revision) || remote.revision < 1 || !Number.isFinite(Date.parse(remote.clientUpdatedAt))) throw new Error('同步记录版本无效');
-          if (typeof remote.entityType !== 'string' || !/^[a-z0-9_-]{1,64}$/.test(remote.entityType) || typeof remote.entityId !== 'string' || !remote.entityId || remote.entityId.length > 160 || !Number.isSafeInteger(remote.keyEpoch) || remote.keyEpoch < 1 || typeof remote.deleted !== 'boolean') throw new Error('同步记录标识无效');
+          if (typeof remote.clientUpdatedAt !== 'string' || typeof remote.entityType !== 'string' || !/^[a-z0-9_-]{1,64}$/.test(remote.entityType) || typeof remote.entityId !== 'string' || !remote.entityId || remote.entityId.length > 160 || !Number.isSafeInteger(remote.keyEpoch) || remote.keyEpoch < 1 || typeof remote.deleted !== 'boolean') throw new Error('同步记录标识无效');
           if (remote.envelopeVersion === 2 && (typeof remote.sourceDeviceId !== 'string' || !remote.sourceDeviceId)) throw new Error('同步认证元数据缺失');
           const aad = recordAad(remote.entityType, remote.entityId, remote.keyEpoch, remote.revision, remote.clientUpdatedAt, remote.envelopeVersion, remote.deleted, remote.sourceDeviceId || '');
           if (remote.aad !== aad) throw new Error('同步记录元数据验证失败');
@@ -307,7 +323,7 @@ export class PrivateRepository {
         }
         // Whole page must decrypt and persist before its cursor is advanced.
         candidate.cursor = page.nextCursor;
-        try { await this.commit(candidate); } catch (error) { candidate.cursor = previousCursor; throw error; }
+        try { await this.commit(candidate); } catch (error) { candidate.cursor = previousCursor; throw error as Error; }
         more = page.hasMore;
         if (page.currentKeyEpoch > candidate.epoch) throw new Error('账号密钥已轮换，请重新登录');
       }

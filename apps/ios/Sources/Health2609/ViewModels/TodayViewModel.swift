@@ -273,6 +273,12 @@ public final class TodayViewModel: ObservableObject {
     }
 
     public func saveManualActivity(type: String = "自主运动") {
+        guard privateSync.storageReady else {
+            message = "本机加密存储尚未就绪，请先在私密账号页面重试加载"
+            return
+        }
+        let expectedOwner = privateSync.owner
+        let expectedGeneration = privateSync.generation
         guard !savingActivity else { return }
         savingActivity = true
         message = nil
@@ -287,7 +293,7 @@ public final class TodayViewModel: ObservableObject {
                     durationMinutes: manualActivityMinutes,
                     intensity: manualActivityIntensity
                 )
-                try await privateSync.repository.enqueue("manual_activity", id: date + ":" + UUID().uuidString.lowercased(), payload: req)
+                try await privateSync.repository.enqueue("manual_activity", id: date + ":" + UUID().uuidString.lowercased(), payload: req, expectedOwner: expectedOwner, expectedGeneration: expectedGeneration)
                 await privateSync.reload()
                 self.savingActivity = false
                 self.message = "运动已保存到本机私密日记，可在账号页面同步"
@@ -299,6 +305,12 @@ public final class TodayViewModel: ObservableObject {
     }
 
     public func syncHealthKitActivity() {
+        guard privateSync.storageReady else {
+            message = "本机加密存储尚未就绪，请先在私密账号页面重试加载"
+            return
+        }
+        let expectedOwner = privateSync.owner
+        let expectedGeneration = privateSync.generation
         guard !syncingPhoneActivity, windowsLoaded, !loading else {
             message = "请先成功加载学校在校时段，再同步健康数据。"
             return
@@ -329,7 +341,7 @@ public final class TodayViewModel: ObservableObject {
                     steps: aggregate.steps,
                     activeEnergyKcal: aggregate.activeEnergyKcal
                 )
-                try await privateSync.repository.enqueue("outside_activity", id: date, payload: req)
+                try await privateSync.repository.enqueue("outside_activity", id: date, payload: req, expectedOwner: expectedOwner, expectedGeneration: expectedGeneration)
                 await privateSync.reload()
                 self.syncingPhoneActivity = false
                 self.message = "Apple 健康校外汇总已保存到本机（已排除在校时段）"
@@ -399,6 +411,12 @@ public final class TodayViewModel: ObservableObject {
     }
 
     public func saveHomeMeal() {
+        guard privateSync.storageReady else {
+            message = "本机加密存储尚未就绪，请先在私密账号页面重试加载"
+            return
+        }
+        let expectedOwner = privateSync.owner
+        let expectedGeneration = privateSync.generation
         guard !savingHomeMeal, !homeMealDraft.isEmpty else { return }
         savingHomeMeal = true
         message = nil
@@ -431,7 +449,7 @@ public final class TodayViewModel: ObservableObject {
                     mealSlot: homeMealSlot,
                     items: confirmedItems
                 )
-                try await privateSync.repository.enqueue("home_meal", id: date + ":" + homeMealSlot, payload: req)
+                try await privateSync.repository.enqueue("home_meal", id: date + ":" + homeMealSlot, payload: req, expectedOwner: expectedOwner, expectedGeneration: expectedGeneration)
                 self.homeMealDraft = []
                 self.homeMealNotes = []
                 await privateSync.reload()
@@ -445,6 +463,12 @@ public final class TodayViewModel: ObservableObject {
     }
 
     public func saveEnergyReference() {
+        guard privateSync.storageReady else {
+            message = "本机加密存储尚未就绪，请先在私密账号页面重试加载"
+            return
+        }
+        let expectedOwner = privateSync.owner
+        let expectedGeneration = privateSync.generation
         guard !savingEnergyReference else { return }
         let trimmed = energyReferenceInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let kcal: Int?
@@ -462,7 +486,7 @@ public final class TodayViewModel: ObservableObject {
 
         Task {
             do {
-                try await privateSync.repository.enqueue("preference", id: "energy_reference", payload: EnergyReferenceRequest(dailyEnergyReferenceKcal: kcal))
+                try await privateSync.repository.enqueue("preference", id: "energy_reference", payload: EnergyReferenceRequest(dailyEnergyReferenceKcal: kcal), expectedOwner: expectedOwner, expectedGeneration: expectedGeneration)
                 await privateSync.reload()
                 self.savingEnergyReference = false
                 self.message = "每日参考能量已保存到本机私密日记"

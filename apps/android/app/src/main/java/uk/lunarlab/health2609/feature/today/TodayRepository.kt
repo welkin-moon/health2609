@@ -111,7 +111,9 @@ class TodayRepository(
         steps: Long?,
         activeEnergyKcal: Double?
     ) {
-        syncRepository?.enqueuePrivateRecord(
+        val sync = syncRepository
+        if (sync != null) {
+            sync.enqueuePrivateRecord(
             entityType = "outside_activity",
             entityId = date,
             payloadJson = JSONObject()
@@ -120,8 +122,9 @@ class TodayRepository(
                 .put("steps", steps ?: JSONObject.NULL)
                 .put("activeEnergyKcal", activeEnergyKcal ?: JSONObject.NULL)
                 .toString()
-        )
-
+            )
+            return
+        }
         api.saveOutsideSchoolActivity(
             OutsideSchoolActivityRequest(
                 date = date,
@@ -424,22 +427,44 @@ class TodayRepository(
                 localEstimatedEnergy += json.optDouble("estimatedActiveEnergyKcal", 0.0)
             }
 
+        val wearable = sync.getPrivateRecord("outside_activity", date)
+            ?.takeIf { !it.deleted }
+            ?.let { record ->
+                JSONObject(record.payloadJson).also { json ->
+                    require(json.getString("date") == date) { "校外运动记录日期无效" }
+                    val minutes = json.getDouble("exerciseMinutes")
+                    require(minutes.isFinite() && minutes in 0.0..1440.0 && minutes % 1.0 == 0.0) {
+                        "校外运动时长无效"
+                    }
+                }
+            }
+        val wearableMinutes = wearable?.getInt("exerciseMinutes") ?: 0
+        val wearableSteps = wearable?.optNullableDouble("steps")?.also {
+            require(it.isFinite() && it in 0.0..200_000.0 && it % 1.0 == 0.0) { "校外运动步数无效" }
+        }?.toLong()
+        val wearableEnergy = wearable?.optNullableDouble("activeEnergyKcal")?.also {
+            require(it.isFinite() && it in 0.0..20_000.0) { "校外运动能量无效" }
+        }
+
         val activity = remote.activity.let { base ->
-            val manualTotal = base.manualOutsideMinutes + localManualMinutes
-            val outside = maxOf(base.healthConnectOutsideMinutes, manualTotal)
+            // Campus PE remains a school source. The demo server's personal
+            // exercise totals must not enter this encrypted account's totals.
+            val outside = maxOf(wearableMinutes, localManualMinutes)
             val total = base.peMinutes + outside
             base.copy(
-                manualOutsideMinutes = manualTotal,
+                healthConnectOutsideMinutes = wearableMinutes,
+                manualOutsideMinutes = localManualMinutes,
                 outsideMinutes = outside,
                 totalMinutes = total,
                 targetReached = total >= base.targetMinutes,
                 intensityMinutes = IntensityMinutesDto(
-                    light = base.intensityMinutes.light + localLight,
-                    moderate = base.intensityMinutes.moderate + localModerate,
-                    vigorous = base.intensityMinutes.vigorous + localVigorous
+                    light = localLight,
+                    moderate = localModerate,
+                    vigorous = localVigorous
                 ),
-                manuallyEstimatedActiveEnergyKcal =
-                    base.manuallyEstimatedActiveEnergyKcal + localEstimatedEnergy
+                activeEnergyKcal = wearableEnergy,
+                steps = wearableSteps,
+                manuallyEstimatedActiveEnergyKcal = localEstimatedEnergy
             )
         }
 

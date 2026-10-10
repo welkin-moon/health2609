@@ -42,11 +42,26 @@ struct PrivateSession: Codable {
 }
 struct PrivateVault: Codable {
     var version = 1
+    var generation = 0
     var owner = "https://h2609.lunarlab.uk|anonymous"
     var session: PrivateSession?
     var accounts: [String: [String: PrivateJournalRecord]] = [:]
     var cursors: [String: Int64] = [:]
     var lastSync: [String: String] = [:]
+    private enum CodingKeys: String, CodingKey {
+        case version, generation, owner, session, accounts, cursors, lastSync
+    }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        generation = try c.decodeIfPresent(Int.self, forKey: .generation) ?? 0
+        owner = try c.decode(String.self, forKey: .owner)
+        session = try c.decodeIfPresent(PrivateSession.self, forKey: .session)
+        accounts = try c.decode([String: [String: PrivateJournalRecord]].self, forKey: .accounts)
+        cursors = try c.decode([String: Int64].self, forKey: .cursors)
+        lastSync = try c.decode([String: String].self, forKey: .lastSync)
+    }
 }
 struct SyncChallenge: Decodable {
     let passwordSalt: String
@@ -81,6 +96,7 @@ struct SyncDevice: Decodable, Identifiable {
 }
 struct SyncDevicesResponse: Decodable { let devices: [SyncDevice] }
 struct PrivateSnapshot {
+    let generation: Int
     let owner: String
     let session: PrivateSession?
     let records: [PrivateJournalRecord]

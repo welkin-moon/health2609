@@ -58,7 +58,7 @@ export struct PrivateAccountView {
   private description(record: PrivateRecord): string {
     if (record.entityType === 'home_meal') {
       const meal = JSON.parse(record.payloadJson) as ConfirmedHomeMealRequest;
-      return meal.date + ' · ' + meal.items.map((item: ConfirmedHomeMealItemRequest) => item.name + ' ' + item.grams + '克').join('、');
+      return meal.date + ' · ' + meal.items.map((item: ConfirmedHomeMealItemRequest) => item.name + (item.grams === null || item.grams === undefined ? '（重量未知）' : ' ' + item.grams + '克')).join('、');
     }
     if (record.entityType === 'manual_activity') {
       const activity = JSON.parse(record.payloadJson) as ManualActivityRequest;
@@ -67,7 +67,7 @@ export struct PrivateAccountView {
     }
     if (record.entityType === 'preference') {
       const preference = JSON.parse(record.payloadJson) as EnergyReferenceRequest;
-      return preference.dailyEnergyReferenceKcal === null ? '已清除个人参考热量' : `每日参考热量 ${preference.dailyEnergyReferenceKcal} 千卡`;
+      return preference.dailyEnergyReferenceKcal === null || preference.dailyEnergyReferenceKcal === undefined ? '已清除个人参考热量' : `每日参考热量 ${preference.dailyEnergyReferenceKcal} 千卡`;
     }
     return '来自其它设备的个人记录';
   }

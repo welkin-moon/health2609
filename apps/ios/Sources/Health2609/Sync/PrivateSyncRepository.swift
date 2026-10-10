@@ -120,12 +120,13 @@ actor PrivateSyncRepository {
     }
     func snapshot() throws -> PrivateSnapshot {
         let value = try load()
-        return PrivateSnapshot(owner: value.owner, session: value.session,
+        return PrivateSnapshot(generation: value.generation, owner: value.owner, session: value.session,
             records: Array((value.accounts[value.owner] ?? [:]).values).filter { !$0.deleted }.sorted { $0.clientUpdatedAt > $1.clientUpdatedAt },
             lastSync: value.lastSync[value.owner])
     }
-    func enqueue<T: Encodable & Sendable>(_ type: String, id: String, payload: T) throws {
+    func enqueue<T: Encodable & Sendable>(_ type: String, id: String, payload: T, expectedOwner: String, expectedGeneration: Int) throws {
         var value = try load()
+        try requireScope(value, owner: expectedOwner, generation: expectedGeneration)
         let recordId = type + "\u{001F}" + id
         var records = value.accounts[value.owner] ?? [:]
         let revision = (records[recordId]?.revision ?? 0) + 1
@@ -138,8 +139,9 @@ actor PrivateSyncRepository {
         value.accounts[value.owner] = records
         try commit(value)
     }
-    func deleteRecord(id: String) throws {
+    func deleteRecord(id: String, expectedOwner: String, expectedGeneration: Int) throws {
         var value = try load()
+        try requireScope(value, owner: expectedOwner, generation: expectedGeneration)
         guard var record = value.accounts[value.owner]?[id] else { return }
         record.deleted = true
         record.dirty = true
@@ -149,6 +151,11 @@ actor PrivateSyncRepository {
         record.sourceDeviceId = try value.session?.deviceId ?? fingerprint()
         value.accounts[value.owner]?[id] = record
         try commit(value)
+    }
+    private func requireScope(_ value: PrivateVault, owner: String, generation: Int) throws {
+        guard value.owner == owner, value.generation == generation else {
+            throw SyncFailure("记录期间账号状态已改变。本次未写入其他账号，请确认当前账号后重试。")
+        }
     }
     private func enterOperation() throws {
         guard !operationBusy else { throw SyncFailure("另一项账号或同步操作正在进行，请稍后重试") }
@@ -174,6 +181,7 @@ actor PrivateSyncRepository {
             // Preserve anonymous collisions rather than silently discarding them.
             value.accounts[anonymous] = remaining
         }
+        value.generation += 1
         value.owner = owner
         value.session = session
         try commit(value)
@@ -251,6 +259,7 @@ actor PrivateSyncRepository {
     func logout() throws {
         guard !operationBusy else { throw SyncFailure("请等待当前同步或账号操作完成后退出") }
         var value = try load()
+        value.generation += 1
         value.session = nil // Journal remains with the previous owner; never becomes anonymous.
         try commit(value)
     }
@@ -258,6 +267,7 @@ actor PrivateSyncRepository {
         guard !operationBusy else { throw SyncFailure("请等待当前账号操作完成") }
         let server = try normalizeServer(rawServer)
         var value = try load()
+        value.generation += 1
         value.owner = server + "|anonymous"
         value.session = nil
         try commit(value)
@@ -476,7 +486,7 @@ actor PrivateSyncRepository {
         try await write(server: server, path: "/v1/sync/auth/reset-password", body: body)
         // Reset invalidates device sessions. Keep local records, require an explicit new login/enrollment.
         var value = try load()
-        if value.session?.serverURL == server && value.session?.username == username { value.session = nil }
+        if value.session?.serverURL == server && value.session?.username == username { value.generation += 1; value.session = nil }
         try commit(value)
     }
 }
