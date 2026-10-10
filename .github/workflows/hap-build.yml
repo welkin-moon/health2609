@@ -48,6 +48,10 @@ jobs:
           echo "HVIGOR_EXECUTABLE=$HVIGOR" >> "$GITHUB_ENV"
           echo "OHPM_EXECUTABLE=$OHPM" >> "$GITHUB_ENV"
           if [[ -d "$TOOLS/tool/node/bin" ]]; then echo "$TOOLS/tool/node/bin" >> "$GITHUB_PATH"; fi
+      - name: Configure Huawei build plugin registry
+        run: |
+          npm config set registry https://repo.huaweicloud.com/repository/npm/
+          npm config set @ohos:registry https://repo.huaweicloud.com/repository/npm/
       - name: Build real unsigned HAP (no tests)
         run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.0 --version-code 17
       - uses: actions/upload-artifact@v4
