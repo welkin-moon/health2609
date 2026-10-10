@@ -150,6 +150,7 @@ export interface ConfirmedHomeMealRequest {
 }
 
 export interface ApiWriteResult {
+  queued?: boolean;
   ok: boolean;
   id?: string | null;
   error?: string;
@@ -297,10 +298,21 @@ export function calculateGramsMultiplier(
   return Math.round((consumedGrams / standardServingGrams) * 1000) / 1000;
 }
 
+interface NutritionAccumulator {
+  energyKcal: number;
+  proteinG: number;
+  fatG: number;
+  carbohydrateG: number;
+  fiberG: number;
+  sodiumMg: number;
+  sugarG: number;
+  saturatedFatG: number;
+}
+
 export function aggregateNutrients(
   items: Array<NutritionDto | null | undefined>
 ): NutritionDto {
-  const total = {
+  const total: NutritionAccumulator = {
     energyKcal: 0,
     proteinG: 0,
     fatG: 0,

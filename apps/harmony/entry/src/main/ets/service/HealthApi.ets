@@ -5,6 +5,8 @@
 
 import http from '@ohos.net.http';
 import hilog from '@ohos.hilog';
+import photoAccessHelper from '@ohos.file.photoAccessHelper';
+import fs from '@ohos.file.fs';
 import {
   TodayMenuDto,
   DailySummaryDto,
@@ -21,9 +23,14 @@ import {
 import { OfflineCacheService } from './OfflineCacheService';
 
 const TAG = 'HealthApi';
-const DOMAIN = 0x0000;
+const DOMAIN = 0x2609;
+
+class HttpStatusError extends Error {
+  constructor(code: number) { super(`服务器拒绝请求 (${code})，请检查登录或输入`); }
+}
 
 export class HealthApi {
+  private syncing: boolean = false;
   private baseUrl: string = 'https://h2609.lunarlab.uk';
   private defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -49,7 +56,8 @@ export class HealthApi {
     const httpRequest = http.createHttp();
     const url = `${this.baseUrl}/${endpoint.replace(/^\/+/, '')}`;
 
-    const headers: Record<string, string> = Object.assign({}, this.defaultHeaders, extraHeaders);
+    const headers: Record<string, string> = JSON.parse(JSON.stringify(this.defaultHeaders)) as Record<string, string>;
+    for (const key of Object.keys(extraHeaders)) headers[key] = extraHeaders[key];
 
     try {
       hilog.info(DOMAIN, TAG, 'Request [%{public}s] %{public}s', method, url);
@@ -67,7 +75,7 @@ export class HealthApi {
           : JSON.stringify(response.result);
         return JSON.parse(resultString) as T;
       } else {
-        throw new Error(`HTTP Error ${response.responseCode}: ${response.result}`);
+        throw new HttpStatusError(response.responseCode);
       }
     } finally {
       httpRequest.destroy();
@@ -91,61 +99,11 @@ export class HealthApi {
       return data;
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'Failed to fetch menu from network, checking cache: %{public}s', JSON.stringify(err));
-      const cached = await this.offlineCache.getCachedMenu(date);
+      const cached = await this.offlineCache.getCachedMenu(date, mealSlot);
       if (cached) {
         return cached;
       }
-      // Campus Default Resilience Menu
-      return {
-        date: date,
-        mealSlot: mealSlot,
-        dishes: [
-          {
-            id: 'dish_campus_01',
-            name: '番茄炒蛋',
-            standardServingGrams: 150,
-            nutritionPerServing: {
-              energyKcal: 210,
-              proteinG: 12.5,
-              fatG: 14.0,
-              carbohydrateG: 8.5
-            }
-          },
-          {
-            id: 'dish_campus_02',
-            name: '清蒸巴沙鱼',
-            standardServingGrams: 120,
-            nutritionPerServing: {
-              energyKcal: 165,
-              proteinG: 22.0,
-              fatG: 7.5,
-              carbohydrateG: 1.2
-            }
-          },
-          {
-            id: 'dish_campus_03',
-            name: '清炒菜心',
-            standardServingGrams: 100,
-            nutritionPerServing: {
-              energyKcal: 45,
-              proteinG: 2.1,
-              fatG: 1.5,
-              carbohydrateG: 6.0
-            }
-          },
-          {
-            id: 'dish_campus_04',
-            name: '五谷杂粮饭',
-            standardServingGrams: 200,
-            nutritionPerServing: {
-              energyKcal: 280,
-              proteinG: 6.2,
-              fatG: 1.8,
-              carbohydrateG: 58.0
-            }
-          }
-        ]
-      };
+      throw new Error('菜单暂不可用，请联网后重试');
     }
   }
 
@@ -166,46 +124,7 @@ export class HealthApi {
       if (cached) {
         return cached;
       }
-      // Simulated default daily summary
-      return {
-        date: date,
-        nutrition: {
-          energyKcal: 700,
-          proteinG: 42.8,
-          fatG: 24.8,
-          carbohydrateG: 73.7,
-          fiberG: 6.2,
-          sodiumMg: 820,
-          sugarG: 12.4,
-          saturatedFatG: 5.1,
-          macroCompositionPercent: {
-            protein: 24.5,
-            fat: 31.9,
-            carbohydrate: 43.6
-          }
-        },
-        activity: {
-          peMinutes: 40,
-          healthConnectOutsideMinutes: 0,
-          manualOutsideMinutes: 35,
-          outsideMinutes: 35,
-          totalMinutes: 75,
-          targetMinutes: 120,
-          targetReached: false,
-          intensityMinutes: {
-            light: 20,
-            moderate: 35,
-            vigorous: 20
-          },
-          activeEnergyKcal: 230,
-          manuallyEstimatedActiveEnergyKcal: 110
-        },
-        energy: {
-          dailyEnergyReferenceKcal: 2000,
-          intakeKcal: 700,
-          referenceGapKcal: 1300
-        }
-      };
+      throw new Error('今日汇总暂不可用，请联网后重试');
     }
   }
 
@@ -219,17 +138,7 @@ export class HealthApi {
         http.RequestMethod.GET
       );
     } catch (err) {
-      return {
-        date: date,
-        weekday: new Date().getDay() || 7,
-        windows: [
-          {
-            id: 'win_school_main',
-            startTime: '08:00',
-            endTime: '17:00'
-          }
-        ]
-      };
+      throw new Error('无法获得在校时段，暂不上传运动数据以避免错误计入');
     }
   }
 
@@ -246,6 +155,7 @@ export class HealthApi {
         payload
       );
     } catch (err) {
+      if (err instanceof HttpStatusError) throw err;
       hilog.warn(DOMAIN, TAG, 'saveMeal network failed, queueing offline: %{public}s', JSON.stringify(err));
       const record = new PendingOfflineRecord(
         `meal_${Date.now()}`,
@@ -254,7 +164,7 @@ export class HealthApi {
         payload
       );
       await this.offlineCache.enqueuePendingRecord(record);
-      return { ok: true, id: record.id };
+      return { ok: true, id: record.id, queued: true };
     }
   }
 
@@ -271,6 +181,7 @@ export class HealthApi {
         payload
       );
     } catch (err) {
+      if (err instanceof HttpStatusError) throw err;
       hilog.warn(DOMAIN, TAG, 'saveOutsideSchoolActivity network failed, queueing offline: %{public}s', JSON.stringify(err));
       const record = new PendingOfflineRecord(
         `act_out_${Date.now()}`,
@@ -279,7 +190,7 @@ export class HealthApi {
         payload
       );
       await this.offlineCache.enqueuePendingRecord(record);
-      return { ok: true, id: record.id };
+      return { ok: true, id: record.id, queued: true };
     }
   }
 
@@ -296,15 +207,10 @@ export class HealthApi {
         payload
       );
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'saveManualActivity network failed, queueing offline: %{public}s', JSON.stringify(err));
-      const record = new PendingOfflineRecord(
-        `act_man_${Date.now()}`,
-        Date.now(),
-        'activity_manual',
-        payload
-      );
-      await this.offlineCache.enqueuePendingRecord(record);
-      return { ok: true, id: record.id };
+      if (err instanceof HttpStatusError) throw err;
+      // A timeout can happen after the server commits. Replaying append-only
+      // records without an idempotency key would create duplicate meals/activity.
+      throw new Error('提交结果未能确认，请先刷新汇总再决定是否重试');
     }
   }
 
@@ -321,6 +227,7 @@ export class HealthApi {
         payload
       );
     } catch (err) {
+      if (err instanceof HttpStatusError) throw err;
       hilog.warn(DOMAIN, TAG, 'saveEnergyReference network failed, queueing offline: %{public}s', JSON.stringify(err));
       const record = new PendingOfflineRecord(
         `en_ref_${Date.now()}`,
@@ -329,7 +236,7 @@ export class HealthApi {
         payload
       );
       await this.offlineCache.enqueuePendingRecord(record);
-      return { ok: true, id: record.id };
+      return { ok: true, id: record.id, queued: true };
     }
   }
 
@@ -337,150 +244,47 @@ export class HealthApi {
    * AI Analysis of Home Meal photograph
    * Supports multipart/binary or simulated AI model recognition for campus terminals
    */
-  public async analyzeHomeMeal(imageIdentifierOrPreset: string): Promise<HomeMealAnalysisResultDto> {
-    // If the backend is reachable via multipart HTTP
+  public async analyzeHomeMeal(): Promise<HomeMealAnalysisResultDto> {
+    const options = new photoAccessHelper.PhotoSelectOptions();
+    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+    options.maxSelectNumber = 1;
+    const selection = await new photoAccessHelper.PhotoViewPicker().select(options);
+    if (selection.photoUris.length === 0) throw new Error('未选择照片');
+    const file = await fs.open(selection.photoUris[0], fs.OpenMode.READ_ONLY);
+    let image: ArrayBuffer;
     try {
-      const response = await this.requestJson<HomeMealAnalysisResultDto>(
-        'v1/home-meals/analyze',
-        http.RequestMethod.POST,
-        {},
-        JSON.stringify({ imageHint: imageIdentifierOrPreset })
-      );
-      if (response && response.items && response.items.length > 0) {
-        return response;
+      const size = (await fs.stat(file.fd)).size;
+      if (size <= 0 || size > 8 * 1024 * 1024) throw new Error('请选择 8 MB 以内的照片');
+      image = new ArrayBuffer(size);
+      let offset = 0;
+      while (offset < size) {
+        const chunk = new ArrayBuffer(size - offset);
+        const read = await fs.read(file.fd, chunk);
+        if (read === 0) throw new Error('照片读取不完整');
+        new Uint8Array(image).set(new Uint8Array(chunk, 0, read), offset);
+        offset += read;
       }
-    } catch (e) {
-      hilog.info(DOMAIN, TAG, 'Using on-device campus AI model recognition: %{public}s', JSON.stringify(e));
-    }
-
-    // High precision multimodal recognition presets for campus terminals
-    if (imageIdentifierOrPreset.indexOf('breakfast') >= 0 || imageIdentifierOrPreset.indexOf('早餐') >= 0) {
-      return {
-        schemaVersion: 1,
-        items: [
-          {
-            name: '全麦面包',
-            estimatedGrams: 80,
-            servingMultiplier: 1.0,
-            confidence: 0.94,
-            nutrition: {
-              energyKcal: 195,
-              proteinG: 7.2,
-              fatG: 2.1,
-              carbohydrateG: 36.5
-            },
-            needsConfirmation: []
-          },
-          {
-            name: '低脂牛奶',
-            estimatedGrams: 250,
-            servingMultiplier: 1.0,
-            confidence: 0.97,
-            nutrition: {
-              energyKcal: 125,
-              proteinG: 8.5,
-              fatG: 3.5,
-              carbohydrateG: 12.0
-            },
-            needsConfirmation: []
-          },
-          {
-            name: '水煮蛋',
-            estimatedGrams: 55,
-            servingMultiplier: 1.0,
-            confidence: 0.98,
-            nutrition: {
-              energyKcal: 78,
-              proteinG: 6.8,
-              fatG: 5.2,
-              carbohydrateG: 0.6
-            },
-            needsConfirmation: []
-          }
-        ],
-        notes: ['识别置信度高，请核对各食物实际进食克数。']
-      };
-    } else if (imageIdentifierOrPreset.indexOf('dinner') >= 0 || imageIdentifierOrPreset.indexOf('晚餐') >= 0) {
-      return {
-        schemaVersion: 1,
-        items: [
-          {
-            name: '红烧牛肉',
-            estimatedGrams: 120,
-            servingMultiplier: 1.0,
-            confidence: 0.91,
-            nutrition: {
-              energyKcal: 250,
-              proteinG: 26.0,
-              fatG: 14.5,
-              carbohydrateG: 3.5
-            },
-            needsConfirmation: ['少油烹调']
-          },
-          {
-            name: '白灼西兰花',
-            estimatedGrams: 140,
-            servingMultiplier: 1.0,
-            confidence: 0.95,
-            nutrition: {
-              energyKcal: 55,
-              proteinG: 4.2,
-              fatG: 1.2,
-              carbohydrateG: 8.5
-            },
-            needsConfirmation: []
-          },
-          {
-            name: '杂粮紫米饭',
-            estimatedGrams: 160,
-            servingMultiplier: 1.0,
-            confidence: 0.93,
-            nutrition: {
-              energyKcal: 220,
-              proteinG: 4.8,
-              fatG: 1.2,
-              carbohydrateG: 47.0
-            },
-            needsConfirmation: []
-          }
-        ],
-        notes: ['食物已按盘中比例估算克数，可点击修改。']
-      };
-    }
-
-    // Default recognized meal
-    return {
-      schemaVersion: 1,
-      items: [
-        {
-          name: '西红柿鸡蛋打卤面',
-          estimatedGrams: 320,
-          servingMultiplier: 1.0,
-          confidence: 0.92,
-          nutrition: {
-            energyKcal: 420,
-            proteinG: 16.5,
-            fatG: 12.0,
-            carbohydrateG: 62.0
-          },
-          needsConfirmation: []
-        },
-        {
-          name: '凉拌黄瓜',
-          estimatedGrams: 100,
-          servingMultiplier: 1.0,
-          confidence: 0.96,
-          nutrition: {
-            energyKcal: 35,
-            proteinG: 1.2,
-            fatG: 1.0,
-            carbohydrateG: 5.5
-          },
-          needsConfirmation: []
-        }
-      ],
-      notes: ['开鸿端侧智能视觉分析完成，请确认分量。']
-    };
+    } finally { await fs.close(file); }
+    // Validate the encoded format; a filename extension is not evidence of JPEG.
+    const bytes = new Uint8Array(image);
+    const jpeg = bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+    const png = bytes.length >= 8 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71;
+    if (!jpeg && !png) throw new Error('请选择 JPEG 或 PNG 照片');
+    const request = http.createHttp();
+    try {
+      const response = await request.request(this.baseUrl + '/v1/home-meals/analyze', {
+        method: http.RequestMethod.POST,
+        header: { 'x-demo-school': 'demo-school', 'x-demo-participant': 'demo-student', 'x-demo-role': 'student' },
+        multiFormDataList: [{ name: 'image', contentType: jpeg ? 'image/jpeg' : 'image/png',
+          remoteFileName: jpeg ? 'meal.jpg' : 'meal.png', data: image }],
+        connectTimeout: 15000,
+        readTimeout: 90000
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300) throw new HttpStatusError(response.responseCode);
+      const result = JSON.parse(response.result as string) as HomeMealAnalysisResultDto;
+      if (!result.items || result.items.length === 0) throw new Error('未识别到食物，请换一张照片');
+      return result;
+    } finally { request.destroy(); }
   }
 
   /**
@@ -496,15 +300,10 @@ export class HealthApi {
         payload
       );
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'saveHomeMeal network failed, queueing offline: %{public}s', JSON.stringify(err));
-      const record = new PendingOfflineRecord(
-        `hm_${Date.now()}`,
-        Date.now(),
-        'home_meal',
-        payload
-      );
-      await this.offlineCache.enqueuePendingRecord(record);
-      return { ok: true, id: record.id };
+      if (err instanceof HttpStatusError) throw err;
+      // A timeout can happen after the server commits. Replaying append-only
+      // records without an idempotency key would create duplicate meals/activity.
+      throw new Error('提交结果未能确认，请先刷新汇总再决定是否重试');
     }
   }
 
@@ -512,6 +311,9 @@ export class HealthApi {
    * Replays pending offline records when network is reconnected
    */
   public async syncOfflineRecords(): Promise<number> {
+    if (this.syncing) return 0;
+    this.syncing = true;
+    try {
     const records = await this.offlineCache.getPendingRecords();
     if (records.length === 0) {
       return 0;
@@ -519,6 +321,7 @@ export class HealthApi {
 
     let synced = 0;
     for (const record of records) {
+      if (record.endpointType === 'activity_manual' || record.endpointType === 'home_meal') break;
       try {
         if (record.endpointType === 'meal') {
           await this.requestJson<ApiWriteResult>('v1/meals/consumption', http.RequestMethod.POST, {}, record.payloadJson);
@@ -530,14 +333,18 @@ export class HealthApi {
           await this.requestJson<ApiWriteResult>('v1/preferences/energy-reference', http.RequestMethod.PUT, {}, record.payloadJson);
         } else if (record.endpointType === 'home_meal') {
           await this.requestJson<ApiWriteResult>('v1/home-meals', http.RequestMethod.POST, {}, record.payloadJson);
+        } else {
+          break;
         }
         await this.offlineCache.removePendingRecord(record.id);
         synced++;
       } catch (err) {
         hilog.error(DOMAIN, TAG, 'Failed to replay record %{public}s: %{public}s', record.id, JSON.stringify(err));
+        break;
       }
     }
     hilog.info(DOMAIN, TAG, 'Synchronized %{public}d pending offline records', synced);
     return synced;
+    } finally { this.syncing = false; }
   }
 }

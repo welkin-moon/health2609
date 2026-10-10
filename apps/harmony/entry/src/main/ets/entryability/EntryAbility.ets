@@ -22,7 +22,7 @@ export default class EntryAbility extends UIAbility {
     // Enable full-screen immersive window styling
     try {
       let windowClass: window.Window = windowStage.getMainWindowSync();
-      windowClass.setWindowLayoutFullScreen(true);
+      windowClass.setWindowLayoutFullScreen(false);
     } catch (e) {
       hilog.warn(DOMAIN, TAG, 'Failed to set full screen: %{public}s', JSON.stringify(e));
     }

@@ -3,6 +3,7 @@
  * Local storage via @ohos.data.preferences with in-memory map fallback for intermittent connectivity
  */
 
+import common from '@ohos.app.ability.common';
 import dataPreferences from '@ohos.data.preferences';
 import hilog from '@ohos.hilog';
 import {
@@ -20,6 +21,8 @@ export class OfflineCacheService {
   private memoryCache: Map<string, string> = new Map<string, string>();
   private preferencesInstance: dataPreferences.Preferences | null = null;
   private isInitialized: boolean = false;
+  private initialization: Promise<void> | null = null;
+  private queueMutation: Promise<void> = Promise.resolve();
 
   private constructor() {}
 
@@ -33,11 +36,18 @@ export class OfflineCacheService {
   /**
    * Initializes the preferences store with context if available
    */
-  public async init(context?: Context): Promise<void> {
+  public async init(context?: common.UIAbilityContext): Promise<void> {
     if (this.isInitialized) {
       return;
     }
+    if (this.initialization) return this.initialization;
     if (context) {
+      this.initialization = this.initializeStore(context);
+      return this.initialization;
+    }
+  }
+
+  private async initializeStore(context: common.UIAbilityContext): Promise<void> {
       try {
         this.preferencesInstance = await dataPreferences.getPreferences(context, PREFERENCES_NAME);
         this.isInitialized = true;
@@ -45,19 +55,19 @@ export class OfflineCacheService {
       } catch (err) {
         hilog.warn(DOMAIN, TAG, 'Preferences init failed, falling back to memory cache: %{public}s', JSON.stringify(err));
       }
-    }
   }
 
   private async putString(key: string, value: string): Promise<void> {
-    this.memoryCache.set(key, value);
     if (this.preferencesInstance) {
       try {
         await this.preferencesInstance.put(key, value);
         await this.preferencesInstance.flush();
       } catch (e) {
         hilog.error(DOMAIN, TAG, 'Error persisting key %{public}s: %{public}s', key, JSON.stringify(e));
+        throw e;
       }
     }
+    this.memoryCache.set(key, value);
   }
 
   private async getString(key: string): Promise<string | null> {
@@ -79,12 +89,12 @@ export class OfflineCacheService {
   /* -------------------------------------------------------------------------- */
 
   public async saveCachedMenu(date: string, menu: TodayMenuDto): Promise<void> {
-    const key = `menu_${date}`;
+    const key = `menu_${date}_${menu.mealSlot}`;
     await this.putString(key, JSON.stringify(menu));
     hilog.info(DOMAIN, TAG, 'Cached menu saved for date: %{public}s', date);
   }
 
-  public async getCachedMenu(date: string): Promise<TodayMenuDto | null> {
+  public async getCachedMenu(date: string, mealSlot: string = 'lunch'): Promise<TodayMenuDto | null> {
     const key = `menu_${date}`;
     const raw = await this.getString(key);
     if (!raw) {
@@ -125,10 +135,15 @@ export class OfflineCacheService {
   /* -------------------------------------------------------------------------- */
 
   public async enqueuePendingRecord(record: PendingOfflineRecord): Promise<void> {
-    const records = await this.getPendingRecords();
-    records.push(record);
-    await this.putString('offline_pending_records', JSON.stringify(records));
-    hilog.info(DOMAIN, TAG, 'Queued pending offline record: %{public}s (%{public}s)', record.id, record.endpointType);
+    if (this.initialization) await this.initialization;
+    if (!this.preferencesInstance) throw new Error('本地存储不可用，记录尚未保存');
+    const operation = this.queueMutation.then(async () => {
+      const records = await this.getPendingRecords();
+      records.push(record);
+      await this.putString('offline_pending_records', JSON.stringify(records));
+    });
+    this.queueMutation = operation.catch(() => {});
+    await operation;
   }
 
   public async getPendingRecords(): Promise<PendingOfflineRecord[]> {
@@ -144,13 +159,20 @@ export class OfflineCacheService {
   }
 
   public async removePendingRecord(id: string): Promise<void> {
-    const records = await this.getPendingRecords();
-    const filtered = records.filter(r => r.id !== id);
-    await this.putString('offline_pending_records', JSON.stringify(filtered));
+    const operation = this.queueMutation.then(async () => {
+      const records = await this.getPendingRecords();
+      await this.putString('offline_pending_records', JSON.stringify(records.filter((record: PendingOfflineRecord) => record.id !== id)));
+    });
+    this.queueMutation = operation.catch(() => {});
+    await operation;
   }
 
   public async clearPendingRecords(): Promise<void> {
-    await this.putString('offline_pending_records', JSON.stringify([]));
+    const operation = this.queueMutation.then(async () => {
+      await this.putString('offline_pending_records', '[]');
+    });
+    this.queueMutation = operation.catch(() => {});
+    await operation;
   }
 
   public async getPendingCount(): Promise<number> {

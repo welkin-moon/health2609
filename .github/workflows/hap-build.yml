@@ -1,0 +1,58 @@
+name: Harmony and OpenHarmony packages
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - apps/harmony/**
+      - apps/openharmony/**
+      - tools/build-hap.mjs
+      - .github/workflows/hap-build.yml
+permissions:
+  contents: read
+jobs:
+  hap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [harmony, openharmony]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Obtain Huawei command line SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL=https://repo.huaweicloud.com/harmonyos/ohpm/5.0.3/commandline-tools-linux-x64-5.0.3.906.zip
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 900 "$URL" -o /tmp/harmony-tools.zip
+          curl --fail --location --retry 2 --max-time 60 "$URL.sha256" -o /tmp/harmony-tools.sha256
+          CHECKSUM="$(tr -d '\r\n ' </tmp/harmony-tools.sha256)"
+          [[ "$CHECKSUM" =~ ^[a-fA-F0-9]{64}$ ]]
+          printf '%s  %s\n' "$CHECKSUM" /tmp/harmony-tools.zip | sha256sum --check
+          unzip -q /tmp/harmony-tools.zip -d "$RUNNER_TEMP/harmony-tools"
+          rm /tmp/harmony-tools.zip
+          HVIGOR="$(find "$RUNNER_TEMP/harmony-tools" -path '*/hvigor/bin/hvigorw' -print -quit)"
+          OHPM="$(find "$RUNNER_TEMP/harmony-tools" -path '*/ohpm/bin/ohpm' -print -quit)"
+          test -n "$HVIGOR" && test -n "$OHPM"
+          TOOLS="$(dirname "$(dirname "$(dirname "$HVIGOR")")")"
+          chmod +x "$HVIGOR" "$OHPM"
+          echo "HARMONY_COMMANDLINE_TOOLS=$TOOLS" >> "$GITHUB_ENV"
+          echo "HVIGOR_EXECUTABLE=$HVIGOR" >> "$GITHUB_ENV"
+          echo "OHPM_EXECUTABLE=$OHPM" >> "$GITHUB_ENV"
+          if [[ -d "$TOOLS/tool/node/bin" ]]; then echo "$TOOLS/tool/node/bin" >> "$GITHUB_PATH"; fi
+      - name: Build real unsigned HAP (no tests)
+        run: node tools/build-hap.mjs --platform '${{ matrix.platform }}' --version-name 0.4.0 --version-code 17
+      - uses: actions/upload-artifact@v4
+        with:
+          name: health2609-${{ matrix.platform }}-unsigned-hap
+          path: dist/${{ matrix.platform }}/*
+          if-no-files-found: error
+          retention-days: 7

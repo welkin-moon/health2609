@@ -5,13 +5,14 @@
 
 import { StudentAppShell } from '../view/StudentAppShell';
 import { M3EColors } from '../theme/M3ETheme';
+import common from '@ohos.app.ability.common';
 import { OfflineCacheService } from '../service/OfflineCacheService';
 
 @Entry
 @Component
 struct Index {
   aboutToAppear() {
-    OfflineCacheService.getInstance().init(getContext(this));
+    OfflineCacheService.getInstance().init(getContext(this) as common.UIAbilityContext);
   }
 
   build() {

@@ -1,13 +1,6 @@
 {
   "apiType": "stageMode",
-  "buildOption": {
-    "arkOptions": {
-      "tscConfig": {
-        "target": "es2021",
-        "useDefineForClassFields": true
-      }
-    }
-  },
+  "buildOption": {},
   "targets": [
     {
       "name": "default"

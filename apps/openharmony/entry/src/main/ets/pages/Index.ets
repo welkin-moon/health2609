@@ -5,6 +5,7 @@
 
 import { AdaptiveStudentAppShell } from '../view/AdaptiveStudentAppShell';
 import { M3EColors } from '../theme/M3ETheme';
+import common from '@ohos.app.ability.common';
 import { OfflineCacheService } from '../service/OfflineCacheService';
 
 @Entry
@@ -12,7 +13,7 @@ import { OfflineCacheService } from '../service/OfflineCacheService';
 struct Index {
   aboutToAppear() {
     // Initialize offline cache preferences
-    OfflineCacheService.getInstance().init(getContext(this));
+    OfflineCacheService.getInstance().init(getContext(this) as common.UIAbilityContext);
   }
 
   build() {

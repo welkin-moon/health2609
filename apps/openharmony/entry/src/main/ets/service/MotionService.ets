@@ -1,121 +1,86 @@
 import sensor from '@ohos.sensor';
 import hilog from '@ohos.hilog';
-import {
-  SchoolDayWindowDto,
-  OutsideSchoolActivityRequest
-} from '../model/ApiModels';
+import { SchoolDayWindowDto, OutsideSchoolActivityRequest } from '../model/ApiModels';
 import { HealthApi } from './HealthApi';
 
-const DOMAIN = 0x2609;
-const TAG = 'MotionService';
-
-export interface MotionDataPoint {
-  timestamp: number; // Unix epoch ms
-  stepCount: number;
-  durationMinutes: number;
+interface StepInterval {
+  start: number;
+  end: number;
+  steps: number;
 }
 
 export class MotionService {
   private static instance: MotionService | null = null;
-  private isListening: boolean = false;
-  private accumulatedSteps: number = 0;
-  private lastStepCount: number = 0;
+  private listening: boolean = false;
+  private lastSteps: number = -1;
+  private lastTimestamp: number = 0;
+  private intervals: StepInterval[] = [];
 
   public static getInstance(): MotionService {
-    if (!MotionService.instance) {
-      MotionService.instance = new MotionService();
-    }
+    if (!MotionService.instance) MotionService.instance = new MotionService();
     return MotionService.instance;
   }
 
-  /**
-   * Initialize sensor listener for pedometer / motion detection
-   */
   public startMotionListening(): void {
-    if (this.isListening) return;
-
-    try {
-      // In HarmonyOS NEXT, sensor.on subscribes to PEDOMETER
-      sensor.on(sensor.SensorId.PEDOMETER, (data: sensor.PedometerResponse) => {
-        if (data && data.steps !== undefined) {
-          const currentSteps = Number(data.steps);
-          if (this.lastStepCount > 0 && currentSteps >= this.lastStepCount) {
-            this.accumulatedSteps += (currentSteps - this.lastStepCount);
-          }
-          this.lastStepCount = currentSteps;
-          hilog.debug(DOMAIN, TAG, `Pedometer update: steps=${currentSteps}, accumulated=${this.accumulatedSteps}`);
-        }
-      }, { interval: 1000000000 }); // 1 second interval
-
-      this.isListening = true;
-      hilog.info(DOMAIN, TAG, 'Pedometer sensor listener registered successfully.');
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, `Pedometer sensor unavailable or simulator environment: ${JSON.stringify(err)}`);
-      // Fallback: mock step increment in development
-      this.accumulatedSteps = 3850;
-    }
+    if (this.listening) return;
+    // The caller must obtain ACTIVITY_MOTION runtime permission first.
+    sensor.on(sensor.SensorId.PEDOMETER, (data: sensor.PedometerResponse) => {
+      const now = Date.now();
+      const steps = Number(data.steps);
+      if (!Number.isFinite(steps) || steps < 0) return;
+      if (this.lastSteps >= 0 && steps >= this.lastSteps && now > this.lastTimestamp) {
+        if (steps > this.lastSteps) this.intervals.push({ start: this.lastTimestamp, end: now, steps: steps - this.lastSteps });
+      }
+      this.lastSteps = steps;
+      this.lastTimestamp = now;
+      // Bound memory; only observed intervals from the latest 48 hours are useful.
+      this.intervals = this.intervals.filter((item: StepInterval) => item.end >= now - 172800000);
+    });
+    this.listening = true;
   }
 
   public stopMotionListening(): void {
-    if (!this.isListening) return;
-    try {
-      sensor.off(sensor.SensorId.PEDOMETER);
-      this.isListening = false;
-      hilog.info(DOMAIN, TAG, 'Pedometer sensor stopped.');
-    } catch (e) {
-      hilog.warn(DOMAIN, TAG, `Error stopping pedometer: ${JSON.stringify(e)}`);
-    }
+    if (!this.listening) return;
+    sensor.off(sensor.SensorId.PEDOMETER);
+    this.listening = false;
+    this.lastSteps = -1;
+    this.lastTimestamp = 0;
   }
 
-  /**
-   * Checks whether a given time string (HH:mm) falls within school day windows
-   */
-  public isWithinSchoolWindows(timeStr: string, windows: SchoolDayWindowDto[]): boolean {
-    for (const win of windows) {
-      if (timeStr >= win.startTime && timeStr <= win.endTime) {
-        return true;
+  public isWithinSchoolWindows(time: string, windows: SchoolDayWindowDto[]): boolean {
+    return windows.some((item: SchoolDayWindowDto) => time >= item.startTime && time < item.endTime);
+  }
+
+  public async aggregateOutsideSchoolMotion(date: string, windows: SchoolDayWindowDto[]): Promise<OutsideSchoolActivityRequest> {
+    const start = new Date(date + 'T00:00:00').getTime();
+    const endDate = new Date(start);
+    endDate.setDate(endDate.getDate() + 1);
+    const end = endDate.getTime();
+    if (!Number.isFinite(start)) throw new Error('日期无效');
+    let steps = 0;
+    for (const interval of this.intervals) {
+      if (interval.start < start || interval.end > end) continue;
+      let overlapsSchool = false;
+      for (const win of windows) {
+        const schoolStart = new Date(date + 'T' + win.startTime + ':00').getTime();
+        const schoolEnd = new Date(date + 'T' + win.endTime + ':00').getTime();
+        if (!Number.isFinite(schoolStart) || !Number.isFinite(schoolEnd) || schoolEnd <= schoolStart) {
+          throw new Error('在校时段无效');
+        }
+        if (interval.start < schoolEnd && interval.end > schoolStart) overlapsSchool = true;
       }
+      // A delta straddling school time cannot be apportioned faithfully; omit it.
+      if (!overlapsSchool) steps += interval.steps;
     }
-    return false;
+    hilog.info(0x2609, 'MotionService', 'Observed outside-school steps: %{public}d', steps);
+    // A pedometer is not an exercise-duration or active-energy measurement.
+    return { date: date, exerciseMinutes: 0, steps: steps, activeEnergyKcal: null };
   }
 
-  /**
-   * Aggregate outside-school exercise minutes, steps, and active calories.
-   * Excludes school-time windows locally before uploading.
-   */
-  public async aggregateOutsideSchoolMotion(
-    date: string,
-    schoolWindows: SchoolDayWindowDto[]
-  ): Promise<OutsideSchoolActivityRequest> {
-    hilog.info(DOMAIN, TAG, `Aggregating outside-school motion for date=${date}, windows=${schoolWindows.length}`);
-
-    // In a real device, motion logs outside school window hours are filtered.
-    // Baseline calculation:
-    // Average walking speed: ~100-110 steps/min.
-    // 3,850 outside steps ≈ 35-40 minutes of moderate activity.
-    // Active energy: ~0.045 kcal / step or ~4.5 kcal / minute.
-    const steps = Math.max(this.accumulatedSteps, 3850);
-    const outsideMinutes = Math.min(1440, Math.round(steps / 100));
-    const activeCalories = Math.round(steps * 0.042 * 10) / 10;
-
-    const request: OutsideSchoolActivityRequest = {
-      date: date,
-      exerciseMinutes: outsideMinutes,
-      steps: steps,
-      activeEnergyKcal: activeCalories
-    };
-
-    hilog.info(DOMAIN, TAG, `Outside-school result: ${outsideMinutes} min, ${steps} steps, ${activeCalories} kcal`);
-    return request;
-  }
-
-  /**
-   * Trigger synchronization: fetch school windows, aggregate outside activity, submit to backend
-   */
   public async syncAndSaveOutsideSchoolMotion(date: string): Promise<OutsideSchoolActivityRequest> {
-    const api = HealthApi.getInstance();
-    const windowsDto = await api.getSchoolDayWindows(date);
-    const activity = await this.aggregateOutsideSchoolMotion(date, windowsDto.windows);
+    const api = new HealthApi();
+    const windows = await api.getSchoolDayWindows(date);
+    const activity = await this.aggregateOutsideSchoolMotion(date, windows.windows);
     await api.saveOutsideSchoolActivity(activity);
     return activity;
   }

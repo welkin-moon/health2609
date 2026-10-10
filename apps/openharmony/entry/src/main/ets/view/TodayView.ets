@@ -8,6 +8,8 @@ import {
   TodayMenuDto,
   DailySummaryDto,
   DishDto,
+  MealItemRequest,
+  ConfirmedHomeMealItemRequest,
   DishAmount,
   HomeMealDraftItem,
   NutritionTotals,
@@ -90,10 +92,9 @@ export struct TodayView {
     this.isLoading = true;
     this.statusMessage = '';
     try {
-      const [menuData, summaryData] = await Promise.all([
-        this.healthApi.getTodayMenu(this.currentDate, 'lunch'),
-        this.healthApi.getTodaySummary(this.currentDate)
-      ]);
+      const menuData = await this.healthApi.getTodayMenu(this.currentDate, 'lunch');
+      this.menu = menuData;
+      const summaryData = await this.healthApi.getTodaySummary(this.currentDate);
 
       this.menu = menuData;
       this.summary = summaryData;
@@ -114,8 +115,8 @@ export struct TodayView {
 
       this.pendingOfflineCount = await this.cacheService.getPendingCount();
     } catch (err) {
-      this.statusMessage = '数据加载完成 (离线安全模式)';
-      this.statusIsError = false;
+      this.statusMessage = '无法加载今日数据，请检查网络或登录后重试';
+      this.statusIsError = true;
     } finally {
       this.isLoading = false;
     }
@@ -167,7 +168,7 @@ export struct TodayView {
    */
   onGramsChange(dish: DishDto, gramsStr: string) {
     const grams = Number(gramsStr);
-    const validGrams = isNaN(grams) || grams < 0 ? null : grams;
+    const validGrams = !Number.isFinite(grams) || grams < 0 ? null : grams;
     let multiplier = 0;
     if (validGrams && dish.standardServingGrams && dish.standardServingGrams > 0) {
       multiplier = Math.round((validGrams / dish.standardServingGrams) * 100) / 100;
@@ -182,10 +183,10 @@ export struct TodayView {
    * Save Lunch Consumption
    */
   async saveLunch() {
-    if (!this.menu) return;
+    if (!this.menu || this.isSavingMeal) return;
     this.isSavingMeal = true;
     try {
-      const items = this.menu.dishes.map(d => {
+      const items: MealItemRequest[] = this.menu.dishes.map((d: DishDto): MealItemRequest => {
         const amt = this.dishAmounts.get(d.id) || new DishAmount();
         return {
           dishId: d.id,
@@ -201,15 +202,15 @@ export struct TodayView {
       });
 
       if (res.ok) {
-        this.statusMessage = '午餐记录已成功保存！';
+        this.statusMessage = res.queued ? '午餐已暂存，等待同步' : '午餐记录已成功保存！';
         this.statusIsError = false;
         // Refresh summary
-        this.summary = await this.healthApi.getTodaySummary(this.currentDate);
+        this.summary = await this.refreshSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
       }
     } catch (e) {
-      this.statusMessage = '午餐已缓存至开鸿本地沙箱，网络恢复后自动同步';
-      this.statusIsError = false;
+      this.statusMessage = '午餐保存失败，请重试';
+      this.statusIsError = true;
     } finally {
       this.isSavingMeal = false;
     }
@@ -222,13 +223,13 @@ export struct TodayView {
     this.isAnalyzingHomeMeal = true;
     this.statusMessage = '';
     try {
-      const result = await this.healthApi.analyzeHomeMeal(templateType);
+      const result = await this.healthApi.analyzeHomeMeal();
       this.homeMealDraft = result.items.map(item => new HomeMealDraftItem(
         item.name,
-        item.estimatedGrams,
-        item.estimatedGrams,
+        item.estimatedGrams ?? null,
+        item.estimatedGrams ?? null,
         item.confidence,
-        item.nutrition,
+        item.nutrition ?? null,
         item.needsConfirmation
       ));
       this.homeMealNotes = result.notes && result.notes.length > 0 ? result.notes[0] : '';
@@ -244,13 +245,18 @@ export struct TodayView {
    * Save Confirmed Home Meal
    */
   async saveHomeMeal() {
-    if (this.homeMealDraft.length === 0) return;
+    if (this.homeMealDraft.length === 0 || this.isSavingHomeMeal) return;
+    if (this.homeMealDraft.some((item: HomeMealDraftItem) => item.grams === null || !Number.isFinite(item.grams) || item.grams < 0 || item.name.trim().length === 0)) {
+      this.statusMessage = '请核对每份食物的名称与克数';
+      this.statusIsError = true;
+      return;
+    }
     this.isSavingHomeMeal = true;
     try {
-      const items = this.homeMealDraft.map(item => ({
+      const items: ConfirmedHomeMealItemRequest[] = this.homeMealDraft.map((item: HomeMealDraftItem): ConfirmedHomeMealItemRequest => ({
         name: item.name,
         grams: item.grams,
-        nutrition: item.nutritionAtSource
+        nutrition: calculateServingNutrition(item.nutritionAtSource, item.sourceGrams && item.grams !== null ? item.grams / item.sourceGrams : 1)
       }));
 
       const res = await this.healthApi.saveHomeMeal({
@@ -260,15 +266,15 @@ export struct TodayView {
       });
 
       if (res.ok) {
-        this.statusMessage = '家庭餐记录已成功记入今日营养！';
+        this.statusMessage = res.queued ? '家庭餐已暂存，等待同步' : '家庭餐记录已成功记入今日营养！';
         this.statusIsError = false;
         this.homeMealDraft = [];
-        this.summary = await this.healthApi.getTodaySummary(this.currentDate);
+        this.summary = await this.refreshSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
       }
     } catch (e) {
-      this.statusMessage = '家庭餐记录已暂存至本地，将在在线时自动提交';
-      this.statusIsError = false;
+      this.statusMessage = '家庭餐提交结果未确认，请先刷新汇总；草稿已保留';
+      this.statusIsError = true;
     } finally {
       this.isSavingHomeMeal = false;
     }
@@ -278,6 +284,7 @@ export struct TodayView {
    * Save Manual Activity Record
    */
   async saveManualActivity() {
+    if (this.isSavingActivity) return;
     this.isSavingActivity = true;
     try {
       const res = await this.healthApi.saveManualActivity({
@@ -288,15 +295,15 @@ export struct TodayView {
       });
 
       if (res.ok) {
-        this.statusMessage = `已成功记录 ${this.manualActivityType} ${this.manualDurationMinutes} 分钟！`;
+        this.statusMessage = res.queued ? '运动已暂存，等待同步' : `已成功记录 ${this.manualActivityType} ${this.manualDurationMinutes} 分钟！`;
         this.statusIsError = false;
         this.isShowManualActivity = false;
-        this.summary = await this.healthApi.getTodaySummary(this.currentDate);
+        this.summary = await this.refreshSummary();
         this.pendingOfflineCount = await this.cacheService.getPendingCount();
       }
     } catch (e) {
-      this.statusMessage = '运动已存入本地离线队列';
-      this.statusIsError = false;
+      this.statusMessage = '运动提交结果未确认，请先刷新汇总再重试';
+      this.statusIsError = true;
     } finally {
       this.isSavingActivity = false;
     }
@@ -309,7 +316,7 @@ export struct TodayView {
     this.isSyncingActivity = true;
     try {
       const syncedCount = await this.healthApi.syncOfflineRecords();
-      this.summary = await this.healthApi.getTodaySummary(this.currentDate);
+      this.summary = await this.refreshSummary();
       this.pendingOfflineCount = await this.cacheService.getPendingCount();
       this.statusMessage = syncedCount > 0
         ? `已同步 ${syncedCount} 条离线数据并刷新运动记录`
@@ -326,9 +333,9 @@ export struct TodayView {
    * Save Energy Reference
    */
   async saveEnergyReference() {
-    const kcal = parseInt(this.energyReferenceInput);
-    if (isNaN(kcal) || kcal < 500) {
-      this.statusMessage = '请输入合理的每日能量参考（500 - 5000 千卡）';
+    const kcal = Number(this.energyReferenceInput);
+    if (!Number.isFinite(kcal) || kcal < 500 || kcal > 6000) {
+      this.statusMessage = '请输入合理的每日能量参考（500 - 6000 千卡）';
       this.statusIsError = true;
       return;
     }
@@ -337,12 +344,20 @@ export struct TodayView {
     try {
       await this.healthApi.saveEnergyReference({ dailyEnergyReferenceKcal: kcal });
       this.isEditingReference = false;
-      this.summary = await this.healthApi.getTodaySummary(this.currentDate);
+      this.summary = await this.refreshSummary();
       this.statusMessage = '每日参考热量已更新';
       this.statusIsError = false;
+    } catch (e) {
+      this.statusMessage = '参考热量保存失败，请重试';
+      this.statusIsError = true;
     } finally {
       this.isSavingReference = false;
     }
+  }
+
+  async refreshSummary(): Promise<DailySummaryDto | null> {
+    try { return await this.healthApi.getTodaySummary(this.currentDate); }
+    catch (e) { return this.summary; }
   }
 
   build() {
@@ -657,7 +672,7 @@ export struct TodayView {
 
         // Camera / Gallery Photo Trigger
         Row({ space: 10 }) {
-          Button(this.isAnalyzingHomeMeal ? '识别分析中...' : '拍摄/分析餐食')
+          Button(this.isAnalyzingHomeMeal ? '识别分析中...' : '选择餐食照片')
             .layoutWeight(1)
             .height(42)
             .backgroundColor(M3EColors.primary)
@@ -668,16 +683,7 @@ export struct TodayView {
               this.triggerHomeMealAnalysis(this.homeMealSlot);
             })
 
-          Button('校园图库样本')
-            .layoutWeight(1)
-            .height(42)
-            .backgroundColor(M3EColors.surfaceContainerHigh)
-            .fontColor(M3EColors.onSurface)
-            .borderRadius(M3EShapes.buttonRadius)
-            .enabled(!this.isAnalyzingHomeMeal)
-            .onClick(() => {
-              this.triggerHomeMealAnalysis(`${this.homeMealSlot}_sample`);
-            })
+
         }
         .width('100%')
 
@@ -752,7 +758,7 @@ export struct TodayView {
           .fontColor(M3EColors.error)
           .backgroundColor(Color.Transparent)
           .onClick(() => {
-            const list = [...this.homeMealDraft];
+            const list = this.homeMealDraft.slice();
             list.splice(index, 1);
             this.homeMealDraft = list;
           })
@@ -766,7 +772,14 @@ export struct TodayView {
           .backgroundColor(M3EColors.surfaceContainerHighest)
           .borderRadius(M3EShapes.buttonRadius)
           .onChange((val: string) => {
-            item.grams = Number(val) || 0;
+            const grams = Number(val);
+            const list = this.homeMealDraft.slice();
+            const replacement = new HomeMealDraftItem(item.name, item.sourceGrams,
+              Number.isFinite(grams) && grams >= 0 ? grams : null, item.confidence,
+              item.nutritionAtSource, item.needsConfirmation);
+            replacement.id = item.id;
+            list[index] = replacement;
+            this.homeMealDraft = list;
           })
 
         Text('克')
@@ -1090,26 +1103,11 @@ export struct TodayView {
   }
 
   getEvidenceBasedSuggestion(): string {
-    const totalMinutes = this.summary?.activity?.totalMinutes ?? 0;
-    const targetMinutes = this.summary?.activity?.targetMinutes ?? 120;
-    const intakeKcal = this.summary?.nutrition?.energyKcal ?? 0;
-    const refKcal = this.summary?.energy?.dailyEnergyReferenceKcal ?? 2000;
-    const proteinG = this.summary?.nutrition?.proteinG ?? 0;
-
-    if (totalMinutes < targetMinutes) {
-      const remaining = targetMinutes - totalMinutes;
-      return `今日校内体育与校外运动合计未达 120 分钟标准，建议放学或晚餐后进行 ${remaining} 分钟中等强度跳绳、快走或球类运动。`;
-    }
-
-    if (proteinG < 40) {
-      return `今日运动量充沛，但优质蛋白摄入略低（当前 ${proteinG}g）。晚餐可适量补充牛奶、鸡蛋或清蒸鱼肉，促进肌肉恢复。`;
-    }
-
-    if (intakeKcal > refKcal + 300) {
-      return `今日摄入热量相对充足，晚间建议多饮温水，保持规律睡眠，避免高糖夜宵。`;
-    }
-
-    return `今日运动与饮食协同表现优秀！已达到校园运动目标，营养摄入均衡，请继续保持良好的作息习惯。`;
+    if (!this.summary) return '今日记录还未加载，请稍后刷新。';
+    const total = this.summary.activity.totalMinutes;
+    const target = this.summary.activity.targetMinutes;
+    if (total < target) return '可以根据体力与当天安排，分段进行散步、球类或其他喜欢的活动。记录不完整时，汇总可能低于实际活动量。';
+    return '继续保持规律进餐、休息和喜欢的活动。每日参考热量仅用于记录对照，不代表个人饮食处方。';
   }
 
   /* ---------------------------- Helper Builders ------------------------------ */
