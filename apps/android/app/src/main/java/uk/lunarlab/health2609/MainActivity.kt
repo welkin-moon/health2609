@@ -261,6 +261,10 @@ class MainActivity : ComponentActivity() {
                 val syncState by syncRepository.syncState.collectAsStateWithLifecycle(
                     initialValue = SyncState()
                 )
+                LaunchedEffect(syncState.userId, syncState.username, syncState.isEnabled,
+                    syncState.writeScopeGeneration, customApiBaseUrl) {
+                    viewModel.privateContextChanged()
+                }
                 var showLoginSyncDialog by rememberSaveable { mutableStateOf(false) }
                 var isSyncingNow by remember { mutableStateOf(false) }
 
@@ -485,6 +489,7 @@ class MainActivity : ComponentActivity() {
         viewModel: TodayViewModel,
         cleanupFiles: List<File> = emptyList()
     ) {
+        val expectedScope = viewModel.currentPrivateWriteScope()
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -498,7 +503,7 @@ class MainActivity : ComponentActivity() {
                             thumbnail = thumbnail
                         )
                     }
-                }
+                }.also { repository.requireWriteScope(expectedScope) }
             }.onSuccess { stagedList ->
                 viewModel.stageMealImages(stagedList)
             }.onFailure { error ->
@@ -596,6 +601,7 @@ class MainActivity : ComponentActivity() {
         date: String,
         viewModel: TodayViewModel
     ) {
+        val expectedScope = viewModel.currentPrivateWriteScope()
         viewModel.phoneActivitySyncStarted()
 
         runCatching {
@@ -610,7 +616,8 @@ class MainActivity : ComponentActivity() {
                 date = date,
                 exerciseMinutes = aggregate.exerciseMinutes,
                 steps = aggregate.steps,
-                activeEnergyKcal = aggregate.activeEnergyKcal
+                activeEnergyKcal = aggregate.activeEnergyKcal,
+                expectedScope = expectedScope
             )
 
             aggregate

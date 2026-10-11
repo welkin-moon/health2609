@@ -61,15 +61,18 @@ actor PrivateSyncRepository {
         return formatter.string(from: Date())
     }
     private func parsedTime(_ value: String) throws -> SyncTimeStamp {
-        let regex = try NSRegularExpression(pattern: "^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(?:\\.(\\d{1,9}))?(Z|[+-]\\d{2}:\\d{2})$")
+        let regex = try NSRegularExpression(pattern: "^(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(?:\\.(\\d+))?(Z|[+-]\\d{2}:\\d{2})$")
         let text = value as NSString
         guard let match = regex.firstMatch(in: value, range: NSRange(location: 0, length: text.length)),
               let date = ISO8601DateFormatter().date(from: text.substring(with: match.range(at: 1)) + text.substring(with: match.range(at: 3))) else {
             throw SyncFailure("同步记录时间格式无效")
         }
         let fraction = match.range(at: 2).location == NSNotFound ? "" : text.substring(with: match.range(at: 2))
-        let nanos = Int64(fraction + String(repeating: "0", count: 9 - fraction.count)) ?? 0
-        return SyncTimeStamp(seconds: Int64(date.timeIntervalSince1970.rounded()), nanos: nanos)
+        let millisDigits = String(fraction.prefix(3))
+        let millis = Int64(millisDigits + String(repeating: "0", count: 3 - millisDigits.count)) ?? 0
+        // Server JS Date.parse orders milliseconds, including legacy fractional stamps.
+        // Preserve the original timestamp for AAD; truncate only the ordering value.
+        return SyncTimeStamp(seconds: Int64(date.timeIntervalSince1970.rounded()), nanos: millis * 1_000_000)
     }
     private func normalizeServer(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -183,7 +186,7 @@ actor PrivateSyncRepository {
         }
         var installed = session
         if let pendingEpoch = value.pendingRotation[owner] {
-            if installed.currentKeyEpoch > pendingEpoch { value.pendingRotation.removeValue(forKey: owner) }
+            if pendingEpoch >= 1 && installed.currentKeyEpoch > pendingEpoch { value.pendingRotation.removeValue(forKey: owner) }
             else { installed.rotationRequired = true }
         }
         value.generation += 1
@@ -419,14 +422,41 @@ actor PrivateSyncRepository {
     }
     func revoke(_ id: String) async throws {
         try enterOperation(); defer { operationBusy = false }
-        let session = try requireSession(load())
+        var before = try load()
+        let session = try requireSession(before)
+        let owner = before.owner
         guard id != session.deviceId else { throw SyncFailure("请从另一台设备吊销本机") }
         guard id.range(of: "^[A-Za-z0-9_-]{1,200}$", options: .regularExpression) != nil else { throw SyncFailure("设备编号无效") }
-        try await write(server: session.serverURL, path: "/v1/sync/devices/\(id)/revoke", body: [:], token: session.token)
-        var value = try load()
-        value.session?.rotationRequired = true
-        value.pendingRotation[value.owner] = session.currentKeyEpoch
-        try commit(value)
+        let previousPending = before.pendingRotation[owner]
+        let previousFlag = session.rotationRequired
+        // A request can commit remotely even when its response is lost. Persist the
+        // conservative hint before sending; -1 is an unknown revocation epoch.
+        before.pendingRotation[owner] = -1
+        before.session?.rotationRequired = true
+        try commit(before)
+        do {
+            let data = try await request(server: session.serverURL, path: "/v1/sync/devices/\(id)/revoke", method: "POST", body: [:], token: session.token)
+            let ack = try decoder.decode(SyncRevokeAck.self, from: data)
+            guard ack.ok, ack.rotationRequired, (1...1_000_000).contains(ack.currentKeyEpoch),
+                  ack.currentKeyEpoch >= session.currentKeyEpoch else {
+                throw SyncFailure("吊销响应未完整确认")
+            }
+            var value = try load()
+            value.pendingRotation[owner] = max(previousPending ?? 0, ack.currentKeyEpoch)
+            value.session?.rotationRequired = true
+            try commit(value)
+        } catch HealthApiError.httpError(let code, let reason) where [400, 401, 403, 404, 405, 409, 413, 415, 422, 429].contains(code) {
+            // These endpoint rejections occur before any revocation mutation.
+            // HTTP 408, 5xx, transport and malformed-success outcomes stay unknown.
+            var value = try load()
+            if let previousPending = previousPending { value.pendingRotation[owner] = previousPending }
+            else { value.pendingRotation.removeValue(forKey: owner) }
+            value.session?.rotationRequired = previousFlag
+            try commit(value)
+            throw HealthApiError.httpError(statusCode: code, message: reason)
+        } catch {
+            throw SyncFailure("吊销结果尚未完整确认，已保留轮换要求并阻止新记录上传。请登录刷新密钥后轮换。" + error.localizedDescription)
+        }
     }
     func rotate(password: String, recoveryPhrase: String) async throws {
         try enterOperation(); defer { operationBusy = false }

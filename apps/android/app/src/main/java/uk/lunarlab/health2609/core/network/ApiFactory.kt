@@ -51,8 +51,16 @@ object ApiFactory {
             }
         }
     ).create()
+    private val connectionGeneration = java.util.concurrent.atomic.AtomicLong(0)
+    val currentConnectionGeneration: Long get() = connectionGeneration.get()
     @Volatile
     var customBaseUrl: String? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                connectionGeneration.incrementAndGet()
+            }
+        }
 
     val currentBaseUrl: String
         get() {

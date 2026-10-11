@@ -31,6 +31,7 @@ import uk.lunarlab.health2609.core.network.SchoolDayWindowDto
 import uk.lunarlab.health2609.core.network.StudentSchoolDto
 import uk.lunarlab.health2609.core.network.TodayMenuDto
 import uk.lunarlab.health2609.core.sync.SyncRepository
+import uk.lunarlab.health2609.core.sync.PrivateWriteScope
 
 data class TodayData(
     val menu: TodayMenuDto,
@@ -44,41 +45,51 @@ class TodayRepository(
     private val api: HealthApi,
     private val syncRepository: SyncRepository? = null
 ) {
-    suspend fun load(date: String): TodayData = coroutineScope {
+    fun captureWriteScope(): PrivateWriteScope? = syncRepository?.captureWriteScope()
+    fun requireWriteScope(scope: PrivateWriteScope?) { if (scope != null) syncRepository?.requireWriteScope(scope) }
+
+    suspend fun load(date: String, expectedScope: PrivateWriteScope? = captureWriteScope()): TodayData = coroutineScope {
+        val scope = expectedScope
+        requireWriteScope(scope)
         val menu = async { api.todayMenu(date = date, mealSlot = "lunch") }
         val summary = async { loadSummary(date) }
         val schoolActivity = async { api.todaySchoolActivity(date = date) }
         val homeMeals = async { loadHomeMeals(date) }
         val schools = async { runCatching { api.studentSchools().schools }.getOrDefault(emptyList()) }
-        TodayData(
+        val result = TodayData(
             menu = menu.await(),
             summary = summary.await(),
             schoolActivity = schoolActivity.await(),
             schools = schools.await(),
             homeMeals = homeMeals.await()
         )
+        requireWriteScope(scope)
+        result
     }
 
-    suspend fun loadSummary(date: String): DailySummaryDto {
+    suspend fun loadSummary(date: String, expectedScope: PrivateWriteScope? = captureWriteScope()): DailySummaryDto {
+        val scope = expectedScope
+        requireWriteScope(scope)
         val remote = api.todaySummary(date)
         if (syncRepository == null) return remote
         val remoteHomeMeals = runCatching { api.homeMeals(date) }
             .getOrDefault(HomeMealsDto(date = date))
-        return overlayPrivateSummary(remote, date, remoteHomeMeals)
+        return overlayPrivateSummary(remote, date, remoteHomeMeals).also { requireWriteScope(scope) }
     }
 
     suspend fun loadHomeMeals(date: String): HomeMealsDto {
+        val scope = captureWriteScope()
         val remote = runCatching { api.homeMeals(date) }
             .getOrDefault(HomeMealsDto(date = date))
         val sync = syncRepository ?: return remote
         val local = localHomeMeals(sync, date)
-        if (local.isEmpty()) return remote
+        if (local.isEmpty()) return remote.also { requireWriteScope(scope) }
 
         val localSlots = local.map { it.mealSlot }.toSet()
         return HomeMealsDto(
             date = date,
             meals = remote.meals.filterNot { it.mealSlot in localSlots } + local
-        )
+        ).also { requireWriteScope(scope) }
     }
 
     suspend fun loadSchoolDayWindows(date: String): List<SchoolDayWindowDto> =
@@ -109,7 +120,8 @@ class TodayRepository(
         date: String,
         exerciseMinutes: Int,
         steps: Long?,
-        activeEnergyKcal: Double?
+        activeEnergyKcal: Double?,
+        expectedScope: PrivateWriteScope? = captureWriteScope()
     ) {
         val sync = syncRepository
         if (sync != null) {
@@ -121,7 +133,8 @@ class TodayRepository(
                     .put("exerciseMinutes", exerciseMinutes)
                     .put("steps", steps ?: JSONObject.NULL)
                     .put("activeEnergyKcal", activeEnergyKcal ?: JSONObject.NULL)
-                    .toString()
+                    .toString(),
+                expectedScope = requireNotNull(expectedScope)
             )
             return
         }
@@ -142,7 +155,8 @@ class TodayRepository(
     )
 
     suspend fun analyzeHomeMeals(
-        images: List<ImagePayload>
+        images: List<ImagePayload>,
+        expectedScope: PrivateWriteScope? = captureWriteScope()
     ): HomeMealAnalysisResultDto {
         require(images.isNotEmpty()) { "请至少提供一张图片" }
         require(images.size <= 5) { "最多支持上传 5 张图片" }
@@ -157,7 +171,8 @@ class TodayRepository(
                 body
             )
         }
-        return api.analyzeHomeMeals(parts)
+        requireWriteScope(expectedScope)
+        return api.analyzeHomeMeals(parts).also { requireWriteScope(expectedScope) }
     }
 
     suspend fun analyzeHomeMeal(
@@ -170,7 +185,8 @@ class TodayRepository(
     suspend fun saveHomeMeal(
         date: String,
         mealSlot: String,
-        items: List<ConfirmedHomeMealItemRequest>
+        items: List<ConfirmedHomeMealItemRequest>,
+        expectedScope: PrivateWriteScope? = captureWriteScope()
     ) {
         val sync = syncRepository
         if (sync == null) {
@@ -196,7 +212,8 @@ class TodayRepository(
                 .put("date", date)
                 .put("mealSlot", mealSlot)
                 .put("items", jsonItems)
-                .toString()
+                .toString(),
+            expectedScope = requireNotNull(expectedScope)
         )
     }
 
@@ -225,7 +242,8 @@ class TodayRepository(
 
     suspend fun saveMeal(
         date: String,
-        amounts: Map<String, DishAmount>
+        amounts: Map<String, DishAmount>,
+        expectedScope: PrivateWriteScope? = captureWriteScope()
     ) {
         val items = amounts.map { (dishId, amount) ->
             MealItemRequest(
@@ -254,7 +272,8 @@ class TodayRepository(
                         }
                     }
                 )
-                .toString()
+                .toString(),
+            expectedScope = requireNotNull(expectedScope)
         )
 
         api.saveMeal(
@@ -266,7 +285,8 @@ class TodayRepository(
         date: String,
         activityType: String,
         durationMinutes: Int,
-        intensity: String
+        intensity: String,
+        expectedScope: PrivateWriteScope? = captureWriteScope()
     ) {
         val sync = syncRepository
         if (sync == null) {
@@ -289,11 +309,12 @@ class TodayRepository(
                 .put("activityType", activityType)
                 .put("durationMinutes", durationMinutes)
                 .put("intensity", intensity)
-                .toString()
+                .toString(),
+            expectedScope = requireNotNull(expectedScope)
         )
     }
 
-    suspend fun saveEnergyReference(kcal: Int?) {
+    suspend fun saveEnergyReference(kcal: Int?, expectedScope: PrivateWriteScope? = captureWriteScope()) {
         val sync = syncRepository
         if (sync == null) {
             api.saveEnergyReference(EnergyReferenceRequest(dailyEnergyReferenceKcal = kcal))
@@ -305,7 +326,8 @@ class TodayRepository(
             entityId = "energy_reference",
             payloadJson = JSONObject()
                 .put("dailyEnergyReferenceKcal", kcal ?: JSONObject.NULL)
-                .toString()
+                .toString(),
+            expectedScope = requireNotNull(expectedScope)
         )
     }
 

@@ -40,7 +40,8 @@ data class SyncState(
     val deviceFingerprint: String = "unknown",
     val currentKeyEpoch: Int = 0,
     val rotationRequired: Boolean = false,
-    val keyRefreshRequired: Boolean = false
+    val keyRefreshRequired: Boolean = false,
+    val writeScopeGeneration: Long = 0L
 )
 
 data class SyncAuthResult(
@@ -66,6 +67,7 @@ data class PrivateSyncRecord(
 )
 
 class SyncTransferException(message: String) : IllegalStateException(message)
+data class PrivateWriteScope(val sessionGeneration: Long, val connectionGeneration: Long, val server: String)
 
 class PrivateStorageException(cause: Throwable) : IllegalStateException(
     "本机加密记录暂时无法读取，已保留原始数据。请勿清除应用数据；可重新登录后尝试恢复同步。", cause
@@ -79,6 +81,17 @@ class SyncRepository(private val context: Context) {
         .build()
     private val localBox = DeviceKeyStoreBox()
     private val sessionMutex = Mutex()
+    @Volatile private var sessionGeneration = 0L
+
+    fun captureWriteScope(): PrivateWriteScope = PrivateWriteScope(
+        sessionGeneration, ApiFactory.currentConnectionGeneration, baseUrl
+    )
+
+    fun requireWriteScope(scope: PrivateWriteScope) {
+        if (scope != captureWriteScope()) {
+            throw SyncTransferException("账号或服务已切换，旧操作未保存。请在当前账号重新操作。")
+        }
+    }
 
     private val baseUrl: String
         get() = ApiFactory.currentBaseUrl.trimEnd('/')
@@ -95,7 +108,8 @@ class SyncRepository(private val context: Context) {
             deviceFingerprint = prefs[KEY_DEVICE_FINGERPRINT] ?: "unknown",
             currentKeyEpoch = prefs[KEY_CURRENT_KEY_EPOCH] ?: 0,
             rotationRequired = prefs[KEY_ROTATION_REQUIRED] ?: false,
-            keyRefreshRequired = prefs[KEY_KEY_REFRESH_REQUIRED] ?: false
+            keyRefreshRequired = prefs[KEY_KEY_REFRESH_REQUIRED] ?: false,
+            writeScopeGeneration = prefs[KEY_WRITE_SCOPE_GENERATION] ?: 0L
         )
     }
 
@@ -270,6 +284,8 @@ class SyncRepository(private val context: Context) {
             prefs[KEY_PENDING_ROTATIONS_JSON] = rotations.toString()
             prefs[KEY_ROTATION_REQUIRED] = rotations.has(owner)
             prefs[KEY_KEY_REFRESH_REQUIRED] = false
+            sessionGeneration++
+            prefs[KEY_WRITE_SCOPE_GENERATION] = (prefs[KEY_WRITE_SCOPE_GENERATION] ?: 0L) + 1L
         }
     }
 
@@ -471,12 +487,14 @@ class SyncRepository(private val context: Context) {
         entityType: String,
         entityId: String,
         payloadJson: String,
-        deleted: Boolean = false
+        deleted: Boolean = false,
+        expectedScope: PrivateWriteScope = captureWriteScope()
     ) {
         require(entityType.matches(Regex("[a-z0-9_\\\\-]{1,64}"))) { "invalid entityType" }
         require(entityId.length in 1..160) { "invalid entityId" }
         val fingerprint = ensureDeviceFingerprint()
         dataStore.edit { prefs ->
+            requireWriteScope(expectedScope)
             val root = readRecordJournal(prefs[KEY_LOCAL_RECORDS_JSON])
             val recordKey = localRecordKey(entityType, entityId)
             val previous = root.optJSONObject(recordKey)
@@ -553,6 +571,15 @@ class SyncRepository(private val context: Context) {
         throw PrivateStorageException(error)
     }
 
+    private fun orderingTimeMillis(timestamp: String): Long {
+        // The API permits fractions longer than Instant's nine-digit limit.
+        // Normalize only the parser input, never the stored/AAD timestamp.
+        val normalized = Regex("\\.(\\d+)(Z|[+-]\\d{2}:\\d{2})$").replace(timestamp) { match ->
+            "." + match.groupValues[1].take(3).padEnd(3, '0') + match.groupValues[2]
+        }
+        return Instant.parse(normalized).toEpochMilli()
+    }
+
     private fun readRecordJournal(raw: String?): JSONObject = try {
         readStorageObject(raw).also { root ->
             val keys = root.keys()
@@ -561,7 +588,7 @@ class SyncRepository(private val context: Context) {
                 val item = root.getJSONObject(key)
                 require(key == localRecordKey(item.getString("entityType"), item.getString("entityId")))
                 require(item.getLong("revision") > 0)
-                Instant.parse(item.getString("clientUpdatedAt"))
+                orderingTimeMillis(item.getString("clientUpdatedAt"))
                 item.getString("localCiphertext")
                 item.getString("localNonce")
                 item.getBoolean("dirty")
@@ -816,8 +843,10 @@ class SyncRepository(private val context: Context) {
                 val localRevision = local?.optLong("revision", 0L) ?: 0L
                 val localUpdatedAt = local?.optString("clientUpdatedAt") ?: ""
                 val localSource = local?.optString("sourceDeviceId") ?: ""
+                // Match JavaScript Date.parse and the server's millisecond LWW
+                // ordering, while keeping the original timestamp bytes in AAD.
                 val timestampOrder = if (local == null) 1 else
-                    Instant.parse(updatedAt).compareTo(Instant.parse(localUpdatedAt))
+                    orderingTimeMillis(updatedAt).compareTo(orderingTimeMillis(localUpdatedAt))
                 val remoteWins = local == null ||
                     revision > localRevision ||
                     (revision == localRevision && timestampOrder > 0) ||
@@ -1160,6 +1189,8 @@ class SyncRepository(private val context: Context) {
                     prefs.remove(KEY_EPOCH_KEYS_JSON)
                     prefs[KEY_CURRENT_KEY_EPOCH] = 0
                 }
+                sessionGeneration++
+                prefs[KEY_WRITE_SCOPE_GENERATION] = (prefs[KEY_WRITE_SCOPE_GENERATION] ?: 0L) + 1L
             }
         }
     }
@@ -1198,6 +1229,7 @@ class SyncRepository(private val context: Context) {
         private val KEY_PULL_CURSOR = longPreferencesKey("e2ee_pull_cursor")
         private val KEY_ROTATION_REQUIRED = booleanPreferencesKey("e2ee_rotation_required")
         private val KEY_PENDING_ROTATIONS_JSON = stringPreferencesKey("e2ee_pending_account_rotations")
+        private val KEY_WRITE_SCOPE_GENERATION = longPreferencesKey("e2ee_write_scope_generation")
         private val KEY_KEY_REFRESH_REQUIRED = booleanPreferencesKey("e2ee_key_refresh_required")
         private val KEY_LEGACY_PASSKEY_CACHED = stringPreferencesKey("e2ee_passkey_cached")
     }

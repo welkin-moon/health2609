@@ -2338,6 +2338,16 @@ app.post("/v1/sync/keys/rotate", async (c) => {
   return c.json({ ok: true, currentKeyEpoch: body.newEpoch });
 });
 
+// Date.parse truncates fractional seconds to milliseconds. SQLite's parser
+// rounds them instead, so truncate the comparison input before julianday.
+// Keep the stored timestamp unchanged: its exact bytes are authenticated AAD.
+function syncSqlOrderingTime(column: "excluded.client_updated_at" | "sync_records_v2.client_updated_at"): string {
+  const suffix = `(CASE WHEN substr(${column}, -1) = 'Z' THEN 'Z' ELSE substr(${column}, -6) END)`;
+  const fraction = `substr(${column}, 21, length(${column}) - 20 - length(${suffix}))`;
+  const truncated = `substr(${column}, 1, 20) || substr(${fraction} || '000', 1, 3) || ${suffix}`;
+  return `julianday(CASE WHEN instr(${column}, '.') > 0 THEN ${truncated} ELSE ${column} END)`;
+}
+
 app.post("/v1/sync/push", async (c) => {
   const auth = await authenticateSync(c);
   if (!auth) return c.json({ error: "unauthorized" }, 401);
@@ -2384,9 +2394,9 @@ app.post("/v1/sync/push", async (c) => {
            server_received_at = datetime('now')
          WHERE excluded.revision > sync_records_v2.revision
             OR (excluded.revision = sync_records_v2.revision
-                AND julianday(excluded.client_updated_at) > julianday(sync_records_v2.client_updated_at))
+                AND ${syncSqlOrderingTime("excluded.client_updated_at")} > ${syncSqlOrderingTime("sync_records_v2.client_updated_at")})
             OR (excluded.revision = sync_records_v2.revision
-                AND julianday(excluded.client_updated_at) = julianday(sync_records_v2.client_updated_at)
+                AND ${syncSqlOrderingTime("excluded.client_updated_at")} = ${syncSqlOrderingTime("sync_records_v2.client_updated_at")}
                 AND excluded.source_device_id > sync_records_v2.source_device_id)`
       ).bind(
         auth.userId,

@@ -119,3 +119,9 @@ struct SyncPushAck: Decodable {
     let acceptedCount: Int
     let currentKeyEpoch: Int
 }
+
+struct SyncRevokeAck: Decodable {
+    let ok: Bool
+    let rotationRequired: Bool
+    let currentKeyEpoch: Int
+}

@@ -84,6 +84,21 @@ class TodayViewModel(
 
     private var refreshJob: Job? = null
     private var contextKey: String? = null
+    private var privateScope = repository.captureWriteScope()
+
+    fun currentPrivateWriteScope() = privateScope
+
+    fun privateContextChanged() {
+        privateScope = repository.captureWriteScope()
+        _uiState.update { it.copy(
+            stagedMealImages = emptyList(), homeMealDraft = emptyList(), homeMealDrafts = emptyMap(),
+            homeMealNotes = emptyList(), syncedSteps = null, summary = null,
+            manualActivityType = "自主运动", manualActivityMinutes = 30, manualActivityIntensity = "moderate",
+            analyzingHomeMeal = false, savingHomeMeal = false, savingActivity = false,
+            savingEnergyReference = false, syncingPhoneActivity = false
+        ) }
+        refresh(preserveSchoolDraft = true)
+    }
 
     fun configureContext(key: String) {
         if (contextKey == key) return
@@ -95,15 +110,16 @@ class TodayViewModel(
         refresh()
     }
 
-    fun refresh(resetContext: Boolean = false) {
+    fun refresh(resetContext: Boolean = false, preserveSchoolDraft: Boolean = false) {
         refreshJob?.cancel()
         val today = currentDate().toString()
         val changedDay = _uiState.value.date != today
         if (resetContext || changedDay) _uiState.update { TodayUiState(date = today) }
         val date = _uiState.value.date
+        val expectedScope = privateScope
         refreshJob = viewModelScope.launch {
             _uiState.update { it.copy(loading = true, message = null) }
-            runCatching { repository.load(date) }
+            runCatching { repository.load(date, expectedScope) }
                 .onSuccess { data ->
                     val restored = data.homeMeals.meals.associate { meal ->
                         meal.mealSlot to meal.items.map { item ->
@@ -119,7 +135,7 @@ class TodayViewModel(
                             schools = data.schools,
                             homeMealDrafts = restored + current.homeMealDrafts,
                             homeMealDraft = current.homeMealDraft.ifEmpty { restored[current.homeMealSlot].orEmpty() },
-                            amounts = data.menu.dishes.associate { dish ->
+                            amounts = if (preserveSchoolDraft && !changedDay && !resetContext && current.menu != null) current.amounts else data.menu.dishes.associate { dish ->
                                 dish.id to (
                                     current.amounts[dish.id]
                                         ?: DishAmount(
@@ -237,6 +253,7 @@ class TodayViewModel(
     }
 
     fun analyzeStagedHomeMeals() {
+        val expectedScope = privateScope
         val images = _uiState.value.stagedMealImages
         if (images.isEmpty()) {
             _uiState.update { it.copy(message = "请先拍照或从相册添加餐食照片") }
@@ -259,7 +276,8 @@ class TodayViewModel(
                             mimeType = img.mimeType,
                             fileName = img.fileName
                         )
-                    }
+                    },
+                    expectedScope = expectedScope
                 )
             }.onSuccess { result ->
                 val draft = result.items.map { item ->
@@ -359,6 +377,7 @@ class TodayViewModel(
     }
 
     fun saveHomeMeal() {
+        val expectedScope = privateScope
         val state = _uiState.value
         if (state.savingHomeMeal || state.analyzingHomeMeal || state.homeMealDraft.isEmpty()) return
         if (state.homeMealDraft.any { it.name.isBlank() }) {
@@ -393,7 +412,8 @@ class TodayViewModel(
                 repository.saveHomeMeal(
                     date = state.date,
                     mealSlot = state.homeMealSlot,
-                    items = confirmed
+                    items = confirmed,
+                    expectedScope = expectedScope
                 )
             }.onSuccess {
                 _uiState.update {
@@ -458,8 +478,9 @@ class TodayViewModel(
         syncedSteps: Long? = null
     ) {
         val date = _uiState.value.date
+        val expectedScope = privateScope
         viewModelScope.launch {
-            runCatching { repository.loadSummary(date) }
+            runCatching { repository.loadSummary(date, expectedScope) }
                 .onSuccess { summary ->
                     _uiState.update {
                         it.copy(
@@ -501,9 +522,10 @@ class TodayViewModel(
 
     fun schoolActivitySyncFinished(message: String) {
         val date = _uiState.value.date
+        val expectedScope = privateScope
         viewModelScope.launch {
             runCatching {
-                repository.loadSummary(date) to repository.loadSchoolActivity(date)
+                repository.loadSummary(date, expectedScope) to repository.loadSchoolActivity(date)
             }.onSuccess { (summary, schoolActivity) ->
                 _uiState.update {
                     it.copy(
@@ -532,6 +554,7 @@ class TodayViewModel(
     }
 
     fun saveMeal() {
+        val expectedScope = privateScope
         val state = _uiState.value
         if (state.menu == null || state.savingMeal) return
 
@@ -540,7 +563,8 @@ class TodayViewModel(
             runCatching {
                 repository.saveMeal(
                     date = state.date,
-                    amounts = state.amounts
+                    amounts = state.amounts,
+                    expectedScope = expectedScope
                 )
             }.onSuccess {
                 _uiState.update { it.copy(savingMeal = false) }
@@ -558,6 +582,7 @@ class TodayViewModel(
     }
 
     fun saveManualActivity(type: String = "自主运动") {
+        val expectedScope = privateScope
         val state = _uiState.value
         if (state.savingActivity) return
 
@@ -570,7 +595,8 @@ class TodayViewModel(
                     date = state.date,
                     activityType = activityType,
                     durationMinutes = state.manualActivityMinutes,
-                    intensity = state.manualActivityIntensity
+                    intensity = state.manualActivityIntensity,
+                    expectedScope = expectedScope
                 )
             }.onSuccess {
                 _uiState.update { it.copy(savingActivity = false) }
@@ -588,15 +614,18 @@ class TodayViewModel(
     }
 
     suspend fun saveEnergySettings(kcal: Int?, persistExpenditure: suspend () -> Unit): Result<Unit> {
+        val expectedScope = privateScope
         if (_uiState.value.savingEnergyReference) return Result.failure(IllegalStateException("正在保存能量设置"))
         if (kcal != null && kcal !in 500..6000) return Result.failure(IllegalArgumentException("请输入 500–6000 千卡，或留空"))
         _uiState.update { it.copy(savingEnergyReference = true, message = null) }
         var targetSaved = false
         return try {
+            repository.requireWriteScope(expectedScope)
             if (kcal != _uiState.value.summary?.energy?.dailyEnergyReferenceKcal) {
-                repository.saveEnergyReference(kcal)
+                repository.saveEnergyReference(kcal, expectedScope)
                 targetSaved = true
             }
+            repository.requireWriteScope(expectedScope)
             _uiState.update { state ->
                 state.copy(summary = state.summary?.let {
                     it.copy(energy = it.energy.copy(dailyEnergyReferenceKcal = kcal,
@@ -615,8 +644,9 @@ class TodayViewModel(
 
     private fun refreshSummary(successMessage: String) {
         val date = _uiState.value.date
+        val expectedScope = privateScope
         viewModelScope.launch {
-            runCatching { repository.loadSummary(date) }
+            runCatching { repository.loadSummary(date, expectedScope) }
                 .onSuccess { summary ->
                     _uiState.update {
                         it.copy(

@@ -25,7 +25,7 @@
 
 ## 已发布的实际产物
 
-- [Android APK 与两种 iOS arm64 IPA（0.4.1）](https://github.com/welkin-moon/health2609/releases/tag/v0.4.1-device.14998ae)。IPA 分普通重签版与 HealthKit 版。
-- [HarmonyOS / OpenHarmony unsigned release HAP（0.4.1）](https://github.com/welkin-moon/health2609/releases/tag/v0.4.1-hap.d60cac8)。[实际构建日志](https://github.com/welkin-moon/health2609/actions/runs/38033668035)确认两个平台 `BUILD SUCCESSFUL`。市售机签名及真机运行仍未验证。
+- [Android APK 与两种 iOS arm64 IPA（0.4.2）](https://github.com/welkin-moon/health2609/releases/tag/v0.4.2-device.6846a3d)。IPA 分普通重签版与 HealthKit 版。
+- [HarmonyOS / OpenHarmony unsigned release HAP（0.4.2）](https://github.com/welkin-moon/health2609/releases/tag/v0.4.2-hap.d431e6f)。[实际构建日志](https://github.com/welkin-moon/health2609/actions/runs/38038694974)确认两个平台 `BUILD SUCCESSFUL`。市售机签名及真机运行仍未验证。
 
 后端同步修复、D1 mutation guard 迁移与 v2 认证元数据校验已部署。新写入使用 v2，保留历史 v1 读取。三端私密记录支持账户隔离、离线保存、完整同步确认、按字节分批及跨端活动汇总。上述产物仅确认编译打包成功，没有执行测试或真机验证。
