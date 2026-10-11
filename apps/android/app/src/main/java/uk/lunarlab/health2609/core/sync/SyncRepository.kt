@@ -910,17 +910,37 @@ class SyncRepository(private val context: Context) {
         sessionMutex.withLock {
             runCatching {
                 val prefs = dataStore.data.first()
+                val owner = prefs[KEY_LOCAL_OWNER] ?: throw IllegalStateException("账号信息缺失")
+                val previousRotation = pendingRotations(prefs).optJSONObject(owner)?.toString()
                 val request = authenticatedRequestBuilder(prefs)
                     .url("${sessionBaseUrl(prefs)}/v1/sync/devices/$deviceId/revoke")
                     .post("{}".toRequestBody("application/json".toMediaType()))
                     .build()
+                // The server may revoke the device even if its response is lost.
+                // Persist the unknown outcome before sending, not after success.
+                dataStore.edit { p ->
+                    val rotations = pendingRotations(p)
+                    rotations.put(owner, JSONObject().put("epoch", Int.MAX_VALUE))
+                    p[KEY_PENDING_ROTATIONS_JSON] = rotations.toString()
+                    p[KEY_ROTATION_REQUIRED] = true
+                }
                 httpClient.newCall(request).execute().use { response ->
                     val body = parseResponseBody(response.body?.string())
-                    if (!response.isSuccessful) throw serverError(response.code, body, "revoke_failed")
+                    if (!response.isSuccessful) {
+                        if (response.code in listOf(400, 401, 403, 404, 405, 409, 413, 415, 422, 429)) {
+                            dataStore.edit { p ->
+                                val rotations = pendingRotations(p)
+                                if (previousRotation == null) rotations.remove(owner)
+                                else rotations.put(owner, JSONObject(previousRotation))
+                                p[KEY_PENDING_ROTATIONS_JSON] = rotations.toString()
+                                p[KEY_ROTATION_REQUIRED] = rotations.has(owner)
+                            }
+                        }
+                        throw serverError(response.code, body, "revoke_failed")
+                    }
                     // A successful revocation requires rotation even if its
                     // confirmation body is malformed; never resume old-key pushes.
                     dataStore.edit { p ->
-                        val owner = p[KEY_LOCAL_OWNER] ?: throw IllegalStateException("账号信息缺失")
                         val rotations = pendingRotations(p)
                         val reportedEpoch = body.opt("currentKeyEpoch")
                         val revocationEpoch = if (reportedEpoch is Number &&

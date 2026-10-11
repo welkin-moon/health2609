@@ -133,7 +133,7 @@ Version ordering is descending `(revision, timestamp instant truncated to millis
 | `manual_activity` | `<date>:<UUID>` | `{date,activityType,durationMinutes,intensity}` | Local encrypted journal; adds to the displayed daily activity summary |
 | `preference` | `energy_reference` | `{dailyEnergyReferenceKcal: number|null}` | Local encrypted journal; null is an explicit cleared reference |
 | `school_meal` | `<date>:lunch` | `{date,mealSlot:"lunch",items:[{dishId,servingMultiplier,consumedGrams}]}` | Enqueued privately **and** sent to the school API |
-| `outside_activity` | `<date>` | `{date,exerciseMinutes,steps:number|null,activeEnergyKcal:number|null}` | Enqueued privately **and** sent to the school API |
+| `outside_activity` | `<date>` | `{date,exerciseMinutes,steps:number|null,activeEnergyKcal:number|null}` | Enqueued privately; all native clients use this device snapshot with manual minutes via `max`, without uploading it to the demo school API |
 
 `date` is `YYYY-MM-DD`; meal slots come from the shared application contract. Nutrition object fields are `energyKcal`, `proteinG`, `fatG`, `carbohydrateG`, `fiberG`, `sodiumMg`, `sugarG`, `saturatedFatG`, each nullable. Android's current home-meal writer emits all fields with explicit nulls. JSON key order is not a protocol requirement: encrypt bytes as produced, decrypt to JSON and decode by field names. Do not rescale the stored nutrition again solely because grams are present.
 
