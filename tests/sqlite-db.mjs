@@ -12,7 +12,10 @@ export function sqliteDb() {
       return { args: [], bind(...args) { this.args = args; return this; },
         async first() { return sqlite.prepare(sql).get(...this.args) ?? null; },
         async all() { return { results: sqlite.prepare(sql).all(...this.args), success: true }; },
-        async run() { sqlite.prepare(sql).run(...this.args); return { success: true }; }
+        async run() {
+          const result = sqlite.prepare(sql).run(...this.args);
+          return { success: true, meta: { changes: Number(result.changes) } };
+        }
       };
     },
     async batch(statements) {

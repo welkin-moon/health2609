@@ -124,6 +124,22 @@ describe("E2EE sync v2 contracts", () => {
     );
     assert.equal(compareSyncVersion(base, { ...base }), 0);
   });
+
+  it("uses device id when nanoseconds and offsets resolve to the same millisecond", () => {
+    const lowerDevice = {
+      revision: 7,
+      clientUpdatedAt: "2026-10-09T10:00:00.123999999Z",
+      sourceDeviceId: "device-a"
+    };
+    const higherDevice = {
+      revision: 7,
+      clientUpdatedAt: "2026-10-09T12:00:00.123000001+02:00",
+      sourceDeviceId: "device-b"
+    };
+    assert.equal(Date.parse(lowerDevice.clientUpdatedAt), Date.parse(higherDevice.clientUpdatedAt));
+    assert.equal(compareSyncVersion(higherDevice, lowerDevice), 1);
+    assert.equal(compareSyncVersion(lowerDevice, higherDevice), -1);
+  });
 });
 
 describe("AES-GCM envelope behavior", () => {

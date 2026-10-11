@@ -86,7 +86,9 @@ function verifyArk(rootDir) {
   exists(`${rootDir}/entry/src/main/ets/view/AdaptiveStudentAppShell.ets`);
   exists(`${rootDir}/entry/src/main/ets/model/ApiModels.ets`);
   requireText(`${rootDir}/entry/src/main/ets/service/HealthApi.ets`, commonRoutes);
-  requireText(`${rootDir}/entry/src/main/module.json5`, ["default", "tablet", "2in1"]);
+  // OpenHarmony API 12's SDK does not accept HarmonyOS's 2in1 device type.
+  requireText(`${rootDir}/entry/src/main/module.json5`,
+    rootDir === "apps/openharmony" ? ["default", "tablet"] : ["default", "tablet", "2in1"]);
 }
 
 verifyBackend();

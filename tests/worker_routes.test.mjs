@@ -75,11 +75,22 @@ test('saved lunch portions are returned by the real menu handler', async () => {
   assert.equal(menu.dishes[0].savedConsumedGrams, 112.5);
 });
 
-test('unfinished sync does not accept a spoofed user ID or claim backup success', async () => {
-  for (const route of ['pull', 'devices', 'push', 'auth/register', 'auth/login']) {
-    const result = await app.request(`/v1/sync/${route}`, { method: ['pull','devices'].includes(route) ? 'GET' : 'POST', headers: { 'x-sync-user-id': 'someone-else' } }, env);
-    assert.equal(result.status, 503);
-    assert.equal((await result.json()).error, 'sync_not_available');
+test('protected sync routes ignore spoofed user IDs and require a bearer token', async () => {
+  for (const [route, method, body] of [
+    ['pull', 'GET'],
+    ['devices', 'GET'],
+    ['push', 'POST', { records: [] }]
+  ]) {
+    const result = await app.request(`/v1/sync/${route}`, {
+      method,
+      headers: {
+        'x-sync-user-id': 'someone-else',
+        ...(body ? { 'Content-Type': 'application/json' } : {})
+      },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    }, env);
+    assert.equal(result.status, 401);
+    assert.equal((await result.json()).error, 'unauthorized');
   }
 });
 

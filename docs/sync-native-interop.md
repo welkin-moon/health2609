@@ -1,6 +1,6 @@
 # Native sync interoperability: implementation snapshot
 
-This is a source audit of the Android client, `packages/contracts/src/sync.ts`, and the Worker v2 routes, as of 2026-10-10. No runtime crypto vectors, device sync tests, or release installation tests were performed. The iOS and Harmony clients are being implemented separately; this document does not certify their completion.
+This is a source audit of the Android client, `packages/contracts/src/sync.ts`, and the Worker v2 routes, as of 2026-10-11. Isolated backend regression tests now cover v1 compatibility, v2 authenticated metadata rejection, and timestamp conflict ordering. Android 0.4.2 was installed as a data-preserving upgrade on the connected Pura 70 Ultra (HarmonyOS 4.2). Cross-device sync, iOS signing/installation, and HarmonyOS 6 native installation remain unverified.
 
 ## Status and authority
 
@@ -123,7 +123,7 @@ Pull returns the latest stored state for each matching change-log entry, not his
 
 Decrypt/validate/apply an entire page before advancing its durable cursor. Missing epoch keys, bad tags, unknown versions, malformed application payloads or disk/keychain failure must prevent cursor advancement. Android's journal edit is transactional; its cursor is saved after successful apply, so a crash between them replays the page safely. If a page has missing epochs, Android sets key-refresh-required and throws without advancing cursor. Do not skip an undecryptable record while committing the rest of the page's cursor.
 
-Version ordering is descending `(revision, timestamp instant truncated to milliseconds, sourceDeviceId lexical order)`. Keep dirty local records if they win; a winning newer remote record can replace an older local version. Do not use serialized timestamp lexical ordering for offset timestamps. Server SQL truncates only its comparison input before `julianday`, preserving the timezone offset; shared JavaScript uses `Date.parse`, and native clients truncate fractional precision only when comparing. This prevents legacy submillisecond stamps from producing different winners. For new native writes use canonical UTC millisecond timestamps, e.g. `2026-10-10T06:29:18.123Z`. Stored/pulled timestamp strings remain verbatim because reformatting changes AAD. This alignment was reviewed from source, without runtime tests.
+Version ordering is descending `(revision, timestamp instant truncated to milliseconds, sourceDeviceId lexical order)`. Keep dirty local records if they win; a winning newer remote record can replace an older local version. Do not use serialized timestamp lexical ordering for offset timestamps. Server SQL truncates only its comparison input before `julianday`, preserving the timezone offset; shared JavaScript uses `Date.parse`, and native clients truncate fractional precision only when comparing. This prevents legacy submillisecond stamps from producing different winners. For new native writes use canonical UTC millisecond timestamps, e.g. `2026-10-10T06:29:18.123Z`. Stored/pulled timestamp strings remain verbatim because reformatting changes AAD. This alignment was reviewed from source and covered by isolated Worker/SQLite regression tests, including mixed offsets and fractional precision beyond nine digits.
 
 ## Application records used by Android
 
